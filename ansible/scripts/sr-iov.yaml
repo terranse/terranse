@@ -1,0 +1,15 @@
+---
+- name: Playbook for enabling SR-IOV on the LAN interface
+  # The setup is fetched from here: https://pve.proxmox.com/wiki/PCI(e)_Passthrough#_sr_iov
+  hosts: pve
+  become: true
+  tasks:
+    # TODO: Add check if hw is SR-IOV compatible
+    - name: Get sysfsutils to enable persistent SR-IOV changes
+      apt:
+        name: sysfsutils
+    - name: Add Virtual Functions (VF) configuration for the 10GB NIC(s)
+        # There's another 10GB at 03:00.1, not sure which one (port) is currently used
+      shell: 'echo "/sys/bus/pci/devices/0000:03:00.0/sriov_numvfs = 4" > /etc/sysfs.d/sriov.conf'
+      args:
+        creates: /etc/sysfs.d/sriov.conf

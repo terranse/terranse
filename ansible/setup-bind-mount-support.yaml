@@ -1,0 +1,64 @@
+---
+# Taken from https://gist.github.com/JSinghDev/10e0824580a84a56022153592ac64faa
+# - name: Make sure that host and LXC are compatible
+- hosts: pve
+  # vars:
+  #   groupname: container-data
+  #   groupid: 101000
+  tasks:
+    - name: Make group name globally available (in file?)
+      set_fact:
+        groupname: container-data
+    # Groups in LXCs are normally prefixed with "10" before real group number
+    - name: Create group used for (unprivileged) containers to access data
+      group:
+        name: "{{ groupname }}"
+        gid: 101000
+        state: present
+    - name: Install ACLs
+      apt:
+        name: acl
+    - name: Make sure that ZFS uses posix acls
+      zfs:
+        name: "{{ zfs_filesystem }}"
+        state: present
+        extra_zfs_properties:
+          acltype: posixacl
+    - name: Set group permissions and mod for the share
+      file:
+        path: "{{ shared_filesystem }}"
+        recurse: yes
+        group: "{{ groupname }}"
+        # mode: '2775'
+    - name: Set default ACL permissions for {{ groupname }}
+      acl:
+        path: "{{ shared_filesystem }}"
+        recursive: yes
+        entity: "{{ groupname }}"
+        etype: group
+        permissions: rwx
+        default: yes
+        state: present
+    - name: Set ACL permissions for {{ groupname }} for current files
+      acl:
+        path: "{{ shared_filesystem }}"
+        recursive: yes
+        entity: "{{ groupname }}"
+        etype: group
+        permissions: rwx
+        state: present
+  
+# - name: Setup user and groups inside LXC
+- hosts: "{{ system_under_config }}" #ansible_play_hosts_all
+  tasks:
+    # Groups in LXCs are normally prefixed with "10" before real group number
+    - name: Setup a corresponding group in LXC container
+      group:
+        name: "{{ hostvars['pve']['groupname'] }}" # Way to access 'groupname' var in above play
+        gid: 1000
+        state: present
+    # - name: Make sure that whomever is the default user gets into the newly formed group
+    #   user:
+    #     name: someone ######################### !!!!!!!!!!!!!!!!!! ##############
+    #     append: yes
+    #     group: "{{ groupname }}"
