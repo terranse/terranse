@@ -1,0 +1,16 @@
+---
+- name: Run Terraform
+  hosts: localhost
+  vars:
+    project_dir: /home/daniel/infra/terraform
+  environment:
+    PM_API_TOKEN_ID: terraform-prov@pve!terraform-provisioner
+    PM_API_TOKEN_SECRET: c606811f-789f-4c4d-a7a4-50ad72ac284b
+  tasks:
+    # - name: Install necessary components to support infra
+
+    - name: Run terraform
+      terraform:
+        project_path: "{{ project_dir }}"
+        state: present
+        

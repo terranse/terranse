@@ -1,0 +1,127 @@
+---
+- name: Make sure the host is setup properly
+  import_playbook: ../base_host_packages.yaml
+  vars:
+    system_under_config: media
+- name: Setup hosting container
+  import_playbook: ../setup-bind-mount-support.yaml
+  vars:
+    # What pool and its mountpoint to share from the host
+    system_under_config: media
+    zfs_filesystem: "Tank/windows_smb"
+    shared_filesystem: "/Tank/windows_smb"
+
+- name: Install media applications and mount the correct directories
+  hosts: media
+  remote_user: root # TODO: Add support for FreeIPA/LDAP users inside, as well as a limited setup user
+  tasks:
+    - name: Deploy docker applications
+      community.docker.docker_stack:
+        state: present
+        name: media_stack
+        compose:
+          - /opt/docker-compose.yml
+          - version: '3'
+            services:
+              transmission-openvpn:
+                volumes:
+                  - /srv/dev-disk-by-label-data/media/downloads:/media/downloads
+                  - /etc/localtime:/etc/localtime:ro
+                environment:
+                  - PUID=1000
+                  - PGID=100
+                  - CREATE_TUN_DEVICE=true
+                  - OPENVPN_PROVIDER=WINDSCRIBE
+                  - OPENVPN_CONFIG=Copenhagen-LEGO-tcp
+                  - OPENVPN_USERNAME=yarcod_2swrehp59
+                  - OPENVPN_PASSWORD=9n75rf4b8q
+                  - OPENVPN_OPTS=--inactive 3600 --ping 10 --ping-exit 60
+                  - WEBPROXY_ENABLED=false
+                  - LOCAL_NETWORK=192.168.1.0/24 # Enables access from local net despite VPN being active. Could use rev. proxy also/instead
+                  - TRANSMISSION_SCRAPE_PAUSED_TORRENTS_ENABLED=false
+                  - TRANSMISSION_WEB_UI=combustion
+                  - DNS=9.9.9.9,1.1.1.1
+                cap_add:
+                  - NET_ADMIN
+                logging:
+                driver: json-file
+                options:
+                max-size: 10m
+                ports:
+                  - 9091:9091
+                  - 9117:9117
+                  - 7878:7878
+                  - 8989:8989
+                  - 8686:8686
+                  - 5299:5299
+                  - 9696:9696 # Prowlarr
+                restart: always
+                image: haugene/transmission-openvpn
+    
+              prowlarr:
+                image: lscr.io/linuxserver/prowlarr
+                network_mode: "service:transmission-openvpn"
+                container_name: prowlarr
+                environment:
+                    - PUID=1000
+                    - PGID=100
+                    - TZ=Europe/Stockholm
+                volumes:
+                    - /some/dir:/ct/dest/dir
+                restart: unless-stopped
+              
+              radarr:
+                image: lscr.io/linuxserver/radarr
+                network_mode: "service:transmission-openvpn"
+                container_name: radarr
+                environment:
+                  - PUID=1000
+                  - PGID=100
+                  - TZ=Europe/Stockholm
+                  - UMASK_SET=022 #optional
+                volumes:
+                  - /srv/dev-disk-by-label-data/appdata/radarr:/config
+                  - /srv/dev-disk-by-label-data/media:/media
+                restart: unless-stopped
+              
+              sonarr:
+                image: lscr.io/linuxserver/sonarr
+                network_mode: "service:transmission-openvpn"
+                container_name: sonarr
+                environment:
+                  - PUID=1000
+                  - PGID=100
+                  - TZ=Europe/Stockholm
+                  - UMASK_SET=022 #optional
+                volumes:
+                  - /srv/dev-disk-by-label-data/appdata/sonarr:/config
+                  - /srv/dev-disk-by-label-data/media/:/media
+                restart: unless-stopped
+              
+              lidarr:
+                image: lscr.io/linuxserver/lidarr
+                network_mode: "service:transmission-openvpn"
+                container_name: lidarr
+                environment:
+                  - PUID=1000
+                  - PGID=100
+                  - TZ=Europe/Stockholm
+                  - UMASK_SET=022 #optional
+                volumes:
+                  - /srv/dev-disk-by-label-data/appdata/lidarr:/config
+                  - /srv/dev-disk-by-label-data/media/:/media
+                restart: unless-stopped
+              
+              lazylibrarian:
+                image: lscr.io/linuxserver/lazylibrarian
+                network_mode: "service:transmission-openvpn"
+                container_name: lazylibrarian
+                environment:
+                  - PUID=1000
+                  - PGID=100
+                  - TZ=Europe/Stockholm
+                  - DOCKER_MODS=linuxserver/calibre-web:calibre #optional
+                volumes:
+                  - /srv/dev-disk-by-label-data/appdata/lazylibrarian:/config
+                  - /srv/dev-disk-by-label-data/media/:/media
+                restart: unless-stopped

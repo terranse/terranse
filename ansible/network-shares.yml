@@ -1,0 +1,33 @@
+---
+# Guide: https://forum.level1techs.com/t/how-to-create-a-nas-using-zfs-and-proxmox-with-pictures/117375, step 9
+- name: Share "cloud" on local network via SMB
+  hosts: pve
+  tasks:
+    - name: Install smb
+      apt:
+        name: samba
+        state: present
+    - name: Enable SMB sharing
+      zfs:
+        name: "Tank3/cloud"
+        state: present
+        extra_zfs_properties:
+          sharesmb: on
+    - name: Make zfs share
+      shell:
+        cmd: "zfs share Tank3/cloud"
+        creates: /var/lib/samba/usershares/tank3_cloud
+    # Revert to guest_ok=n
+    - name: Allow guest to access share (VERY TEMPORARY BAD FIX)
+      lineinfile: 
+        path: /var/lib/samba/usershares/tank3_cloud
+        regexp: '(guest_ok=)n'
+        backrefs: yes
+        line: '\g<1>y'
+    # Revert to 0770
+    - name: Set new permissions for whole filesystem to allow guest access (REVERT ASAP)
+      file:
+        path: /storage/cloud/
+        mode: 0777
+        recurse: yes
+    
