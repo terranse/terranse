@@ -12,8 +12,8 @@ provider "proxmox" {
   # url is the hostname (FQDN if you have one) for the proxmox host
   pm_api_url = "https://192.168.1.101:8006/api2/json"
   pm_tls_insecure = "true"
-  # pm_api_token_id = xxx
-  # pm_api_token_secret = xxx
+  pm_api_token_id = "terraform-prov@pve!terraform-provisioner"
+  pm_api_token_secret = "c606811f-789f-4c4d-a7a4-50ad72ac284b"
 }
 
 ### Module defintions ###
