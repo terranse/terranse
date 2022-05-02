@@ -14,7 +14,7 @@ resource "proxmox_lxc" "test_ct" {
   unprivileged = true
   onboot       = true
 
-  ssh_public_keys = <<-EOT
+  ssh_public_keys = <<EOT
     ${var.ssh_key}
   EOT
 
@@ -37,7 +37,7 @@ resource "proxmox_lxc" "test_ct" {
 
   provisioner "local-exec" {
     command     = "ansible-playbook -i inventory roles/$(var.hostname).yaml"
-    working_dir = "../../../ansible"
+    working_dir = "../ansible"
   }
 }
 

@@ -2,18 +2,9 @@
 - name: Install all basic packages needed for the host
   hosts: pve
   tasks:
-    - name: Hotfix to install python-pip via apt # https://stackoverflow.com/questions/63591163/python3-pip-has-no-installation-candidate
-      ansible.builtin.apt_repository:
-        repo: universe
-        install_python_apt: no
-        update_cache: yes
-        state: present
     - name: Install pip
       apt:
         name: python3-pip
-    # - name: Make sure pip is installed
-    #   shell:
-    #     cmd: python -m ensurepip --upgrade
 
 - name: Add requirement for docker to run (?)
   hosts: "{{ system_under_config }}"
