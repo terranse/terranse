@@ -1,0 +1,36 @@
+---
+
+# Execute dependencies
+# - name: Make sure the host is setup properly
+#   include_role:
+#     name: common # Currently all tasks in common is needed for this Docker setup, so this is ok, but later use tasks_from: or something similar below here
+#   vars:
+#     system_under_config: "{{ inventory_hostname }}"
+#     # This could perhaps be replaced with a dict of dome kind in the vars/main.yaml Better mapping structure for the mountpoint
+#     zfs_dataset: [ "Tank2/windowsshare" ]
+#     shared_filesystem: [ "/Tank2/windowsshare" ]
+#     mountpoint: "{{ mountpoint }}" # This should not be a single variable, but a list as well of some sorts
+- name: Copy docker-compose.yaml
+  copy:
+    src: docker-compose.yaml
+    dest: "{{ docker_compose_dir }}"
+    owner: default-user
+    group: container-data
+    mode: 0644
+
+- name: Deploy docker applications
+  community.docker.docker_compose:
+    project_src: "{{ docker_compose_dir }}"
+    state: present
+
+# Taken from: https://github.com/fccn/ansible-docker-deploy/blob/58f789c637fc78968a2707570327ee4db40a7198/tasks/main.yml#L283
+# - name: Wait until docker health checks are healthy or ignore it if no docker healthcheck configured
+#   shell: docker {% raw %} ps --format "{{.Status}}" | awk -F"[()]" '{print $2}' | awk 'NF' | sort | uniq{% endraw %}
+#   register: docker_healthcheck_out
+#   until: docker_healthcheck_out.stdout is not defined or docker_healthcheck_out.stdout == 'healthy' or docker_healthcheck_out.stdout == ''
+#   retries: "{{ docker_deploy_healthcheck_retries | default(20) }}"
+#   delay: "{{ docker_deploy_healthcheck_delay | default(omit) }}"
+#   when: ( docker_deploy_shell_start is defined or docker_deploy_compose_template is defined ) and ( docker_deploy_healthcheck | default(true) )
+#   changed_when: false # shell command don't change anything on the server
+#   tags: docker_deploy
+    

@@ -1,0 +1,18 @@
+---
+
+# - hosts: pve
+#   tasks:
+#     - include_role:
+#         name: Base setup of host
+#         tasks_from: setup-bind-mount
+
+- hosts: media
+  # pre_tasks:
+  #   - name: Make sure that that necessary variables are set
+  #     fail:
+  #       msg: You need to pass the variable zfs_dataset, with a valid ZFS dataset
+  #     when: zfs_dataset is not defined
+  roles:
+    - role: common
+      # apply: a number of tags, e.g. docker
+    - role: media

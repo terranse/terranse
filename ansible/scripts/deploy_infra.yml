@@ -16,4 +16,7 @@
       terraform:
         project_path: "{{ project_dir }}"
         state: present
-        
+    # - name: Configure all clients
+    #   vars:
+    #     targets: containers
+      

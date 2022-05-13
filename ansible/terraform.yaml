@@ -14,6 +14,7 @@
     - name: Get DEB architecture (for when adding repo in next step)
       shell: dpkg --print-architecture
       register: deb_architecture
+      changed_when: deb_architecture.stdout != "amd64"
     - name: Add terraform repository
       ansible.builtin.apt_repository:
         repo: deb [arch={{ deb_architecture.stdout }}] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main

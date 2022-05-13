@@ -1,0 +1,3 @@
+---
+dependencies:
+  - community.general.docker # TODO: This is currently not used properly, has been installed manually

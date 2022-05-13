@@ -7,15 +7,14 @@ all:
       ansible_host: 192.168.1.101
       ansible_user: root
       ansible_python_interpreter: /usr/bin/python3
-    children:
-      containers:
-        media:
-          ansible_host: "{{ media_ip }}"
-          ansible_user: "{{ user }}"
-      # vms:
-      #   hassio:
-      #     ansible_host: {{ hassio_ip }}
-      #     ansible_user: {{ user }}
-      #   opnsense:
-      #     ansible_host: {{ opnsense_ip }}
-      #     ansible_user: {{ user }}
+  # children:
+    media:
+      ansible_host: ${media_ip}
+      ansible_user: ${user}
+    # vms:
+    #   hassio:
+    #     ansible_host: {{ hassio_ip }}
+    #     ansible_user: {{ user }}
+    #   opnsense:
+    #     ansible_host: {{ opnsense_ip }}
+    #     ansible_user: {{ user }}
