@@ -1,5 +1,0 @@
----
-# dependencies:
-#   - src: geerlingguy.pip
-#   - src: community.docker
-- name: geerlingguy.pip

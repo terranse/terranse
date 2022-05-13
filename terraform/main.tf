@@ -17,13 +17,16 @@ provider "proxmox" {
 }
 
 ### Module defintions ###
+# Note that the module, hostname and ansible .yaml files must all have the same names currently
 module "media" {
   source     = "./modules/proxmox-container"
   ssh_key    = var.ssh_key
   image_name = var.latest_debian
   hostname   = "media"
-  disk_size  = "8G"
-  private_ip = "192.168.1.110/24"
+  vmid       = 110 # This is also used for the ending part of the IP address
+  memory     = 2048
+  # disk_size  = "8G"
+  # private_ip = "192.168.1.110/24"
 }
 
 # This is for updating an Ansible inventory containing the below given variables

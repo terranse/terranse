@@ -1,0 +1,20 @@
+---
+# Adapted from: https://pve.proxmox.com/wiki/OpenVPN_in_LXC
+# This enables the use of OpenVPN inside the container, which in turn can be used by a Docker container 
+- name: Add a TUN/TAP device to a container config
+  tags: openvpn
+  block:
+  - name: Insert config block before PVE queued config changes
+    blockinfile:
+      path: /etc/pve/lxc/{{ current_vmid }}.config
+      insertbefore: '^\[pve\:pending\]'
+      block: |
+        lxc.cgroup2.devices.allow: c 10:200 rwm
+        lxc.mount.entry: /dev/net dev/net none bind,create=dir
+        \n
+
+  - name: Adjust ownership of tun device to allow access from container
+    file:
+      path: /dev/net/tun
+      owner: 10000
+      group: 10000

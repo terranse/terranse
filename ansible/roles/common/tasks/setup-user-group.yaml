@@ -1,0 +1,18 @@
+---
+
+# - name: Setup user and groups inside LXC
+# - hosts: "{{ system_under_config }}"
+#   tasks:
+    # Groups and users in LXCs are normally prefixed with "10" before real group number
+    # Currently the group is called the same in the guest and the host -- maybe that is confusing?
+    - name: Setup a corresponding group in LXC container
+      group:
+        name: "{{ groupname }}" # Way to access 'groupname' var in above play
+        gid: 1000
+        state: present
+    - name: Make sure that whomever is the default user gets into the newly formed group
+      user:
+        name: default-user
+        append: yes
+        uid: 1000
+        group: "{{ groupname }}"

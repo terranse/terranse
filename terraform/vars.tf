@@ -14,5 +14,6 @@ variable "latest_debian" {
 
 variable "user" {
   type = string
-  default = "terraform-prov"
+  # default = "terraform-prov"
+  default = "root"
 }

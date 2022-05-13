@@ -1,0 +1,19 @@
+---
+
+- name: Get mountpoint for {{ zfs_dataset }}
+  zfs_facts:
+    name: "{{ zfs_dataset }}"
+  register: dataset_facts
+
+  # For some reason, using fail: ... when: does not work here
+- name: Print and check mountpoint
+  set_fact:
+    shared_filesystem: "{{ item.mountpoint }}" 
+  loop: "{{ dataset_facts.ansible_facts.ansible_zfs_datasets }}"
+  loop_control:
+    label: "{{ [item.mountpoint, item.mounted] }}"
+  register: shared_filesystem_looper
+  # TODO: Very naive path check, fix?
+  failed_when: >
+    item.mountpoint is not regex('^/.*') or 
+    item.mounted != "yes"

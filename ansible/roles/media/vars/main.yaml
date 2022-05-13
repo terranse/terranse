@@ -1,0 +1,10 @@
+---
+
+mountpoint: "/storage"
+system_under_config: "{{ inventory_hostname }}"
+    # This could perhaps be replaced with a dict of dome kind in the vars/main.yaml Better mapping structure for the mountpoint
+zfs_dataset: Tank2/windowsshare
+# shared_filesystem: [ "/Tank2/windowsshare" ]
+docker_compose_dir: "/home/default-user"
+# current_vmid: # Intentionally empty, needs to be set during runtime
+# mountpoint: "{{ mountpoint }}" # This should not be a single variable, but a list as well of some sorts

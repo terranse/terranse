@@ -1,0 +1,24 @@
+---
+
+# By delegating this, the execution is performed where it is supposed to,
+# but the fact (vmid) will be available in the $inventory_host CT, i.e. calling CT,
+# as long as delegate_facts = False (default); with True, the delegate will have the fact locally instead
+- name: Get the VMID for this container
+  import_tasks: find-vmid-from-name.yaml
+  when: current_vmid is not defined
+  delegate_to: pve
+
+- name: Setup host os to support docker in lxc
+  import_tasks: "enable-keyctl-for-ct.yaml"
+  delegate_to: pve
+
+- name: Mount the given zfs dataset in the calling ct
+  import_tasks: setup-bind-mount.yaml
+  when: zfs_dataset is defined
+  delegate_to: pve
+
+- name: Setup calling with a default user
+  import_tasks: setup-user-group.yaml
+
+- name: Setup Docker in calling container
+  import_tasks: setup-docker-support.yaml

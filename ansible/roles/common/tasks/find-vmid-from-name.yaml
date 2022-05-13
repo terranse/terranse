@@ -1,0 +1,17 @@
+---
+# Inspired from: https://gist.github.com/dragolabs/f391bdda050480871ddd129aa6080ac2#view-sorted-list-of-vms-like-vmid-proxmox_host-type-vm_name
+- name: Find a VM/CT id from a given hostname/PVE name
+  find:
+    paths:
+      - /etc/pve/nodes/proxmox/lxc/
+      - /etc/pve/nodes/proxmox/qemu_server/
+    patterns: '\d{3}\.conf'
+    contains: ".*name: {{ system_under_config }}"
+    use_regex: true
+  register: wanted_vmid
+
+- name: Propagate the found vmid back to caller
+  set_fact: 
+    current_vmid: "{{ wanted_vmid.files[0].path | basename | splitext | first }}"
+
+    

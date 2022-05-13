@@ -1,0 +1,21 @@
+---
+
+- name: Enable Ansible-proxmox plugin, and make possible to run docker in CT
+  tags: docker
+  block:
+    - name: Add prerequisites for running Proxmox plugin
+      pip:
+        name:
+          - proxmoxer
+          - requests
+    - name: "Enable keyctl feature in"
+      community.general.proxmox:
+        vmid: "{{ current_vmid }}"
+        api_user: root@pam
+        api_password: ***REMOVED***
+        api_host: 192.168.1.101
+        features:
+          - nesting=1
+          - keyctl=1
+        state: started
+      # This needs to be done here, as root, since the Terraform (or any other) user is not allowed to perform this change
