@@ -6,15 +6,15 @@
   block:
   - name: Insert config block before PVE queued config changes
     blockinfile:
-      path: /etc/pve/lxc/{{ current_vmid }}.config
-      insertbefore: '^\[pve\:pending\]'
+      path: /etc/pve/lxc/{{ current_vmid }}.conf
+      # insertbefore: '^\[pve\:pending\]'
+      insertafter: '^unprivileged.*'
       block: |
         lxc.cgroup2.devices.allow: c 10:200 rwm
         lxc.mount.entry: /dev/net dev/net none bind,create=dir
-        \n
 
   - name: Adjust ownership of tun device to allow access from container
     file:
       path: /dev/net/tun
-      owner: 10000
-      group: 10000
+      owner: "101000"
+      group: "101000"

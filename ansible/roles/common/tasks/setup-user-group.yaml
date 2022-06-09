@@ -1,18 +1,58 @@
 ---
 
-# - name: Setup user and groups inside LXC
-# - hosts: "{{ system_under_config }}"
-#   tasks:
-    # Groups and users in LXCs are normally prefixed with "10" before real group number
-    # Currently the group is called the same in the guest and the host -- maybe that is confusing?
-    - name: Setup a corresponding group in LXC container
-      group:
-        name: "{{ groupname }}" # Way to access 'groupname' var in above play
-        gid: 1000
-        state: present
-    - name: Make sure that whomever is the default user gets into the newly formed group
-      user:
-        name: default-user
-        append: yes
-        uid: 1000
-        group: "{{ groupname }}"
+# Groups and users in LXCs are normally prefixed with "10" before real group number
+# Currently the group is called the same in the guest and the host -- maybe that is confusing?
+- name: Setup a corresponding group in LXC container
+  group:
+    name: "{{ groupname }}" 
+    gid: 1000
+    state: present
+
+- name: Add Docker group # Temp, we don't know that Docker is needed here!
+  group:
+    name: docker
+    gid: 997
+    state: present
+
+- name: Create default user, add to correct groups
+  user:
+    name: default-user
+    append: yes
+    uid: 1000
+    group: "{{ groupname }}"
+    groups:
+      - docker # Temp -- same here!
+
+- name: Register "{{ docker_user }}" info
+  become: true
+  user:
+    name: "{{ docker_user }}"
+  check_mode: true
+  register: docker_user_info
+  tags:
+    - docker
+
+- name: adding user "{{ docker_user }}" to systemd-journal group
+  become: true
+  ansible.builtin.user:
+    name: "{{ docker_user }}"
+    groups: systemd-journal
+    append: true
+  tags:
+    - docker
+    
+- name: ensure "{{ docker_user }}" is lingering
+  ansible.builtin.stat:
+    path: "/var/lib/systemd/linger/{{ docker_user }}"
+  register: docker_user_lingering
+  tags:
+    - systemd
+    - docker
+
+- name: enable lingering for "{{ docker_user }}"
+  become: true
+  ansible.builtin.command: "loginctl enable-linger {{ docker_user }}"
+  when: not docker_user_lingering.stat.exists
+  tags:
+    - systemd
+    - docker

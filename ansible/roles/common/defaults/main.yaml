@@ -1,0 +1,9 @@
+---
+
+# LXC Container setup
+container_user: "container-data"
+
+# Docker setup
+docker_user: "default-user"
+docker_release: "20.10.16"
+docker_release_shasum: "9a087f00ab62127691b56892d3b9895df6727b6966e81732472f12174ce64daa" # Rootless sha

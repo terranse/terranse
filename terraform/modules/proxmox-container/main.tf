@@ -52,10 +52,10 @@ resource "proxmox_lxc" "test_ct" {
     ip6    = "auto"
   }
 
-  provisioner "local-exec" {
-    command     = "ansible-playbook -i inventory roles/${var.hostname}/tasks/main.yaml"
-    working_dir = "../ansible"
-  }
+  # provisioner "local-exec" {
+  #   command     = "ansible-playbook -i inventory roles/${var.hostname}/tasks/main.yaml"
+  #   working_dir = "../ansible"
+  # }
 }
 
 // This is needed for a module to make values available to the calling root module
