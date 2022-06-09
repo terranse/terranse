@@ -14,5 +14,4 @@
   #     when: zfs_dataset is not defined
   roles:
     - role: common
-      # apply: a number of tags, e.g. docker
     - role: media

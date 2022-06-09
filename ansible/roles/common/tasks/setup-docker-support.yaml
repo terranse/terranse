@@ -1,69 +1,144 @@
 ---
-# - hosts: pve
-#   vars:
-#     system_under_config: media
-#   tasks:
-#     - name: Add prerequisites for running Proxmox plugin
-#       pip:
-#         name:
-#           - proxmoxer
-#           - requests
-#     - name: "Enable keyctl feature in: {{ system_under_config }}"
-#       community.general.proxmox:
-#         # vmid: "{{ current_vmid }}"
-#         vmid: 100
-#         api_user: root@pam
-#         api_password: ***REMOVED***
-#         api_host: 192.168.1.101
-#         features:
-#           - nesting=1
-#           - keyctl=1
-#         state: started
-#   # This needs to be done here, as root, since the Terraform (or any other) user is not allowed to perform this change
-
 # Partly taken from https://www.digitalocean.com/community/tutorials/how-to-use-ansible-to-install-and-set-up-docker-on-ubuntu-20-04
-# - name: Add requirement for docker to run (?)
-#   hosts: media
-#   vars:
-#     system_under_config: "{{ hostvars['pve']['system_under_config'] }}"
-#   tasks:
 - name: Add docker
   tags: docker
   block:
     - name: Install Docker prerequisites
       apt:
         pkg:
-          - ca-certificates
-          - curl
-          - gnupg
           - python3-pip
-        state: latest
+          - uidmap # For rootless docker uid remapping
+        state: present
         update_cache: true
-    - name: Add Docker GPG apt Key
-      apt_key:
-        url: https://download.docker.com/linux/debian/gpg
-        state: present
-    - name: Get DEB architecture # for when adding repo in next step
-      shell: dpkg --print-architecture
-      register: deb_architecture
-      changed_when: deb_architecture.stdout != "amd64"
-    - name: Add Docker Repository
-      apt_repository:
-        repo: deb [arch={{ deb_architecture.stdout }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
-        state: present
+    # - name: Add Docker GPG apt Key
+    #   apt_key:
+    #     url: https://download.docker.com/linux/debian/gpg
+    #     state: present
+    # - name: Get DEB architecture # for when adding repo in next step
+    #   shell: dpkg --print-architecture
+    #   register: deb_architecture
+    #   changed_when: deb_architecture.stdout != "amd64"
+    # - name: Add Docker Repository
+    #   apt_repository:
+    #     repo: deb [arch={{ deb_architecture.stdout }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
+    #     state: absent
 
-    - name: Update apt and install docker-ce
-      apt:
-        pkg:
-          - docker-ce
-          - docker-compose
-        state: latest
-        update_cache: true
+    # - name: register "{{ docker_user }}" info
+    #   become: true
+    #   user:
+    #     name: "{{ docker_user }}"
+    #   check_mode: true
+    #   register: docker_user_info
+
+    # - name: adding user "{{ docker_user }}" to systemd-journal group
+    #   become: true
+    #   ansible.builtin.user:
+    #     name: "{{ docker_user }}"
+    #     groups: systemd-journal
+    #     append: true
+        
+    # - name: ensure "{{ docker_user }}" is lingering
+    #   ansible.builtin.stat:
+    #     path: "/var/lib/systemd/linger/{{ docker_user }}"
+    #   register: docker_user_lingering
+    #   tags:
+    #     - systemd
+
+    # - name: enable lingering for "{{ docker_user }}"
+    #   become: true
+    #   ansible.builtin.command: "loginctl enable-linger {{ docker_user }}"
+    #   when: not docker_user_lingering.stat.exists
+    #   tags:
+    #     - systemd
 
     - name: Install Docker (and other deps) Module for Python
+      become: true
+      become_user: "{{ docker_user }}"
+      become_method: su
       pip:
         name:
           - docker
+          - docker-compose
           - pyyaml
-      notify:
-        - Start Docker
+
+    - name: create "{{ docker_user }}" systemd config dir
+      become: true
+      become_user: "{{ docker_user }}"
+      become_method: su
+      ansible.builtin.file:
+        path: "{{ docker_user_info.home }}/.config/systemd/user"
+        state: directory
+        mode: "0700"
+
+    - name: download docker-{{ docker_release }}.tgz
+      become: true
+      become_user: "{{ docker_user }}"
+      become_method: su
+      ansible.builtin.get_url:
+        url: "{{ docker_url }}/docker-{{ docker_release }}.tgz"
+        dest: "{{ docker_user_info.home }}/docker-{{ docker_release }}.tgz"
+        checksum: "sha256:{{ docker_release_shasum }}"
+        owner: "{{ docker_user }}"
+        mode: "0644"
+
+    - name: download docker-rootless-extras-{{ docker_release }}.tgz
+      become: true
+      become_user: "{{ docker_user }}"
+      become_method: su
+      ansible.builtin.get_url:
+        url: "{{ docker_url }}/docker-rootless-extras-{{ docker_release }}.tgz"
+        dest: "{{ docker_user_info.home }}/docker-rootless-extras-{{ docker_release }}.tgz"
+        checksum: "sha256:{{ docker_release_rootless_shasum }}"
+        owner: "{{ docker_user }}"
+        mode: "0644"
+      
+
+    - name: extract docker-{{ docker_release }}.tgz into {{ docker_user_info.home }}/bin
+      become: true
+      become_user: "{{ docker_user }}"
+      become_method: su
+      ansible.builtin.unarchive:
+        src: "{{ docker_user_info.home }}/docker-{{ docker_release }}.tgz"
+        dest: "{{ docker_user_info.home }}/bin"
+        extra_opts:
+          - --strip-components=1
+        remote_src: 'yes'
+      notify: restart rootless docker
+      
+
+    - name: extract docker-rootless-extras-{{ docker_release }}.tgz into {{ docker_user_info.home }}/bin
+      become: true
+      become_user: "{{ docker_user }}"
+      become_method: su
+      ansible.builtin.unarchive:
+        src: "{{ docker_user_info.home }}/docker-rootless-extras-{{ docker_release }}.tgz"
+        dest: "{{ docker_user_info.home }}/bin"
+        extra_opts:
+          - --strip-components=1
+        remote_src: 'yes'
+      
+
+    - name: add docker systemd service
+      become: true
+      become_user: "{{ docker_user }}"
+      become_method: su
+      ansible.builtin.template:
+        src: docker_rootless.service.j2
+        dest: "{{ docker_user_info.home }}/.config/systemd/user/docker.service"
+        backup: 'yes'
+        mode: 0600
+      tags:
+        - systemd
+
+    - name: enable and start docker (rootless installation)
+      become: true
+      become_user: "{{ docker_user }}"
+      become_method: su
+      ansible.builtin.systemd:
+        name: docker.service
+        enabled: 'yes'
+        state: started
+        scope: user
+        daemon_reload: 'yes'
+      tags:
+        - systemd

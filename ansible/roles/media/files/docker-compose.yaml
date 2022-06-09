@@ -1,46 +1,12 @@
 ---
 version: '3'
 services:
-  transmission-openvpn:
-    image: haugene/transmission-openvpn
-    container_name: transmission-vpn
-    volumes:
-      - /storage/media/downloads:/media/downloads
-      - /etc/localtime:/etc/localtime:ro
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - CREATE_TUN_DEVICE=true
-      - OPENVPN_PROVIDER=WINDSCRIBE
-      - OPENVPN_CONFIG=Copenhagen-LEGO-tcp
-      - OPENVPN_USERNAME=yarcod_2swrehp59
-      - OPENVPN_PASSWORD=9n75rf4b8q
-      - OPENVPN_OPTS=--inactive 3600 --ping 10 --ping-exit 60
-      - WEBPROXY_ENABLED=false
-      - LOCAL_NETWORK=192.168.1.0/24 # Enables access from local net despite VPN being active. Could use rev. proxy also/instead
-      - TRANSMISSION_SCRAPE_PAUSED_TORRENTS_ENABLED=false
-      - TRANSMISSION_WEB_UI=combustion
-      - DNS=9.9.9.9,1.1.1.1
-    cap_add:
-      - NET_ADMIN
-    # logging:
-    #   driver: json-file
-    #   options:
-    #     max-size: 10m
-    ports:
-      - 9091:9091
-      - 9117:9117
-      - 7878:7878
-      - 8989:8989
-      - 8686:8686
-      - 5299:5299
-      - 9696:9696 # Prowlarr
-    restart: always
-
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:develop
-    network_mode: "service:transmission-openvpn"
     container_name: prowlarr
+    user: "1000:1000"
+    ports:
+      - "9696:9696"
     environment:
         - PUID=1000
         - PGID=1000
@@ -51,8 +17,10 @@ services:
 
   radarr:
     image: lscr.io/linuxserver/radarr
-    network_mode: "service:transmission-openvpn"
     container_name: radarr
+    user: "1000:1000"
+    ports:
+      - "7878:7878"
     environment:
       - PUID=1000
       - PGID=1000
@@ -65,8 +33,10 @@ services:
 
   sonarr:
     image: lscr.io/linuxserver/sonarr
-    network_mode: "service:transmission-openvpn"
     container_name: sonarr
+    user: "1000:1000"
+    ports:
+      - "8989:8989"
     environment:
       - PUID=1000
       - PGID=1000
@@ -79,8 +49,10 @@ services:
 
   lidarr:
     image: lscr.io/linuxserver/lidarr
-    network_mode: "service:transmission-openvpn"
     container_name: lidarr
+    user: "1000:1000"
+    ports:
+      - "8686:8686"
     environment:
       - PUID=1000
       - PGID=1000
@@ -93,8 +65,10 @@ services:
 
   lazylibrarian:
     image: lscr.io/linuxserver/lazylibrarian
-    network_mode: "service:transmission-openvpn"
     container_name: lazylibrarian
+    user: "1000:1000"
+    ports:
+      - "5299:5299"
     environment:
       - PUID=1000
       - PGID=1000
@@ -104,3 +78,16 @@ services:
       - /storage/appdata/lazylibrarian:/config
       - /storage/media/:/media
     restart: unless-stopped
+
+## TODO: There will need to be a "network" part here with vlan tagging, e.g. from
+# https://en-designetwork.daichi703n.com/entry/2018/05/02/docker-compose-network-vlan-tag
+# networks:
+#   vlan20:
+#     name: vlan20
+#     driver: macvlan
+#     driver_opts:
+#       parent: ens192.20
+#     ipam:
+#       config:
+#         - subnet: 192.168.20.0/24
+#           gateway: 192.168.20.1
