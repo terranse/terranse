@@ -1,0 +1,34 @@
+---
+
+#############################################################################
+# To resume backup from an earlier (lost) machine/db, you must recreate the
+# database from the existing data on the remote system. Make sure that all
+# parameters are the same as before, e.g. passphrase, and do not immediately
+# start a backup run after setup. Instead, setup and head to backup database
+# settings and click 'repair'.
+# Reference: https://forum.duplicati.com/t/reconnecting-backup-to-data-on-new-pc/11732/3
+#############################################################################
+
+# This whole solution is TEMPORARY!!!!!
+- name: Install Docker on host
+  hosts: pve
+  vars:
+    docker_compose_dir: "/root"
+  tasks:
+    - name: Install Docker
+      apt:
+        pkg:
+        - docker
+        - docker-compose
+        state: present
+
+    - name: Copy docker-compose.yaml
+      copy:
+        src: "docker-compose.yaml"
+        dest: "{{ docker_compose_dir }}"
+        mode: 0644
+    
+    - name: Run docker compose file
+      community.docker.docker_compose:
+        project_src: "{{ docker_compose_dir }}"
+        state: present
