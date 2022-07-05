@@ -23,7 +23,7 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/1000"
     DOCKER_HOST: "unix:///run/user/1000/docker.sock"
-    PATH: "/usr/bin/::{{ ansible_env.PATH }}"
+    PATH: "/usr/bin/::{{ ansible_env.HOME}}//bin::{{ ansible_env.HOME}}/.local/bin::{{ ansible_env.PATH }}"
   community.docker.docker_compose:
     project_src: "{{ docker_compose_dir }}"
     state: present

@@ -7,9 +7,39 @@
       apt:
         pkg:
           - python3-pip
+          - iptables
           - uidmap # For rootless docker uid remapping
         state: present
         update_cache: true
+
+    # Idea taken from: https://rootlesscontaine.rs/getting-started/common/subuid/
+    - name: Create temp file with all id mappings
+        # cmd: "echo '{{ item|int }}:{{ item|int * 65536 }}:65536' >> ./temp_id_mappings"
+      script: 'temp_id_map.py'
+      args:
+        executable: python3
+        # chdir: "{{ role_path }}/files"
+        creates: temp_id_map
+      # loop: "{{ range(1000, 65536)|list }}"
+
+    - name: Get id_map file content
+      command: cat temp_id_map chdir=/root
+      register: id_map
+
+    - name: Add every possible subuid and subguid to respective file
+      blockinfile: #Appends to file by default
+        state: present
+        path: /etc/subuid
+        # block: "{{ lookup('ansible.builtin.file', '/root/temp_id_map') }}"
+        block: "{{ id_map.stdout }}"
+
+    - name: Add every possible subuid and subguid to respective file
+      blockinfile:
+        state: present
+        path: /etc/subgid
+        # block: "{{ lookup('ansible.builtin.file', '/root/temp_id_map') }}"
+        block: "{{ id_map.stdout }}"
+
     # - name: Add Docker GPG apt Key
     #   apt_key:
     #     url: https://download.docker.com/linux/debian/gpg
@@ -61,6 +91,7 @@
           - docker-compose
           - pyyaml
 
+    # Shamelessly stolen from https://github.com/konstruktoid/ansible-docker-rootless
     - name: create "{{ docker_user }}" systemd config dir
       become: true
       become_user: "{{ docker_user }}"
@@ -91,6 +122,15 @@
         checksum: "sha256:{{ docker_release_rootless_shasum }}"
         owner: "{{ docker_user }}"
         mode: "0644"
+
+
+    - name: Create {{ docker_user }} bin folder
+      become: true
+      become_user: "{{ docker_user }}"
+      become_method: su
+      file:
+        path: "{{ docker_user_info.home }}/bin"
+        state: directory
       
 
     - name: extract docker-{{ docker_release }}.tgz into {{ docker_user_info.home }}/bin
@@ -123,7 +163,7 @@
       become_user: "{{ docker_user }}"
       become_method: su
       ansible.builtin.template:
-        src: docker_rootless.service.j2
+        src: docker.service.j2
         dest: "{{ docker_user_info.home }}/.config/systemd/user/docker.service"
         backup: 'yes'
         mode: 0600
@@ -139,6 +179,16 @@
         enabled: 'yes'
         state: started
         scope: user
+        masked: false
         daemon_reload: 'yes'
       tags:
         - systemd
+    
+    # - name: create {{ ansible_env.HOME }}/docker_rootless.sh
+    #   become: true
+    #   become_user: "{{ docker_user }}"
+    #   become_method: su
+    #   ansible.builtin.template:
+    #   src: docker_rootless.sh.j2
+    #   dest: "{{ ansible_env_info.HOME }}/docker_rootless.sh"
+    #   mode: 0700
