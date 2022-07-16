@@ -34,7 +34,7 @@ resource "proxmox_lxc" "test_ct" {
 
   # Because keyctl cannot be changed by Terraform, but it would try to update this value to false (default), this would break tf runtime
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes  = [features, ]
   }
 
