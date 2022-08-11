@@ -3,17 +3,17 @@ terraform {
   required_providers {
     proxmox = {
       source = "telmate/proxmox"
-      version = "2.9.6"
+      version = "2.9.10"
     }
   }
 }
 
 provider "proxmox" {
   # url is the hostname (FQDN if you have one) for the proxmox host
-  pm_api_url = "https://192.168.1.101:8006/api2/json"
+  pm_api_url = "https://192.168.1.100:8006/api2/json"
   pm_tls_insecure = "true"
-  pm_api_token_id = "terraform-prov@pve!terraform-provisioner"
-  pm_api_token_secret = "c606811f-789f-4c4d-a7a4-50ad72ac284b"
+  pm_api_token_id = "terraform-prov@pve!terraform-token"
+  pm_api_token_secret = "***REMOVED***"
 }
 
 ### Module defintions ###
@@ -23,10 +23,7 @@ module "media" {
   ssh_key    = var.ssh_key
   image_name = var.latest_debian
   hostname   = "media"
-  vmid       = 110 # This is also used for the ending part of the IP address
-  memory     = 2048
-  # disk_size  = "8G"
-  # private_ip = "192.168.1.110/24"
+  vmid       = 101 # This is also used for the ending part of the IP address
 }
 
 # This is for updating an Ansible inventory containing the below given variables
@@ -37,5 +34,8 @@ resource "local_file" "ansible_inventory" {
     user     = var.user,
     # key_path = var.key_path
   })
-  filename = "../ansible/inventory" 
+  filename = "../ansible/inventory"
+  depends_on = [
+    module.media
+  ]
 }
