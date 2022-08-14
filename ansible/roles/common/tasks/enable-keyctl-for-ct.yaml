@@ -3,19 +3,27 @@
 - name: Enable Ansible-proxmox plugin, and make possible to run docker in CT
   tags: docker
   block:
+    - name: Ensure pip is installed
+      apt:
+        pkg:
+          - python3-pip
+
     - name: Add prerequisites for running Proxmox plugin
       pip:
         name:
           - proxmoxer
           - requests
-    - name: "Enable keyctl feature in"
+
+    - name: "Enable keyctl feature for {{ current_vmid }}"
       community.general.proxmox:
         vmid: "{{ current_vmid }}"
         api_user: root@pam
         api_password: ***REMOVED***
-        api_host: 192.168.1.101
+        api_host: 192.168.1.100
         features:
           - nesting=1
-          - keyctl=1
-        state: started
+          - keyctl=1   ## TODO: DOES NOT WORK OOB, NEED TO BE FIXED! RESTART CT?
+          - fuse=1     ## In order to access ZFS (bind)mounts inside Docker cts 
+          - mknod=1
+        state: restarted
       # This needs to be done here, as root, since the Terraform (or any other) user is not allowed to perform this change
