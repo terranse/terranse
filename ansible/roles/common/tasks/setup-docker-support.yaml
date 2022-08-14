@@ -3,83 +3,79 @@
 - name: Add docker
   tags: docker
   block:
+    - name: Get latest fuse-overlayfs release version
+      uri:
+        url: https://api.github.com/repos/containers/fuse-overlayfs/releases/latest
+        return_content: true
+      register: json_response
+
+    ## TODO: Need to check whether the found tag is newer than the present one (if existing)
+    ## Current behaviour (below) skips adding new binary if any is present in dir (dictated by "creates")
+
+    - name: "Download {{ json_response.json.tag_name }} of fuse-overlayfs"
+      get_url:
+        url: "https://github.com/containers/fuse-overlayfs/releases/download/{{ json_response.json.tag_name }}/fuse-overlayfs-x86_64"
+        dest: /usr/local/bin/
+        owner: "{{ docker_user }}"
+        mode: '760'
+
+    - name: Rename downloaded binary
+      command: mv /usr/local/bin/fuse-overlayfs-x86_64 /usr/local/bin/fuse-overlayfs
+      args:
+        removes: /usr/local/bin/fuse-overlayfs-x86_64
+        creates: /usr/local/bin/fuse-overlayfs
+
+    # TODO: This assumes no other dockerd config options are already specified. Does NOT append!
+    # More info on daemon config options: https://www.devopsschool.com/blog/how-to-configure-docker-daemon-with-a-configuration-file/
+    - name: Create docker config directory
+      file:
+        state: directory
+        path: /etc/docker
+
+    - name: Create daemon.json if none exists
+      vars:
+        json:
+          storage-driver: "fuse-overlayfs"
+      copy:
+        content: "{{ json | to_nice_json }}"
+        dest: /etc/docker/daemon.json
+        force: false
+
+    # Installation guide from: https://docs.docker.com/engine/install/debian/
+    # TODO: This uses the deprecated apt-key method, which has since been replaced
     - name: Install Docker prerequisites
       apt:
         pkg:
           - python3-pip
-          - iptables
-          - uidmap # For rootless docker uid remapping
+          - gnupg
+          # - acl # For accessing the volume mount?
         state: present
         update_cache: true
 
-    # Idea taken from: https://rootlesscontaine.rs/getting-started/common/subuid/
-    - name: Create temp file with all id mappings
-        # cmd: "echo '{{ item|int }}:{{ item|int * 65536 }}:65536' >> ./temp_id_mappings"
-      script: 'temp_id_map.py'
-      args:
-        executable: python3
-        # chdir: "{{ role_path }}/files"
-        creates: temp_id_map
-      # loop: "{{ range(1000, 65536)|list }}"
-
-    - name: Get id_map file content
-      command: cat temp_id_map chdir=/root
-      register: id_map
-
-    - name: Add every possible subuid and subguid to respective file
-      blockinfile: #Appends to file by default
+    - name: Add Docker GPG apt Key
+      apt_key:
+        url: https://download.docker.com/linux/debian/gpg
         state: present
-        path: /etc/subuid
-        # block: "{{ lookup('ansible.builtin.file', '/root/temp_id_map') }}"
-        block: "{{ id_map.stdout }}"
 
-    - name: Add every possible subuid and subguid to respective file
-      blockinfile:
+    - name: Get DEB architecture # for when adding repo in next step
+      shell: dpkg --print-architecture
+      register: deb_architecture
+      changed_when: deb_architecture.stdout != "amd64"
+
+    - name: Add Docker Repository
+      apt_repository:
+        repo: deb [arch={{ deb_architecture.stdout }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
         state: present
-        path: /etc/subgid
-        # block: "{{ lookup('ansible.builtin.file', '/root/temp_id_map') }}"
-        block: "{{ id_map.stdout }}"
 
-    # - name: Add Docker GPG apt Key
-    #   apt_key:
-    #     url: https://download.docker.com/linux/debian/gpg
-    #     state: present
-    # - name: Get DEB architecture # for when adding repo in next step
-    #   shell: dpkg --print-architecture
-    #   register: deb_architecture
-    #   changed_when: deb_architecture.stdout != "amd64"
-    # - name: Add Docker Repository
-    #   apt_repository:
-    #     repo: deb [arch={{ deb_architecture.stdout }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
-    #     state: absent
-
-    # - name: register "{{ docker_user }}" info
-    #   become: true
-    #   user:
-    #     name: "{{ docker_user }}"
-    #   check_mode: true
-    #   register: docker_user_info
-
-    # - name: adding user "{{ docker_user }}" to systemd-journal group
-    #   become: true
-    #   ansible.builtin.user:
-    #     name: "{{ docker_user }}"
-    #     groups: systemd-journal
-    #     append: true
-        
-    # - name: ensure "{{ docker_user }}" is lingering
-    #   ansible.builtin.stat:
-    #     path: "/var/lib/systemd/linger/{{ docker_user }}"
-    #   register: docker_user_lingering
-    #   tags:
-    #     - systemd
-
-    # - name: enable lingering for "{{ docker_user }}"
-    #   become: true
-    #   ansible.builtin.command: "loginctl enable-linger {{ docker_user }}"
-    #   when: not docker_user_lingering.stat.exists
-    #   tags:
-    #     - systemd
+    - name: Update apt and install docker-ce
+      apt:
+        pkg:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: latest
+        update_cache: true
 
     - name: Install Docker (and other deps) Module for Python
       become: true
@@ -87,108 +83,6 @@
       become_method: su
       pip:
         name:
-          - docker
+          # - docker
           - docker-compose
-          - pyyaml
-
-    # Shamelessly stolen from https://github.com/konstruktoid/ansible-docker-rootless
-    - name: create "{{ docker_user }}" systemd config dir
-      become: true
-      become_user: "{{ docker_user }}"
-      become_method: su
-      ansible.builtin.file:
-        path: "{{ docker_user_info.home }}/.config/systemd/user"
-        state: directory
-        mode: "0700"
-
-    - name: download docker-{{ docker_release }}.tgz
-      become: true
-      become_user: "{{ docker_user }}"
-      become_method: su
-      ansible.builtin.get_url:
-        url: "{{ docker_url }}/docker-{{ docker_release }}.tgz"
-        dest: "{{ docker_user_info.home }}/docker-{{ docker_release }}.tgz"
-        checksum: "sha256:{{ docker_release_shasum }}"
-        owner: "{{ docker_user }}"
-        mode: "0644"
-
-    - name: download docker-rootless-extras-{{ docker_release }}.tgz
-      become: true
-      become_user: "{{ docker_user }}"
-      become_method: su
-      ansible.builtin.get_url:
-        url: "{{ docker_url }}/docker-rootless-extras-{{ docker_release }}.tgz"
-        dest: "{{ docker_user_info.home }}/docker-rootless-extras-{{ docker_release }}.tgz"
-        checksum: "sha256:{{ docker_release_rootless_shasum }}"
-        owner: "{{ docker_user }}"
-        mode: "0644"
-
-
-    - name: Create {{ docker_user }} bin folder
-      become: true
-      become_user: "{{ docker_user }}"
-      become_method: su
-      file:
-        path: "{{ docker_user_info.home }}/bin"
-        state: directory
-      
-
-    - name: extract docker-{{ docker_release }}.tgz into {{ docker_user_info.home }}/bin
-      become: true
-      become_user: "{{ docker_user }}"
-      become_method: su
-      ansible.builtin.unarchive:
-        src: "{{ docker_user_info.home }}/docker-{{ docker_release }}.tgz"
-        dest: "{{ docker_user_info.home }}/bin"
-        extra_opts:
-          - --strip-components=1
-        remote_src: 'yes'
-      notify: restart rootless docker
-      
-
-    - name: extract docker-rootless-extras-{{ docker_release }}.tgz into {{ docker_user_info.home }}/bin
-      become: true
-      become_user: "{{ docker_user }}"
-      become_method: su
-      ansible.builtin.unarchive:
-        src: "{{ docker_user_info.home }}/docker-rootless-extras-{{ docker_release }}.tgz"
-        dest: "{{ docker_user_info.home }}/bin"
-        extra_opts:
-          - --strip-components=1
-        remote_src: 'yes'
-      
-
-    - name: add docker systemd service
-      become: true
-      become_user: "{{ docker_user }}"
-      become_method: su
-      ansible.builtin.template:
-        src: docker.service.j2
-        dest: "{{ docker_user_info.home }}/.config/systemd/user/docker.service"
-        backup: 'yes'
-        mode: 0600
-      tags:
-        - systemd
-
-    - name: enable and start docker (rootless installation)
-      become: true
-      become_user: "{{ docker_user }}"
-      become_method: su
-      ansible.builtin.systemd:
-        name: docker.service
-        enabled: 'yes'
-        state: started
-        scope: user
-        masked: false
-        daemon_reload: 'yes'
-      tags:
-        - systemd
-    
-    # - name: create {{ ansible_env.HOME }}/docker_rootless.sh
-    #   become: true
-    #   become_user: "{{ docker_user }}"
-    #   become_method: su
-    #   ansible.builtin.template:
-    #   src: docker_rootless.sh.j2
-    #   dest: "{{ ansible_env_info.HOME }}/docker_rootless.sh"
-    #   mode: 0700
+          # - pyyaml

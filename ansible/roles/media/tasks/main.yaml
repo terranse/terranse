@@ -1,15 +1,5 @@
 ---
 
-# Execute dependencies
-# - name: Make sure the host is setup properly
-#   include_role:
-#     name: common # Currently all tasks in common is needed for this Docker setup, so this is ok, but later use tasks_from: or something similar below here
-#   vars:
-#     system_under_config: "{{ inventory_hostname }}"
-#     # This could perhaps be replaced with a dict of dome kind in the vars/main.yaml Better mapping structure for the mountpoint
-#     zfs_dataset: [ "Tank2/windowsshare" ]
-#     shared_filesystem: [ "/Tank2/windowsshare" ]
-#     mountpoint: "{{ mountpoint }}" # This should not be a single variable, but a list as well of some sorts
 - name: Copy docker-compose.yaml
   copy:
     src: docker-compose.yaml
@@ -19,11 +9,9 @@
     mode: 0644
 
 - name: Deploy docker applications
+  become: true
   become_user: default-user
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/1000"
-    DOCKER_HOST: "unix:///run/user/1000/docker.sock"
-    PATH: "/usr/bin/::{{ ansible_env.HOME}}//bin::{{ ansible_env.HOME}}/.local/bin::{{ ansible_env.PATH }}"
+  become_method: su
   community.docker.docker_compose:
     project_src: "{{ docker_compose_dir }}"
     state: present
