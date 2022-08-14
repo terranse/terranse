@@ -2,32 +2,36 @@
 # Taken from https://gist.github.com/JSinghDev/10e0824580a84a56022153592ac64faa
 - name: Get mountpoint for zfs_dataset
   import_tasks: get-zfs-mountpoint.yaml
+
 - name: Make group name globally available (in file?)
   set_fact:
     groupname: container-data
+    
 # Groups in LXCs are normally prefixed with "10" before real group number
 - name: Create group used for (unprivileged) containers to access data
   group:
     name: "{{ groupname }}"
     gid: 101000
     state: present
+
 - name: Install ACLs
   apt:
     name: acl
+
 - name: Make sure that ZFS uses posix acls
   zfs:
     name: "{{ zfs_dataset }}"
     state: present
     extra_zfs_properties:
       acltype: posixacl
-  register: output
-  # changed_when: output.stdout != ""
+
 - name: Set group permissions and mod for the share
   file:
     path: "{{ shared_filesystem }}"
     recurse: yes
     group: "{{ groupname }}"
     # mode: '2775'
+
 - name: Set default ACL permissions for {{ groupname }}
   acl:
     path: "{{ shared_filesystem }}"
@@ -37,6 +41,7 @@
     permissions: rwx
     default: yes
     state: present
+
 - name: Set ACL permissions for {{ groupname }} for current files
   acl:
     path: "{{ shared_filesystem }}"
@@ -45,6 +50,23 @@
     etype: group
     permissions: rwx
     state: present
-- name: Mount data storage
-  shell:
-    cmd: pct set {{ current_vmid }} -mp0 {{ shared_filesystem }},mp={{ mountpoint }}
+
+# TODO: Add loop to attach all requested mounts
+# TODO: Add reboot (according to origin: https://forum.proxmox.com/threads/maximum-number-of-bind-mounts-in-a-container.70450/#post-326879)
+- name: Mount data storage using rbind
+  lineinfile:
+    path: "/etc/pve/lxc/{{ current_vmid }}.conf"
+    insertafter: "^lxc[.].*"
+    line: "lxc.mount.entry: {{ shared_filesystem }} {{ mountpoint }} none rbind,create=dir,optional 0 0"
+  register: mount_entry_result
+    # loop:
+    #   - "{{ shared_filesystem }}" # Or something like that, syntax unclear, and use {{item}} above
+
+- name: "Restart CT {{ current_vmid }} if mounts have changed"
+  community.general.proxmox:
+    vmid: "{{ current_vmid }}"
+    api_user: root@pam
+    api_password: ***REMOVED***
+    api_host: 192.168.1.100
+    state: restarted
+  when: mount_entry_result is changed
