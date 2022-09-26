@@ -1,15 +1,6 @@
 ---
 
-# - name: Start Docker
+# - name: Retart Docker
 #   service:
 #     name: docker
-#     state: started
-#     listen: 
-
-- name: restart rootless docker
-  become: true
-  become_user: "{{ docker_user }}"
-  ansible.builtin.systemd:
-    name: docker.service
-    state: restarted
-    scope: user
+#     state: restarted

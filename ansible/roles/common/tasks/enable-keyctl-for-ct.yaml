@@ -14,6 +14,8 @@
           - proxmoxer
           - requests
 
+    # TODO: The features do not actually change anything at this point,
+    #       only used when creating a container
     - name: "Enable keyctl feature for {{ current_vmid }}"
       community.general.proxmox:
         vmid: "{{ current_vmid }}"
@@ -25,5 +27,5 @@
           - keyctl=1   ## TODO: DOES NOT WORK OOB, NEED TO BE FIXED! RESTART CT?
           - fuse=1     ## In order to access ZFS (bind)mounts inside Docker cts 
           - mknod=1
-        state: restarted
+        state: started
       # This needs to be done here, as root, since the Terraform (or any other) user is not allowed to perform this change
