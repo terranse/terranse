@@ -11,6 +11,9 @@ all:
     media:
       ansible_host: ${media_ip}
       ansible_user: ${user}
+    backup:
+      ansible_host: ${backup_ip}
+      ansible_user: ${user}
     # vms:
     #   hassio:
     #     ansible_host: {{ hassio_ip }}

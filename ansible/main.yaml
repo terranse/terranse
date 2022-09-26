@@ -15,3 +15,8 @@
   roles:
     - role: common
     - role: media
+
+- hosts: backup
+  roles:
+    - role: common
+    - role: backup
