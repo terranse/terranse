@@ -19,13 +19,18 @@
         delegate_to: pve
 
       - name: Setup host os to support docker in lxc
-        import_tasks: "enable-keyctl-for-ct.yaml"
+        tags:
+          - docker
+        import_tasks: enable-keyctl-for-ct.yaml
         delegate_to: pve
+        delegate_facts: true
 
       - name: Mount the given zfs dataset in the calling ct
-        tags: bind_mount
+        tags: 
+          - never
+          - bind_mount
         import_tasks: setup-bind-mount.yaml
-        when: zfs_dataset is defined
+        when: mounts is defined
         delegate_to: pve
 
       # - name: Add TUN device for OpenVPN access
