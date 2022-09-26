@@ -2,7 +2,7 @@ terraform {
   required_providers {
     proxmox = {
       source = "telmate/proxmox"
-      version = "2.9.6"
+      version = "2.9.10"
     }
   }
 }
@@ -14,7 +14,7 @@ resource "proxmox_lxc" "test_ct" {
   target_node  = "proxmox"
   vmid         = var.vmid
   hostname     = var.hostname
-  ostemplate   = "local-btrfs:vztmpl/${var.image_name}"
+  ostemplate   = "local:vztmpl/${var.image_name}"
 
   cores = var.cores
   memory = var.memory
@@ -29,6 +29,8 @@ resource "proxmox_lxc" "test_ct" {
 
   features {
     nesting = true
+    # fuse    = true
+    # mknod   = true
     # keyctl  = true # This line is not permitted do perform by our terraform user -- set up in Ansible later instead, when Docker is needed
   }
 

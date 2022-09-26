@@ -26,5 +26,5 @@ variable "disk_size" {
 }
 
 variable "vmid" {
-    type = string
+    type = number
 }
