@@ -30,13 +30,4 @@
 
       # - name: Add TUN device for OpenVPN access
       #   import_tasks: add-tun-tap-device.yaml
-      #   delegate_to: pve
-    - name: Setup calling with a default user
-      vars:
-        groupname: container-data
-      import_tasks: setup-user-group.yaml
-
-    - name: Setup Docker in calling container
-      tags: 
-        - docker
-      import_tasks: setup-docker-support.yaml
+    #   #   delegate_to: pve

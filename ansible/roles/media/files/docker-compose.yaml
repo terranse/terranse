@@ -1,63 +1,67 @@
 ---
-version: '3'
+version: '3.5'
+
+# Taken from https://stackoverflow.com/a/48651071, available since 3.4
+x-common-env: &common-environment
+  PUID: 1000
+  PGID: 1000
+  UMASK_SET: 022
+  TZ: Europe/Stockholm
 services:
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:develop
     container_name: prowlarr
-    user: "1000:1000"
     ports:
       - "9696:9696"
-    environment:
-        - PUID=1000
-        - PGID=1000
-        - TZ=Europe/Stockholm
-    volumes:
-        - /storage/appdata/prowlarr:/config
+    environment: *common-environment
+    volumes: 
+      - /storage/appdata/prowlarr:/config
     restart: unless-stopped
 
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    container_name: transmission
+    environment:
+      <<: *common-environment
+      TRANSMISSION_WEB_HOME: /flood-for-transmission/ #optional
+      USER: yarcod #optional
+      PASS: aeyfe!2874Tra #optional
+    volumes:
+      - /storage/appdata/transmission:/config
+      - /storage/downloads:/media
+    ports:
+      - 9091:9091
+      - 51413:51413
+      - 51413:51413/udp
+    restart: unless-stopped
   radarr:
     image: lscr.io/linuxserver/radarr
     container_name: radarr
-    user: "1000:1000"
     ports:
       - "7878:7878"
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Stockholm
-      - UMASK_SET=022 #optional
+    environment: *common-environment
     volumes:
       - /storage/appdata/radarr:/config
-      - /storage/media:/media
+      - /storage/movies:/media
     restart: unless-stopped
 
   sonarr:
     image: lscr.io/linuxserver/sonarr
     container_name: sonarr
-    user: "1000:1000"
     ports:
       - "8989:8989"
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Stockholm
-      - UMASK_SET=022 #optional
+    environment: *common-environment
     volumes:
       - /storage/appdata/sonarr:/config
-      - /storage/media/:/media
+      - /storage/tv_series/:/media
     restart: unless-stopped
 
   lidarr:
     image: lscr.io/linuxserver/lidarr
     container_name: lidarr
-    user: "1000:1000"
     ports:
       - "8686:8686"
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Stockholm
-      - UMASK_SET=022 #optional
+    environment: *common-environment
     volumes:
       - /storage/appdata/lidarr:/config
       - /storage/media/:/media
@@ -66,14 +70,11 @@ services:
   lazylibrarian:
     image: lscr.io/linuxserver/lazylibrarian
     container_name: lazylibrarian
-    user: "1000:1000"
     ports:
       - "5299:5299"
     environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Stockholm
-      - DOCKER_MODS=linuxserver/calibre-web:calibre #optional
+      <<: *common-environment
+      DOCKER_MODS: linuxserver/mods:universal-calibre #optional
     volumes:
       - /storage/appdata/lazylibrarian:/config
       - /storage/media/:/media
