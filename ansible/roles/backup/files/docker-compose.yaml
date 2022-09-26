@@ -6,12 +6,13 @@ services:
     image: lscr.io/linuxserver/duplicati:latest
     container_name: duplicati
     environment:
-      - PUID=0
+      - PUID=1000
       - PGID=1000
       - TZ=Europe/Stockholm
-      - CLI_ARGS= #optional
+      - UMASK_SET=002
+      # - CLI_ARGS= #optional
     volumes:
-      - /root/duplicati_config:/config
+      - /storage/appdata/duplicati:/config
       #- </path/to/backups>:/backups
       - /storage/cloud:/source
     ports:

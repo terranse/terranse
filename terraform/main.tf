@@ -22,20 +22,31 @@ module "media" {
   source     = "./modules/proxmox-container"
   ssh_key    = var.ssh_key
   image_name = var.latest_debian
+  memory     = 2048
   hostname   = "media"
   vmid       = 101 # This is also used for the ending part of the IP address
+}
+
+module "backup" {
+  source     = "./modules/proxmox-container"
+  ssh_key    = var.ssh_key
+  image_name = var.latest_debian
+  hostname   = "backup"
+  vmid       = 102
 }
 
 # This is for updating an Ansible inventory containing the below given variables
 # This list must be updated for every new module, as well as the corresponding "inventory.tmpl"
 resource "local_file" "ansible_inventory" {
   content = templatefile("inventory.tmpl", { 
-    media_ip = module.media.module_ip,
-    user     = var.user,
+    media_ip  = module.media.module_ip,
+    backup_ip = module.backup.module_ip,
+    user      = var.user,
     # key_path = var.key_path
   })
   filename = "../ansible/inventory"
   depends_on = [
-    module.media
+    module.media,
+    module.backup
   ]
 }
