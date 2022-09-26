@@ -16,7 +16,7 @@
       get_url:
         url: "https://github.com/containers/fuse-overlayfs/releases/download/{{ json_response.json.tag_name }}/fuse-overlayfs-x86_64"
         dest: /usr/local/bin/
-        owner: "{{ docker_user }}"
+        # owner: "{{ docker_user }}"
         mode: '760'
 
     - name: Rename downloaded binary
@@ -77,12 +77,19 @@
         state: latest
         update_cache: true
 
+    - name: "Add {{ docker_user }} to the docker group"
+      user:
+        name: "{{ docker_user }}"
+        append: yes
+        uid: 1000
+        groups:
+          - docker
+
+    # Needed for Ansible to be able to run docker-compose files.
     - name: Install Docker (and other deps) Module for Python
       become: true
       become_user: "{{ docker_user }}"
       become_method: su
       pip:
         name:
-          # - docker
           - docker-compose
-          # - pyyaml

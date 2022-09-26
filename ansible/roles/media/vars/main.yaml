@@ -1,10 +1,25 @@
 ---
 
-mountpoint: "/storage"
 system_under_config: "{{ inventory_hostname }}"
-    # This could perhaps be replaced with a dict of dome kind in the vars/main.yaml Better mapping structure for the mountpoint
-zfs_dataset: Tank2/windowsshare
-# shared_filesystem: [ "/Tank2/windowsshare" ]
+
+# Dict for every mount we want to have accessible in our CT, where 'zfs_dataset' is 
+# the name of the dataset on the host (note that it is not a path!) and moutpoint is
+# where the data should be accessible from within the container. 
+mounts:
+  configs:
+    zfs_dataset: Tank2/appdata
+    ct_mountpoint: "/storage/appdata"
+  downloads:
+    zfs_dataset: Tank2
+    ct_mountpoint: "/storage/downloads"
+  movies:
+    zfs_dataset: Tank/windows_smb
+    ct_mountpoint: "/storage/movies"
+  tv_series:
+    zfs_dataset: Tank/windows_smb_series
+    ct_mountpoint: "/storage/tv_series"
+  media:
+    zfs_dataset: Tank/windows_smb_util
+    ct_mountpoint: "/storage/media"
+
 docker_compose_dir: "/home/default-user"
-# current_vmid: # Intentionally empty, needs to be set during runtime
-# mountpoint: "{{ mountpoint }}" # This should not be a single variable, but a list as well of some sorts

@@ -8,20 +8,12 @@
     gid: 1000
     state: present
 
-- name: Add Docker group # Temp, we don't know that Docker is needed here!
-  group:
-    name: docker
-    gid: 997
-    state: present
-
 - name: Create default user, add to correct groups
   user:
-    name: default-user
-    append: yes
+    name: "{{ docker_user }}"
+    create_home: yes
     uid: 1000
     group: "{{ groupname }}"
-    groups:
-      - docker # Temp -- same here!
 
 - name: Register "{{ docker_user }}" info
   become: true
