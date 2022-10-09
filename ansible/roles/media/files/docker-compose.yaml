@@ -8,6 +8,7 @@ x-common-env: &common-environment
   UMASK_SET: 022
   TZ: Europe/Stockholm
 services:
+######## MEDIA ACQUISITION ########
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:develop
     container_name: prowlarr
@@ -78,6 +79,39 @@ services:
     volumes:
       - /storage/appdata/lazylibrarian:/config
       - /storage/media/:/media
+    restart: unless-stopped
+
+######## MEDIA HANDLING ########
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      <<: *common-environment
+      JELLYFIN_PublishedServerUrl: 192.168.1.101 #optional
+      # TODO: Make compose file a template and replace ip with host ip var
+    volumes:
+      - /storage/appdata/jellyfin:/config
+      - /storage/tv_series:/media/tvshows
+      - /storage/movies:/media/movies
+    ports:
+      - 8096:8096 # Http webUI
+      - 8920:8920 # Https webUI (optional)
+      - 7359:7359/udp # Clients discovery of Jellyfin on LAN (optional)
+      # - 1900:1900/udp # Service discovery by DLNA/-clients (optional)
+    restart: unless-stopped
+
+# When setting up this application (v1.1.1) and you enter setup with Jellyfin account
+# make sure that the hostname ends with a '/' to indicate that there is no subfolder
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    container_name: jellyseerr
+    environment:
+      <<: *common-environment
+      LOG_LEVEL: debug
+    ports:
+      - 5055:5055
+    volumes:
+      - /storage/appdata/jellyseerr:/app/config
     restart: unless-stopped
 
 ## TODO: There will need to be a "network" part here with vlan tagging, e.g. from

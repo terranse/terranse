@@ -6,13 +6,19 @@
   changed_when: false
   register: service_docker_status
 
-- name: Setup calling with a default user
-  vars:
-    groupname: container-data
-  import_tasks: roles/common/tasks/setup-user-group.yaml
+- debug:
+    msg: "{{service_docker_status}}"
 
-- name: Setup Docker in calling container
-  import_tasks: roles/common/tasks/setup-docker-support.yaml
+- name: Setup Docker if not present/running
+  when: not service_docker_status is defined
+  block:
+  - name: Setup calling with a default user
+    vars:
+      groupname: container-data
+    import_tasks: roles/common/tasks/setup-user-group.yaml
+
+  - name: Setup Docker in calling container
+    import_tasks: roles/common/tasks/setup-docker-support.yaml
 
 - name: Copy docker-compose.yaml
   copy:
