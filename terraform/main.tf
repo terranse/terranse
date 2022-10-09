@@ -22,7 +22,7 @@ module "media" {
   source     = "./modules/proxmox-container"
   ssh_key    = var.ssh_key
   image_name = var.latest_debian
-  memory     = 2048
+  memory     = 4096
   hostname   = "media"
   vmid       = 101 # This is also used for the ending part of the IP address
 }
