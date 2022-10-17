@@ -1,20 +1,50 @@
 ---
 # Adapted from: https://pve.proxmox.com/wiki/OpenVPN_in_LXC
 # This enables the use of OpenVPN inside the container, which in turn can be used by a Docker container 
-- name: Add a TUN/TAP device to a container config
-  tags: openvpn
-  block:
-  - name: Insert config block before PVE queued config changes
-    blockinfile:
-      path: /etc/pve/lxc/{{ current_vmid }}.conf
-      # insertbefore: '^\[pve\:pending\]'
-      insertafter: '^unprivileged.*'
-      block: |
+# - name: Add a TUN/TAP device to a container config
+#   blockinfile:
+#     path: /etc/pve/lxc/{{ current_vmid }}.conf
+#     # insertbefore: '^\[pve\:pending\]'
+#     insertafter: '^unprivileged.*'
+#     block: |
+#       lxc.cgroup2.devices.allow: c 10:200 rwm
+#       lxc.mount.entry: /dev/net dev/net none bind,create=dir
+
+- name: Get current ct config
+  command: "cat /etc/pve/lxc/{{ current_vmid }}.conf"
+  register: ct_conf
+
+- name: Add /dev/net to container if not present
+  when: not 'lxc.mount.entry\:\ /dev/net dev/net none bind,create=dir' in ct_conf.stdout
+  block: 
+  - name: Create temporary file
+    ansible.builtin.tempfile:
+      state: file
+      suffix: temp
+    register: tempfile_1
+
+  - name: Add config lines to temp file
+    copy:
+      dest: "{{ tempfile_1.path }}"
+      content: |
         lxc.cgroup2.devices.allow: c 10:200 rwm
         lxc.mount.entry: /dev/net dev/net none bind,create=dir
 
-  - name: Adjust ownership of tun device to allow access from container
-    file:
-      path: /dev/net/tun
-      owner: "101000"
-      group: "101000"
+  - name: "Append new config lines to {{current_vmid}}.conf"
+    shell: "cat {{ tempfile_1.path }} >> /etc/pve/lxc/{{ current_vmid }}.conf"
+    when: tempfile_1.path is defined
+
+  - name: Remove temp file
+    ansible.builtin.file:
+      path: "{{ tempfile_1.path }}"
+      state: absent
+    when: tempfile_1.path is defined
+
+# TODO: Add restart needed here!
+
+# This should not be necessary? A new device will be created with the 'mknod' cap?
+  # - name: Adjust ownership of tun device to allow access from container
+  #   file:
+  #     path: /dev/net/tun
+  #     owner: "101000"
+  #     group: "101000"

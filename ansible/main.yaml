@@ -20,3 +20,7 @@
   roles:
     - role: common
     - role: backup
+
+- hosts: network
+  roles:
+    - role: network
