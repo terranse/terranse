@@ -1,0 +1,8 @@
+---
+
+system_under_config: "{{ inventory_hostname }}"
+
+apt_deb: deb https://pkgs.tailscale.com/stable/debian {{ ansible_distribution_release | lower }} main
+apt_signkey: https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release | lower }}.gpg
+
+tailscale_key: tskey-auth-kKsp8W2CNTRL-eYyHnWTB5ZjBRZdDQg3kXjenJg3h3TSEg

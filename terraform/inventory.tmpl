@@ -14,6 +14,9 @@ all:
     backup:
       ansible_host: ${backup_ip}
       ansible_user: ${user}
+    network:
+      ansible_host: ${network_ip}
+      ansible_user: ${user}
     # vms:
     #   hassio:
     #     ansible_host: {{ hassio_ip }}
