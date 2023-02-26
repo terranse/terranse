@@ -12,6 +12,12 @@ variable "latest_debian" {
     default = "debian-11-standard_11.3-1_amd64.tar.zst"
 }
 
+data "github_release" "example" {
+    repository  = "operating-system"
+    owner       = "home-assistant"
+    retrieve_by = "latest"
+}
+
 variable "user" {
   type = string
   # default = "terraform-prov"

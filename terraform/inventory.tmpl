@@ -17,6 +17,12 @@ all:
     network:
       ansible_host: ${network_ip}
       ansible_user: ${user}
+    collaboration:
+      ansible_host: ${collaboration_ip}
+      ansible_user: ${user}
+    fileSharing:
+      ansible_host: ${fileSharing_ip}
+      ansible_user: ${user}
     # vms:
     #   hassio:
     #     ansible_host: {{ hassio_ip }}
