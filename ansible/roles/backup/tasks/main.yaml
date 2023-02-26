@@ -9,32 +9,40 @@
 # Reference: https://forum.duplicati.com/t/reconnecting-backup-to-data-on-new-pc/11732/3
 #############################################################################
 
-- name: Check if Docker is running
-  command: systemctl status docker
-  ignore_errors: true
-  changed_when: false
-  register: service_docker_status
+# - name: Check if Docker is running
+#   command: systemctl status docker
+#   ignore_errors: true
+#   changed_when: false
+#   register: service_docker_status
 
-- name: Setup calling with a default user
-  vars:
-    groupname: container-data
-  import_tasks: roles/common/tasks/setup-user-group.yaml
+# - name: Setup calling with a default user
+#   vars:
+#     groupname: container-data
+#   import_tasks: roles/common/tasks/setup-user-group.yaml
 
-- name: Setup Docker in calling container
-  import_tasks: roles/common/tasks/setup-docker-support.yaml
+# - name: Setup Docker in calling container
+#   import_tasks: roles/common/tasks/setup-docker-support.yaml
 
-- name: Copy docker-compose.yaml
-  copy:
-    src: docker-compose.yaml
-    dest: "{{ docker_compose_dir }}"
-    owner: default-user
-    group: container-data
-    mode: 0644
+# - name: Copy docker-compose.yaml
+#   copy:
+#     src: docker-compose.yaml
+#     dest: "{{ docker_compose_dir }}"
+#     owner: default-user
+#     group: container-data
+#     mode: 0644
 
-- name: Deploy docker applications
-  become: true
-  become_user: default-user
-  become_method: su
-  community.docker.docker_compose:
-    project_src: "{{ docker_compose_dir }}"
+# - name: Deploy docker applications
+#   become: true
+#   become_user: default-user
+#   become_method: su
+#   community.docker.docker_compose:
+#     project_src: "{{ docker_compose_dir }}"
+#     state: present
+
+- name: Add packages
+  package:
+    name: fuse
     state: present
+
+- include_tasks:
+    file: autorestic.yaml

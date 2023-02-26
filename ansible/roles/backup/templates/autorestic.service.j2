@@ -1,0 +1,9 @@
+[Unit]
+Description=Autorestic backup service
+
+[Service]
+Type=oneshot
+{% if autorestic_systemd_service_execcondition is defined %}
+ExecCondition={{ autorestic_systemd_service_execcondition }}
+{% endif %}
+ExecStart=autorestic --ci -c {{ autorestic_dir }}/{{ autorestic_config_filename }} backup --all
