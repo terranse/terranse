@@ -38,7 +38,7 @@ resource "proxmox_vm_qemu" "test_vm" {
     # set disk size here. leave it small for testing because expanding the disk takes time.
     size     = var.disk_size
     type     = "scsi"
-    storage  = "local-btrfs"
+    storage  = "FastStorage"
     iothread = 1
   }
   

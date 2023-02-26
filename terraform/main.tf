@@ -43,20 +43,28 @@ module "network" {
   vmid       = 103
 }
 
+
+# module "home-assistant" {
+#   source = "./modules/proxmox-vm"
+#   ssh_key = var.ssh_key
+#   clone = "https://github.com/home-assistant/operating-system/releases/download/9.3/haos_ova-9.3.qcow2.xz"
+#   memory = 4096
+#   disk_size = "32G"
+#   hostname = "home-assistant"
+#   vmid = 105
+# }
 # This is for updating an Ansible inventory containing the below given variables
 # This list must be updated for every new module, as well as the corresponding "inventory.tmpl"
 resource "local_file" "ansible_inventory" {
   content = templatefile("inventory.tmpl", { 
-    media_ip   = module.media.module_ip,
-    backup_ip  = module.backup.module_ip,
-    network_ip = module.network.module_ip,
-    user       = var.user,
+    # home-assistant_ip = module.home-assistant.module_ip,
+    user              = var.user,
     # key_path = var.key_path
   })
   filename = "../ansible/inventory"
   depends_on = [
     module.media,
     module.backup,
-    module.network
+    # module.home-assistant
   ]
 }
