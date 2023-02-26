@@ -1,0 +1,38 @@
+# jinja: lstrip_blocks: "True", trim_blocks: "True"
+---
+# https://jinja.palletsprojects.com/en/latest/templates/#whitespace-control
+# {{ ansible_managed }}
+
+version: 2
+
+{% if autorestic_extras is defined %}
+extras:
+  {{ autorestic_extras | to_nice_yaml(indent=2, width=99999) | indent(width=2, first=False) }}
+{% endif %}
+{% if autorestic_global is defined %}
+# https://autorestic.vercel.app/location/options#global-options
+global:
+  {{ autorestic_global | to_nice_yaml(indent=2, width=99999) | indent(width=2, first=False) }}
+{% endif %}
+locations:
+{% for location in restic_backup_locations %}
+  {{ location.get('name', location.from.replace('/', '-').lstrip('-')) }}:
+    from: {{ location['from'] }}
+    {% if location['to'] == 'all' %}
+    to: {{ location.get('to', restic_enabled_backends | to_yaml) }}
+    {% else %}
+    to: {{ location['from'] }}
+    {% endif %}
+    {%- if location.forget is defined %}
+    forget: {{ location.forget }}
+    {% endif -%}
+    options:
+      {{ location.get('options', restic_default_options) | to_nice_yaml(indent=2, width=99999) | indent(width=6, first=False) }}
+    hooks:
+      {{ location.get('hooks', {}) | to_nice_yaml(indent=2, width=99999) | indent(width=6, first=False) }}
+{% endfor %}
+backends:
+{%- for backend_name in restic_enabled_backends %}
+  {{ backend_name }}:
+    {{ restic_all_backends[backend_name] | to_nice_yaml(indent=2, width=99999) | indent(width=4, first=False) }}
+{% endfor -%}
