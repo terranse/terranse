@@ -22,5 +22,19 @@
     - role: backup
 
 - hosts: network
+  vars_files:
+    - secrets.yaml
   roles:
+    - role: common
     - role: network
+
+- hosts: collaboration
+  vars_files:
+    - secrets.yaml
+  roles:
+    - role: common
+    - role: collaboration
+
+- hosts: fileSharing
+  roles:
+    - role: fileSharing

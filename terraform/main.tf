@@ -23,6 +23,7 @@ module "media" {
   ssh_key    = var.ssh_key
   image_name = var.latest_debian
   memory     = 4096
+  disk_size  = "16G"
   hostname   = "media"
   vmid       = 101 # This is also used for the ending part of the IP address
 }
@@ -43,6 +44,23 @@ module "network" {
   vmid       = 103
 }
 
+module "collaboration" {
+  source     = "./modules/proxmox-container"
+  ssh_key    = var.ssh_key
+  image_name = var.latest_debian
+  memory     = 4096
+  disk_size  = "32G"
+  hostname   = "collaboration"
+  vmid       = 104
+}
+
+module "fileSharing" {
+  source     = "./modules/proxmox-container"
+  ssh_key    = var.ssh_key
+  image_name = var.latest_debian
+  hostname   = "fileSharing"
+  vmid       = 105
+}
 
 # module "home-assistant" {
 #   source = "./modules/proxmox-vm"
@@ -53,10 +71,16 @@ module "network" {
 #   hostname = "home-assistant"
 #   vmid = 105
 # }
+
 # This is for updating an Ansible inventory containing the below given variables
 # This list must be updated for every new module, as well as the corresponding "inventory.tmpl"
 resource "local_file" "ansible_inventory" {
   content = templatefile("inventory.tmpl", { 
+    media_ip          = module.media.module_ip,
+    backup_ip         = module.backup.module_ip,
+    network_ip        = module.network.module_ip,
+    collaboration_ip  = module.collaboration.module_ip,
+    fileSharing_ip    = module.fileSharing.module_ip,
     # home-assistant_ip = module.home-assistant.module_ip,
     user              = var.user,
     # key_path = var.key_path
@@ -65,6 +89,25 @@ resource "local_file" "ansible_inventory" {
   depends_on = [
     module.media,
     module.backup,
+    module.network,
+    module.collaboration,
+    module.fileSharing
     # module.home-assistant
   ]
 }
+
+# resource "null_resource" "dummy" {
+#   dynamic "output" {
+#     for_each = module
+#     content {
+#       key = "${each.key}_ip"
+#       value = each.value.ip
+#     }
+#   }
+# }
+
+# output "module_ips" {
+#   value = {
+#     for output in null_resource.dummy.output : output.key => output.value
+#   }
+# }
