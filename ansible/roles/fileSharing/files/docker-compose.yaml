@@ -1,0 +1,17 @@
+---
+version: "3.5"
+
+services:
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: minio
+    environment:
+      MINIO_ROOT_USER: "{{ MINIO_USER }}"
+      MINIO_ROOT_PASSWORD: "{{ MINIO_PASSWORD}}"
+    volumes:
+      - /storage/appdata/minio:/config
+      - /storage/cloud:/source
+    ports:
+      - 9000:9000
+      - 9090:9090
+    restart: unless-stopped
