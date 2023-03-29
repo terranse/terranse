@@ -13,5 +13,6 @@ services:
       - /storage/cloud:/source
     ports:
       - 9000:9000
-      - 9090:9090
+      - 9001:9001
+    command: server --console-address ":9001" /data
     restart: unless-stopped

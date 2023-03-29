@@ -18,9 +18,9 @@
 
   always:
   - name: Copy docker-compose.yaml
-    copy:
-      src: docker-compose.yaml
-      dest: "{{ docker_compose_dir }}"
+    template:
+      src: docker-compose.yaml.j2
+      dest: "{{ docker_compose_dir }}/docker-compose.yaml"
       owner: "{{ docker_user }}"
       group: "{{ groupname }}"
       mode: 0644
@@ -32,3 +32,6 @@
     community.docker.docker_compose:
       project_src: "{{ docker_compose_dir }}"
       state: present
+
+  # TODO: Add step to create needed buckets, e.g. by using
+  # https://github.com/alexisfacques/ansible-module-s3-minio-bucket
