@@ -4,6 +4,7 @@ variable "ssh_key" {
 
 variable "image_name" {
     type = string
+    default = "debian-11-standard_11.3-1_amd64.tar.zst"
 }
 
 variable "hostname" {
