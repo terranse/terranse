@@ -2,112 +2,103 @@
 terraform {
   required_providers {
     proxmox = {
-      source = "telmate/proxmox"
+      source  = "telmate/proxmox"
       version = "2.9.10"
     }
   }
 }
 
 provider "proxmox" {
-  # url is the hostname (FQDN if you have one) for the proxmox host
-  pm_api_url = "https://192.168.1.100:8006/api2/json"
-  pm_tls_insecure = "true"
-  pm_api_token_id = "terraform-prov@pve!terraform-token"
+  pm_api_url          = "https://192.168.1.100:8006/api2/json"
+  pm_tls_insecure     = "true"
+  pm_api_token_id     = "terraform-prov@pve!terraform-token"
   pm_api_token_secret = "***REMOVED***"
 }
 
 ### Module defintions ###
-# Note that the module, hostname and ansible .yaml files must all have the same names currently
-module "media" {
-  source     = "./modules/proxmox-container"
-  ssh_key    = var.ssh_key
-  image_name = var.latest_debian
-  memory     = 4096
-  disk_size  = "16G"
-  hostname   = "media"
-  vmid       = 101 # This is also used for the ending part of the IP address
+locals {
+  module_shared_configurations = {
+    # TODO: Separate access rights of ssh keys into separate module
+    ssh_key = var.ssh_key
+  }
+  module_specific_configurations = {
+    media = {
+      memory    = 4096
+      disk_size = "16G"
+      vmid      = 101 # This is also used for the ending part of the IP address
+    }
+    backup = {
+      vmid = 102
+    }
+    network = {
+      vmid = 103
+    }
+    collaboration = {
+      memory    = 4096
+      disk_size = "32G"
+      vmid      = 104
+    }
+    authentication = {
+      vmid = 105
+    }
+  }
+  module_configurations = {
+    for module_name, specific_configurations in local.module_specific_configurations : module_name => merge(
+      local.module_shared_configurations,
+      specific_configurations
+    )
+  }
 }
 
-module "backup" {
-  source     = "./modules/proxmox-container"
-  ssh_key    = var.ssh_key
-  image_name = var.latest_debian
-  hostname   = "backup"
-  vmid       = 102
-}
+module "container-modules" {
+  for_each = local.module_configurations
 
-module "network" {
-  source     = "./modules/proxmox-container"
-  ssh_key    = var.ssh_key
-  image_name = var.latest_debian
-  hostname   = "network"
-  vmid       = 103
-}
-
-module "collaboration" {
-  source     = "./modules/proxmox-container"
-  ssh_key    = var.ssh_key
-  image_name = var.latest_debian
-  memory     = 4096
-  disk_size  = "32G"
-  hostname   = "collaboration"
-  vmid       = 104
-}
-
-module "fileSharing" {
-  source     = "./modules/proxmox-container"
-  ssh_key    = var.ssh_key
-  image_name = var.latest_debian
-  hostname   = "fileSharing"
-  vmid       = 105
+  source    = "./modules/proxmox-container"
+  ssh_key   = each.value.ssh_key
+  memory    = try(each.value.memory, var.memory)
+  disk_size = try(each.value.disk_size, var.disk_size)
+  hostname  = try(each.value.hostname, each.key)
+  vmid      = each.value.vmid
+  # TODO: Automate so that the VMID grabs the next available instead
 }
 
 # module "home-assistant" {
-#   source = "./modules/proxmox-vm"
-#   ssh_key = var.ssh_key
-#   clone = "https://github.com/home-assistant/operating-system/releases/download/9.3/haos_ova-9.3.qcow2.xz"
-#   memory = 4096
+#   source    = "./modules/proxmox-vm"
+#   ssh_key   = var.ssh_key
+#   clone     = "haos_generic-x86-64-9.5.img"
+#   memory    = 4096
 #   disk_size = "32G"
-#   hostname = "home-assistant"
-#   vmid = 105
+#   hostname  = "home-assistant"
+#   vmid      = 106
 # }
 
-# This is for updating an Ansible inventory containing the below given variables
-# This list must be updated for every new module, as well as the corresponding "inventory.tmpl"
-resource "local_file" "ansible_inventory" {
-  content = templatefile("inventory.tmpl", { 
-    media_ip          = module.media.module_ip,
-    backup_ip         = module.backup.module_ip,
-    network_ip        = module.network.module_ip,
-    collaboration_ip  = module.collaboration.module_ip,
-    fileSharing_ip    = module.fileSharing.module_ip,
-    # home-assistant_ip = module.home-assistant.module_ip,
-    user              = var.user,
-    # key_path = var.key_path
-  })
-  filename = "../ansible/inventory"
-  depends_on = [
-    module.media,
-    module.backup,
-    module.network,
-    module.collaboration,
-    module.fileSharing
-    # module.home-assistant
-  ]
+locals {
+  # module_instances = values(module.container-modules)
+
+  all_modules =  {
+    for module_name, module_config in local.module_configurations : module_name => {
+      ansible_host = module.container-modules[module_name].module_ip
+      ansible_user = var.user
+    }
+  }
+  host_config = {
+    pve = {
+      ansible_host               = "192.168.1.100"
+      ansible_user               = "root"
+      ansible_python_interpreter = "/usr/bin/python3"
+    }
+  }
+
+  # Merge the static and dynamic hosts to create the final inventory
+  all_hosts = merge(local.all_modules, local.host_config)
 }
 
-# resource "null_resource" "dummy" {
-#   dynamic "output" {
-#     for_each = module
-#     content {
-#       key = "${each.key}_ip"
-#       value = each.value.ip
-#     }
-#   }
-# }
-
-# output "module_ips" {
-#   value = {
-#     for output in null_resource.dummy.output : output.key => output.value
-#   }
-# }
+resource "local_file" "inventory_template" {
+  filename = "../ansible/inventory"
+  # for_each = local.all_modules
+  content = yamlencode({
+    all = {
+      hosts = local.all_hosts
+    }
+  })
+}
