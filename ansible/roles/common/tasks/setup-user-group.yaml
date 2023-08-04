@@ -9,9 +9,10 @@
     state: present
 
 - name: Create default user, add to correct groups
+  become: true
   user:
     name: "{{ docker_user }}"
-    create_home: yes
+    create_home: true
     uid: 1000
     group: "{{ groupname }}"
 
@@ -32,6 +33,13 @@
     append: true
   tags:
     - docker
+
+- name: Add convenience script for switching to "{{ docker_user }}"
+  become: true
+  lineinfile:
+    path: "{{ ansible_env.HOME }}/.bashrc"
+    line: "alias swu='su {{ docker_user }} -c /bin/bash -l'"
+    create: true
     
 - name: ensure "{{ docker_user }}" is lingering
   ansible.builtin.stat:

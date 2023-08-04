@@ -10,29 +10,15 @@
   block:
     - name: Setup for containers
       tags:
-        - never # Not working -- currently always executing when "setup"
         - container
       block:
       - name: Get the VMID for this container
-        import_tasks: find-vmid-from-name.yaml
-        when: current_vmid is not defined
-        delegate_to: pve
+        import_tasks: container-setup.yaml
 
-      - name: Setup host os to support docker in lxc
-        tags:
-          - docker
-        import_tasks: enable-keyctl-for-ct.yaml
-        delegate_to: pve
-        delegate_facts: true
-
-      - name: Mount the given zfs dataset in the calling ct
-        tags: 
-          - never
-          - bind_mount
-        import_tasks: setup-bind-mount.yaml
-        when: mounts is defined
-        delegate_to: pve
-
-      # - name: Add TUN device for OpenVPN access
-      #   import_tasks: add-tun-tap-device.yaml
-    #   #   delegate_to: pve
+      # TODO: This actually does not alter existing CTs, but can only spawn new with correct permissions. Find replacement!
+      # - name: Setup host os to support docker in lxc
+      #   tags:
+      #     - docker
+      #   import_tasks: enable-keyctl-for-ct.yaml
+      #   delegate_to: pve
+      #   delegate_facts: true
