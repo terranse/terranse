@@ -47,16 +47,17 @@ services:
       MYSQL_DATABASE: nextcloud
       MYSQL_USER: nextcloud
 
-  onlyoffice-document-server:
-    container_name: onlyoffice-document-server
-    image: onlyoffice/documentserver:latest
-    restart: always
-    environment:
-      JWT_ENABLED: "true"
-      JWT_SECRET: "{{ JWT_SECRET }}"
-    expose:
-      - '80'
-      - '443'
-    volumes:
-      - /storage/appdata/nextcloud/onlyoffice:/var/www/onlyoffice/Data
-      - /storage/appdata/nextcloud/onlyoffice/logs:/var/log/onlyoffice
+# TODO: Incompatible with linuxserver version of NC, swtich to official?
+  # onlyoffice-document-server:
+  #   container_name: onlyoffice-document-server
+  #   image: onlyoffice/documentserver:latest
+  #   restart: always
+  #   environment:
+  #     JWT_ENABLED: "true"
+  #     JWT_SECRET: "{{ JWT_SECRET }}"
+  #   expose:
+  #     - '80'
+  #     # - '443'
+  #   volumes:
+  #     - /storage/appdata/nextcloud/onlyoffice:/var/www/onlyoffice/Data
+  #     - /storage/appdata/nextcloud/onlyoffice/logs:/var/log/onlyoffice
