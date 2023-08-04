@@ -12,11 +12,23 @@
         groupname: container-data
       import_tasks: roles/common/tasks/setup-user-group.yaml
 
+    - name: Ensure base storage is in place
+      block:
+        - name: Check precense of appdata
+          stat:
+            path: "{{ mounts.configs.ct_mountpoint }}"
+          register: appdata
+
+        - name: Perform common base setup
+          import_tasks: roles/common/tasks/container-setup.yaml
+          when: not appdata.stat.exists
+
     - name: Setup Docker in calling container
       import_tasks: roles/common/tasks/setup-docker-support.yaml
 
   always:
     # TODO: Contains sensitive data! Should be removed/hidden!
+    # Perhaps copy to temp file, access and then remove?
     - name: Copy docker-compose.yaml
       template:
         src: docker-compose.yaml.j2
