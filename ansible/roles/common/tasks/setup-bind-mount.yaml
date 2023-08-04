@@ -18,7 +18,7 @@
 # Taken from https://gist.github.com/JSinghDev/10e0824580a84a56022153592ac64faa
 - name: Get mountpoint for zfs_datasets and make a list
   # import_tasks: get-zfs-mountpoint.yaml
-  include_tasks: get-zfs-mountpoint.yaml
+  include_tasks: roles/common/tasks/get-zfs-mountpoint.yaml
   loop: "{{ mounts | dict2items }}"
 
 - name: Make group name globally available (in file?)
@@ -55,6 +55,7 @@
 #     # mode: '2775'
 #   loop: "{{ shared_filesystems }}"
 
+# TODO: This can sometimes break if files are corrupted
 - name: Set default ACL permissions for {{ groupname }}
   acl:
     path: "{{ item }}"
@@ -94,6 +95,8 @@
   when: not (item.0 and item.1[1:]) in current_mountpoints.diff[0].before
   register: mount_entry_result
 
+# TODO: This is evidently not fool proof, did not work when existing mount point
+# /storage/appdata was changed to /appdata instead and the old was left in place.
 - name: Remove mountpoints not part of current configuration
   replace:
     path: "/etc/pve/lxc/{{ current_vmid }}.conf"
@@ -111,4 +114,4 @@
     api_password: ***REMOVED***
     api_host: 192.168.1.100
     state: restarted
-  when: (removed_mountpoints or mount_entry_result) is changed
+  when: removed_mountpoints is changed or mount_entry_result is changed
