@@ -1,40 +1,65 @@
 ---
 
-- name: Check if Docker is running
-  command: systemctl status docker
-  ignore_errors: true
-  changed_when: false
-  register: service_docker_status
-
-- debug:
-    msg: "{{service_docker_status}}"
-
 - name: Setup Docker if not present/running
-  when: not service_docker_status is defined
   block:
-  - name: Setup calling with a default user
-    vars:
-      groupname: container-data
-    import_tasks: roles/common/tasks/setup-user-group.yaml
+    - name: Check if Docker is running
+      command: systemctl status docker
+      changed_when: false
 
-  - name: Setup Docker in calling container
-    import_tasks: roles/common/tasks/setup-docker-support.yaml
+  rescue:
+    - name: Setup calling ct with a default user
+      vars:
+        groupname: container-data
+      import_tasks: roles/common/tasks/setup-user-group.yaml
 
-- name: Copy docker-compose.yaml
-  copy:
-    src: docker-compose.yaml
-    dest: "{{ docker_compose_dir }}"
-    owner: default-user
-    group: container-data
-    mode: 0644
+    - name: Ensure base storage is in place
+      block:
+        - name: Check precense of appdata
+          stat:
+            path: "{{ mounts.configs.ct_mountpoint }}"
+          register: appdata
 
-- name: Deploy docker applications
-  become: true
-  become_user: default-user
-  become_method: su
-  community.docker.docker_compose:
-    project_src: "{{ docker_compose_dir }}"
-    state: present
+        - name: Perform common base setup
+          import_tasks: roles/common/tasks/container-setup.yaml
+          when: not appdata.stat.exists
+
+    - name: Setup Docker in calling container
+      import_tasks: roles/common/tasks/setup-docker-support.yaml
+
+  always:
+    - name: Copy docker-compose.yaml
+      template:
+        src: docker-compose.yaml.j2
+        dest: "{{ docker_compose_dir }}/docker-compose.yaml"
+        owner: default-user
+        group: container-data
+        mode: 0644
+
+    - name: Get all docker services
+      include_vars:
+        dir: ../templates
+        files_matching: docker-compose
+        name: compose
+        ignore_unknown_extensions: true
+
+    # TODO: Broken after switching from .yaml to .j2. Fix?
+    # - name: Ensure all services has an appdata dir
+    #   become: true
+    #   become_user: default-user
+    #   become_method: su
+    #   file:
+    #     path: "{{ mounts.configs.ct_mountpoint }}/{{ item.key }}"
+    #     state: directory
+    #   loop: "{{ lookup('ansible.builtin.dict', compose.services) }}"
+
+    - name: Deploy docker applications
+      become: true
+      become_user: default-user
+      become_method: su
+      community.docker.docker_compose:
+        project_src: "{{ docker_compose_dir }}"
+        state: present
+        remove_orphans: true
 
 # Taken from: https://github.com/fccn/ansible-docker-deploy/blob/58f789c637fc78968a2707570327ee4db40a7198/tasks/main.yml#L283
 # - name: Wait until docker health checks are healthy or ignore it if no docker healthcheck configured

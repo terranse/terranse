@@ -8,7 +8,7 @@ system_under_config: "{{ inventory_hostname }}"
 mounts:
   configs:
     zfs_dataset: Tank2/appdata
-    ct_mountpoint: "/storage/appdata"
+    ct_mountpoint: "/appdata"
   downloads:
     zfs_dataset: Tank2
     ct_mountpoint: "/storage/downloads"
