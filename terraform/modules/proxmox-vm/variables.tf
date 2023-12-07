@@ -17,10 +17,23 @@ variable "memory" {
 }
 
 variable "disk_size" {
-    type = string
-    default = "10G"
+  type = string
+  default = "10G"
 }
 
 variable "vmid" {
-    type = string
+  type = string
+}
+
+variable "iso" {
+  type = string
+  default = null
+}
+
+variable "clone" {
+  type = string
+}
+
+variable "os_type" {
+  default = "cloud-init"
 }
