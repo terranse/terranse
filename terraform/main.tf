@@ -24,7 +24,7 @@ locals {
   module_specific_configurations = {
     media = {
       memory    = 4096
-      disk_size = "16G"
+      disk_size = "32G"
       vmid      = 101 # This is also used for the ending part of the IP address
     }
     backup = {
@@ -39,7 +39,12 @@ locals {
       vmid      = 104
     }
     authentication = {
-      vmid = 105
+      memory = 4096
+      vmid   = 105
+    }
+    photosite = {
+      memory = 4096
+      vmid   = 106
     }
   }
   module_configurations = {
