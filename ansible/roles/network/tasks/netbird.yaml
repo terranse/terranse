@@ -1,2 +1,38 @@
 ---
 
+- name: Get Netbird key
+  get_url:
+    url: https://pkgs.wiretrustee.com/debian/public.key
+    dest: /usr/share/keyrings/wiretrustee.asc
+
+- name: Add Netbird repo
+  apt_repository:
+    repo: deb [arch=amd64 signed-by=/usr/share/keyrings/wiretrustee.asc] https://pkgs.wiretrustee.com/debian stable main
+    filename: netbird
+    state: present
+  when: ansible_architecture == "x86_64"
+
+- name: Install cli tool and app
+  apt:
+    name:
+      - netbird
+    update_cache: true
+
+# TODO:
+# - name: Add network key to sign in
+#   get_url: # Call Netbird API to get key?
+#   register: key
+- name: Call netbird api on localhost to create a setup key
+  uri:
+    url: https://api.netbird.io/api/setup-keys
+    method: POST
+    body_format: json
+    body:
+      
+
+# TODO:
+# - name: Login to netbird
+#   command: "netbird login --setup-key {{ key }}"
+
+# - name: Start Netbird
+#   command: netbird up

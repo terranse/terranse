@@ -14,6 +14,6 @@ mounts:
   configs:
     zfs_dataset: Tank2/appdata
     ct_mountpoint: "/storage/appdata"
-  cloud:
-    zfs_dataset: Tank3/cloud
-    ct_mountpoint: "/storage/cloud"
+
+docker_compose_dir: "/home/default-user"
+docker_user: "default-user"
