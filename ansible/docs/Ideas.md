@@ -54,5 +54,12 @@ Currently the project is setup by running: `ansible-playbook -i inventory deploy
 `infra/ansible` directory. I think the project is currently quite sensitive of where you run from.
 
 ## Obstacles
+There is currently no working sync between live, local nextcloud database and a persistant storage. Need to check for resiliance
+Backup solution needs revising
+Network not accessible from outside, Netbird/Tailscale
 
-
+## Layout for torrent files
+/storage
+|-- /movies
+|-- /tv-series
+|_- /utils
