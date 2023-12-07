@@ -1,0 +1,14 @@
+# Try to abstract away some of the default behaviours in this repo
+
+## Terraform
+The `terraform` command will globally be shortened down to `tf`. 
+```
+alias tf=terraform
+```
+
+## Ansible
+The `ansible-playbook` command will globally be shortened to `ap`, and `ansible-vault` to `av`.
+```
+alias ap=ansible-playbook
+alias av=ansible-vault
+```
