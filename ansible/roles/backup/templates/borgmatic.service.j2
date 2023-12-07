@@ -1,18 +1,8 @@
 [Unit]
-Description=Autorestic backup service
-
-[Service]
-Type=oneshot
-{% if autorestic_systemd_service_execcondition is defined %}
-ExecCondition={{ autorestic_systemd_service_execcondition }}
-{% endif %}
-ExecStart=autorestic --ci -c {{ autorestic_dir }}/{{ autorestic_config_filename }} backup --all
-
-
-[Unit]
 Description=Borgmatic system backup
 Requires=network.target
 After=network.target
+
 [Service]
 Type=oneshot
 Nice=10

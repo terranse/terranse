@@ -43,3 +43,8 @@ autorestic_additional_env:
 
 restic_enabled_backends:
   - b2
+
+hetzner_storage_box:
+  username: "{{ lookup('1pasword', 'Hetzner', section='Storagebox', field='username')}}"
+  password: "{{ lookup('1pasword', 'Hetzner', section='Storagebox', field='password')}}"
+  url: "{{ lookup('1pasword', 'Hetzner', section='Storagebox', field='url')}}"
