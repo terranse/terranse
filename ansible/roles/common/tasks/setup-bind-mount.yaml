@@ -56,26 +56,26 @@
 #   loop: "{{ shared_filesystems }}"
 
 # TODO: This can sometimes break if files are corrupted
-- name: Set default ACL permissions for {{ groupname }}
-  acl:
-    path: "{{ item }}"
-    recursive: yes
-    entity: "{{ groupname }}"
-    etype: group
-    permissions: rwx
-    default: yes
-    state: present
-  loop: "{{ shared_filesystems }}"
+# - name: Set default ACL permissions for {{ groupname }}
+#   acl:
+#     path: "{{ item }}"
+#     recursive: yes
+#     entity: "{{ groupname }}"
+#     etype: group
+#     permissions: rwx
+#     default: yes
+#     state: present
+#   loop: "{{ shared_filesystems }}"
 
-- name: Set ACL permissions for {{ groupname }} for current files
-  acl:
-    path: "{{ item }}"
-    recursive: yes
-    entity: "{{ groupname }}"
-    etype: group
-    permissions: rwx
-    state: present
-  loop: "{{ shared_filesystems }}"
+# - name: Set ACL permissions for {{ groupname }} for current files
+#   acl:
+#     path: "{{ item }}"
+#     recursive: yes
+#     entity: "{{ groupname }}"
+#     etype: group
+#     permissions: rwx
+#     state: present
+#   loop: "{{ shared_filesystems }}"
 
 - name: Register mountpoints currently in config file
   lineinfile:
