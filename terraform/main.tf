@@ -42,10 +42,6 @@ locals {
       memory = 4096
       vmid   = 105
     }
-    photosite = {
-      memory = 4096
-      vmid   = 106
-    }
   }
   module_configurations = {
     for module_name, specific_configurations in local.module_specific_configurations : module_name => merge(
