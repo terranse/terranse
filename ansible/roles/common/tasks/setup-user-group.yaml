@@ -56,3 +56,8 @@
   tags:
     - systemd
     - docker
+
+- name: Ensure user local bin directory
+  file:
+    path: "{{ ansible_env.HOME }}/.local/bin"
+    state: directory
