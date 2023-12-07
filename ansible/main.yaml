@@ -35,8 +35,8 @@
     - role: common
     - role: collaboration
 
-- hosts: fileSharing
+- hosts: authentication
   vars_files:
     - secrets.yaml
   roles:
-    - role: fileSharing
+    - role: authentication
