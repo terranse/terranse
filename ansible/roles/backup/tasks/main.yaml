@@ -44,5 +44,13 @@
     name: fuse
     state: present
 
+- name: Setup default user
+  vars:
+    groupname: container-data
+  import_tasks: roles/common/tasks/setup-user-group.yaml
+
+- name: Setup 1password
+  import_tasks: roles/common/tasks/1password.yaml
+
 - include_tasks:
-    file: autorestic.yaml
+    file: borgmatic.yaml

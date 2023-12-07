@@ -1,0 +1,6 @@
+source_directories:
+  - /storage/cloud
+
+repositories:
+  - path: ssh://u368673@u368673.your-storagebox.de/cloud-backup.borg
+    label: cloud-backup
