@@ -26,7 +26,8 @@ resource "proxmox_vm_qemu" "test_vm" {
   # clone = var.template_name
   # basic VM settings here. agent refers to guest agent
   agent     = 1
-  os_type   = "qemu"
+  os_type   = "cloud-init"
+  clone     = var.clone
   cores     = var.cores
   sockets   = 1
   cpu       = "host"
