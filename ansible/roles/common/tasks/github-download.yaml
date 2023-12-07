@@ -1,0 +1,29 @@
+---
+
+- name: Install dependencies for github download
+  ansible.builtin.apt:
+    update_cache: false
+    pkg:
+      - bzip2
+
+- name: "Get latest {{ release.name }} release"
+  uri:
+    url: "https://api.github.com/repos/{{ release.repo }}/releases/latest"
+    return_content: true
+  register: json_response
+
+- name: Download latest release
+  get_url:
+    # url: "{{ json_reponse.json.browser_download_url }}"
+    url: "https://github.com/{{ release.repo }}/releases/download/{{ json_response.json.tag_name }}/{{ release.name }}_{{ json_response.json.tag_name[1:] }}_linux_amd64.bz2"
+    dest: "/tmp/{{ release.name }}.bz2"
+    mode: 0644
+
+- name: Unzip
+  ansible.builtin.shell: bzip2 -dc /tmp/{{ release.name }}.bz2 > /usr/local/bin/{{ release.name }}
+  changed_when: false
+
+- name: Make binary executable
+  ansible.builtin.file:
+    dest: /usr/local/bin/{{ release.name }}
+    mode: a+x
