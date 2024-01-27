@@ -7,13 +7,25 @@
     - pip
     - pkg-config
     - libacl1-dev
+    - libssl-dev
+    - liblz4-dev
+    - libzstd-dev
+    - libxxhash-dev
 
 - name: Install Borgmatic
   become: true
-  become_user: "{{ backup_user }}"
-  become_method: su
   pip:
-    name: borgmatic
+    name: "{{ item }}"
+  loop:
+    - setuptools
+    - pkgconfig
+    - borgmatic
+    - borgbackup
+
+# TODO: At some point, the /usr/local/bin/borg application was not part of the PATH,
+# and as such was not found. `which borg` still replied with the above, correct path,
+# but it was no longer runnable that way. Simplest fix was to just symlink it:
+# ln -s /usr/local/bin/borg /usr/bin/borg
 
 # TODO: Specify manual steps for remote repo init
 # Ensure ssh pub key, e.g. via 1pass, bw. Either manually, or
@@ -30,16 +42,13 @@
     state: directory
     mode: 0744
 
-# TODO: Loop over all borg configs to backup
+# TODO: Loop over all borg configs to backup without manually specifying them
+# TODO: Ensure that backup service is run as unprivileged user
+#       Note: for some reason, just adding `become` here did not work, as when looking up user directory
+#       we still ended up in `/root`. For now we leave it to log in as default user, i.e. root
 - name: Setup systemd service and timer for given configuration
-  become: true
-  become_user: "{{ backup_user }}"
-  become_method: su
-  block:
-  - name: Deploy borgmatic services
-    loop:
-      - cloud-borg-backup
-    loop_control:
-      loop_var: borgmatic_config_filename
-    include_tasks: systemd-services.yaml
-  
+  loop:
+    - cloud-borg-backup
+  loop_control:
+    loop_var: borgmatic_config_filename
+  include_tasks: systemd-services.yaml
