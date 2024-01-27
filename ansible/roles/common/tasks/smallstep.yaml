@@ -1,0 +1,41 @@
+---
+
+- name: Setup smallstep certs for an internal service
+  tags:
+    - never
+    - smallstep
+  vars:
+    ca_host: home.edholm.ca.smallstep.com
+    ca_fingerprint: "{{ SMALLSTEP_HOME_CA_FINGERPRINT }}"
+    ca_provisioner: home-jwk-issuer
+    domain_name: edholm.cc
+  block:
+    - name: Download smallstep CA CLI client
+      apt:
+        deb: https://dl.smallstep.com/cli/docs-cli-install/latest/step-cli_amd64.deb
+
+    - name: Install depenencies for RA setup
+      apt:
+        pkg:
+          - jq
+          - curl
+          - tar
+
+    - name: Fetch RA setup script
+      get_url:
+        url: https://files.smallstep.com/install-step-ra.sh
+        dest: /tmp/install-step-ra.sh
+        mode: 0700
+        owner: root
+
+    - name: Run RA setup script to authenticate against CA authority
+      command:
+        chdir: /tmp
+        argv: 
+        - ./install-step-ra.sh
+        - --ca-url https://{{ ca_host }}
+        - --fingerprint {{ ca_fingerprint }}
+        - --provisioner-name {{ ca_provisioner }}
+        - --dns-names "ra.{{ role_name }}.{{ domain_name }}"
+        - --listen-address :443
+        creates: /etc/step-ca/ca.json
