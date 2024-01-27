@@ -19,8 +19,8 @@
     - name: "Enable keyctl feature for {{ current_vmid }}"
       community.general.proxmox:
         vmid: "{{ current_vmid }}"
-        api_user: root@pam
-        api_password: ***REMOVED***
+        api_user: "{{ lookup('1pasword', 'Proxmox', field='username') }}@pam"
+        api_password: "{{ lookup('1pasword', 'Proxmox', field='password') }}"
         api_host: 192.168.1.100
         features:
           - nesting=1
