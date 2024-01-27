@@ -3,93 +3,106 @@
 - name: Add docker
   tags: docker
   block:
-    - name: Get latest fuse-overlayfs release version
-      uri:
-        url: https://api.github.com/repos/containers/fuse-overlayfs/releases/latest
-        return_content: true
-      register: json_response
+  - name: Get latest fuse-overlayfs release version
+    uri:
+      url: https://api.github.com/repos/containers/fuse-overlayfs/releases/latest
+      return_content: true
+    register: json_response
 
-    ## TODO: Need to check whether the found tag is newer than the present one (if existing)
-    ## Current behaviour (below) skips adding new binary if any is present in dir (dictated by "creates")
+  ## TODO: Need to check whether the found tag is newer than the present one (if existing)
+  ## Current behaviour (below) skips adding new binary if any is present in dir (dictated by "creates")
 
-    - name: "Download {{ json_response.json.tag_name }} of fuse-overlayfs"
-      get_url:
-        url: "https://github.com/containers/fuse-overlayfs/releases/download/{{ json_response.json.tag_name }}/fuse-overlayfs-x86_64"
-        dest: /usr/local/bin/
-        # owner: "{{ docker_user }}"
-        mode: '760'
+  - name: "Download {{ json_response.json.tag_name }} of fuse-overlayfs"
+    get_url:
+      url: "https://github.com/containers/fuse-overlayfs/releases/download/{{ json_response.json.tag_name }}/fuse-overlayfs-x86_64"
+      dest: /usr/local/bin/
+      # owner: "{{ docker_user }}"
+      mode: '760'
 
-    - name: Rename downloaded binary
-      command: mv /usr/local/bin/fuse-overlayfs-x86_64 /usr/local/bin/fuse-overlayfs
-      args:
-        removes: /usr/local/bin/fuse-overlayfs-x86_64
-        creates: /usr/local/bin/fuse-overlayfs
+  - name: Rename downloaded binary
+    command: mv /usr/local/bin/fuse-overlayfs-x86_64 /usr/local/bin/fuse-overlayfs
+    args:
+      removes: /usr/local/bin/fuse-overlayfs-x86_64
+      creates: /usr/local/bin/fuse-overlayfs
 
-    # TODO: This assumes no other dockerd config options are already specified. Does NOT append!
-    # More info on daemon config options: https://www.devopsschool.com/blog/how-to-configure-docker-daemon-with-a-configuration-file/
-    - name: Create docker config directory
-      file:
-        state: directory
-        path: /etc/docker
+  # TODO: This assumes no other dockerd config options are already specified. Does NOT append!
+  # More info on daemon config options: https://www.devopsschool.com/blog/how-to-configure-docker-daemon-with-a-configuration-file/
+  - name: Create docker config directory
+    file:
+      state: directory
+      path: /etc/docker
 
-    - name: Create daemon.json if none exists
-      vars:
-        json:
-          storage-driver: "fuse-overlayfs"
-      copy:
-        content: "{{ json | to_nice_json }}"
-        dest: /etc/docker/daemon.json
-        force: false
+  - name: Create daemon.json if none exists
+    vars:
+      json:
+        storage-driver: "fuse-overlayfs"
+    copy:
+      content: "{{ json | to_nice_json }}"
+      dest: /etc/docker/daemon.json
+      force: false
 
-    # Installation guide from: https://docs.docker.com/engine/install/debian/
-    # TODO: This uses the deprecated apt-key method, which has since been replaced
-    - name: Install Docker prerequisites
-      apt:
-        pkg:
-          - python3-pip
-          - gnupg
-          # - acl # For accessing the volume mount?
-        state: present
-        update_cache: true
+  # Installation guide from: https://docs.docker.com/engine/install/debian/
+  # TODO: This uses the deprecated apt-key method, which has since been replaced
+  - name: Install Docker prerequisites
+    apt:
+      pkg:
+        - python3-pip
+        - gnupg
+        # - acl # For accessing the volume mount?
+      state: present
+      update_cache: true
 
-    - name: Add Docker GPG apt Key
-      apt_key:
-        url: https://download.docker.com/linux/debian/gpg
-        state: present
+  - name: Add Docker GPG apt Key
+    apt_key:
+      url: https://download.docker.com/linux/debian/gpg
+      state: present
 
-    - name: Get DEB architecture # for when adding repo in next step
-      shell: dpkg --print-architecture
-      register: deb_architecture
-      changed_when: deb_architecture.stdout != "amd64"
+  - name: Get DEB architecture # for when adding repo in next step
+    shell: dpkg --print-architecture
+    register: deb_architecture
+    changed_when: deb_architecture.stdout != "amd64"
 
-    - name: Add Docker Repository
-      apt_repository:
-        repo: deb [arch={{ deb_architecture.stdout }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
-        state: present
+  - name: Add Docker Repository
+    apt_repository:
+      repo: deb [arch={{ deb_architecture.stdout }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
+      state: present
 
-    - name: Update apt and install docker-ce
-      apt:
-        pkg:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-compose-plugin
-        state: latest
-        update_cache: true
+  - name: Update apt and install docker-ce
+    apt:
+      pkg:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+        - docker-compose-plugin
+      state: latest
+      update_cache: true
 
-    - name: "Add {{ docker_user }} to the docker group"
-      user:
-        name: "{{ docker_user }}"
-        append: yes
-        uid: 1000
-        groups:
-          - docker
+  - name: "Add {{ docker_user }} to the docker group"
+    user:
+      name: "{{ docker_user }}"
+      append: yes
+      uid: 1000
+      groups:
+        - docker
 
-    # Needed for Ansible to be able to run docker-compose files.
-    - name: Install Docker (and other deps) Module for Python
-      become: true
-      become_user: "{{ docker_user }}"
-      become_method: su
-      pip:
-        name:
-          - docker-compose
+  # Needed for Ansible to be able to run docker-compose files.
+  - name: Install Docker (and other deps) Module for Python
+    become: true
+    become_user: "{{ docker_user }}"
+    become_method: su
+    pip:
+      name:
+        - docker-compose
+
+  - name: Add convenience script for updating Docker images to latest version
+    become: true
+    lineinfile:
+      path: "{{ ansible_env.HOME }}/.bashrc"
+      line: |
+        # Convenience script for updating docker compose images to latest version
+        dcu() {
+          docker compose pull
+          docker compose up -d --remove-orphans
+          yes | docker image prune
+        }
+      create: true

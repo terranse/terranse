@@ -27,6 +27,8 @@
       import_tasks: roles/common/tasks/setup-docker-support.yaml
 
   always:
+    - import_tasks: roles/common/tasks/smallstep.yaml
+
     # TODO: Contains sensitive data! Should be removed/hidden!
     # Perhaps copy to temp file, access and then remove?
     - name: Copy docker-compose.yaml
@@ -37,12 +39,26 @@
         group: container-data
         mode: 0644
 
+    # Temporary solution for https://github.com/nextcloud/docker/issues/763#issuecomment-1007447212
+    - name: Copy redis session ini file with correct permissions
+      copy:
+        src: redis-session.ini
+        dest: "{{ docker_compose_dir }}"
+        owner: default-user
+        group: container-data
+        mode: 0664
+
+    # TODO: Automate adding OIDC provider config in case there is one,
+    #       and make sure that the OIDC provider is already set up. Inspo:
+    #       https://blog.cubieserver.de/2022/complete-guide-to-nextcloud-oidc-authentication-with-authentik/#nextcloud
+
     - name: Deploy Docker applications
       become: true
       become_user: default-user
       become_method: su
       community.docker.docker_compose:
         project_src: "{{ docker_compose_dir }}"
+        remove_orphans: true
         state: present
 
     - name: Install rsync
@@ -66,13 +82,13 @@
     #     dest: /storage/appdata/nextcloud/database
     #     partial: yes
 
-    - name: Create symlink to basic cloud data
-      file:
-        src: /storage/cloud
-        dest: /storage/appdata/nextcloud/data/cloud
-        state: link
-        owner: default-user
-        group: container-data
+    # - name: Create symlink to basic cloud data
+    #   file:
+    #     src: /storage/cloud
+    #     dest: /storage/appdata/nextcloud/data/cloud
+    #     state: link
+    #     owner: default-user
+    #     group: container-data
 
 # Taken from: https://github.com/fccn/ansible-docker-deploy/blob/58f789c637fc78968a2707570327ee4db40a7198/tasks/main.yml#L283
 # - name: Wait until docker health checks are healthy or ignore it if no docker healthcheck configured
