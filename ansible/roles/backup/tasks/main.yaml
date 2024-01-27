@@ -49,8 +49,12 @@
     groupname: container-data
   import_tasks: roles/common/tasks/setup-user-group.yaml
 
-- name: Setup 1password
-  import_tasks: roles/common/tasks/1password.yaml
+- name: Mount backup drive
+  import_tasks: roles/common/tasks/container-setup.yaml
 
-- include_tasks:
+- name: Setup 1password
+  include_tasks: roles/common/tasks/1password.yaml
+
+- name: Setup Borgmatic
+  include_tasks:
     file: borgmatic.yaml

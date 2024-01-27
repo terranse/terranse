@@ -17,14 +17,14 @@
       shell:
         cmd: "zfs share Tank3/cloud"
         creates: /var/lib/samba/usershares/tank3_cloud
-    # Revert to guest_ok=n
+    # TODO: Revert to guest_ok=n
     - name: Allow guest to access share (VERY TEMPORARY BAD FIX)
       lineinfile:
         path: /var/lib/samba/usershares/tank3_cloud
         regexp: '(guest_ok=)n'
         backrefs: true
         line: '\g<1>y'
-    # Revert to 0770
+    # TODO: Revert to 0770
     - name: Set new permissions for whole filesystem to allow guest access (REVERT ASAP)
       file:
         path: /storage/cloud/

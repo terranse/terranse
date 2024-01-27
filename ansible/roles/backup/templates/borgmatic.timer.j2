@@ -1,9 +1,10 @@
 [Unit]
-Description=Daily backup timer
-Requires=borgmatic.service
+Description=Run borgmatic backup
 
 [Timer]
-OnCalendar=*-*-* 01:00:00
+OnCalendar=daily
 Persistent=true
+RandomizedDelaySec=3h
+
 [Install]
 WantedBy=timers.target
