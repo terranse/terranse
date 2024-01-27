@@ -1,4 +1,3 @@
----
 
 # - hosts: pve
 #   tasks:
@@ -17,6 +16,8 @@
     - role: media
 
 - hosts: backup
+  vars_files:
+    - secrets.yaml
   roles:
     - role: common
     - role: backup
