@@ -37,7 +37,7 @@ SystemCallErrorNumber=EPERM
 # "BindReadOnlyPaths". Then add any local repository paths to the list of
 # "ReadWritePaths". This leaves most of the filesystem read-only to borgmatic.
 ProtectSystem=full
-# ReadWritePaths=-/mnt/my_backup_drive
+ReadWritePaths=-/storage/cloud
 # This will mount a tmpfs on top of /root and pass through needed paths
 # TemporaryFileSystem=/root:ro
 # BindPaths=-/root/.cache/borg -/root/.config/borg -/root/.borgmatic
