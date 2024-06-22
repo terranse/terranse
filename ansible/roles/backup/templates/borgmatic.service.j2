@@ -12,19 +12,19 @@ Type=oneshot
 # Security settings for systemd running as root, optional but recommended to improve security. You
 # can disable individual settings if they cause problems for your use case. For more details, see
 # the systemd manual: https://www.freedesktop.org/software/systemd/man/systemd.exec.html
-LockPersonality=true
+# LockPersonality=true
 # Certain borgmatic features like Healthchecks integration need MemoryDenyWriteExecute to be off.
 # But you can try setting it to "yes" for improved security if you don't use those features.
 MemoryDenyWriteExecute=no
 NoNewPrivileges=yes
-PrivateDevices=yes
+# PrivateDevices=yes
 PrivateTmp=yes
-ProtectClock=yes
-ProtectControlGroups=yes
-ProtectHostname=yes
-ProtectKernelLogs=yes
-ProtectKernelModules=yes
-ProtectKernelTunables=yes
+# ProtectClock=yes
+# ProtectControlGroups=yes
+# ProtectHostname=yes
+# ProtectKernelLogs=yes
+# ProtectKernelModules=yes
+# ProtectKernelTunables=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 RestrictNamespaces=yes
 RestrictRealtime=yes
@@ -44,7 +44,7 @@ ProtectSystem=full
 # BindReadOnlyPaths=-/root/.ssh
 
 # May interfere with running external programs within borgmatic hooks.
-CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_NET_RAW
+# CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_NET_RAW
 
 # Lower CPU and I/O priority.
 Nice=19
@@ -60,7 +60,6 @@ LogRateLimitIntervalSec=0
 
 # Environment variables for borgmatic to access 1password SSH keys
 Environment=OP_SERVICE_ACCOUNT_TOKEN={{ BACKUP_OP_SERVICE_ACCOUNT_TOKEN }}
-User={{ backup_user }}
 
 # Delay start to prevent backups running during boot. Note that systemd-inhibit requires dbus and
 # dbus-user-session to be installed.
