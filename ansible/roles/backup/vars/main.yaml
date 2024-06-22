@@ -11,6 +11,7 @@ mounts:
 
 docker_compose_dir: "/home/default-user"
 backup_user: "default-user"
+backup_group: "container-data"
 
 # The autorestic setup is taken directly from:
 # https://0xacab.org/varac-projects/ansible-role-autorestic
@@ -45,6 +46,6 @@ restic_enabled_backends:
   - b2
 
 hetzner_storage_box:
-  username: "{{ lookup('1pasword', 'Hetzner', section='Storagebox', field='username')}}"
-  password: "{{ lookup('1pasword', 'Hetzner', section='Storagebox', field='password')}}"
-  url: "{{ lookup('1pasword', 'Hetzner', section='Storagebox', field='url')}}"
+  username: "{{ lookup('onepassword', 'Hetzner', section='Storagebox', field='username')}}"
+  password: "{{ lookup('onepassword', 'Hetzner', section='Storagebox', field='password')}}"
+  url: "{{ lookup('onepassword', 'Hetzner', section='Storagebox', field='url')}}"

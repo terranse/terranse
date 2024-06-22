@@ -11,6 +11,8 @@
     - liblz4-dev
     - libzstd-dev
     - libxxhash-dev
+    - fuse3
+    - libfuse3-dev
 
 - name: Install Borgmatic
   become: true
@@ -19,6 +21,7 @@
   loop:
     - setuptools
     - pkgconfig
+    - pyfuse3
     - borgmatic
     - borgbackup
 
@@ -36,16 +39,17 @@
 # borg key export ssh://u368673@u368673.your-storagebox.de:23/./cloud-backup.borg
 # THe passphrase alone does not suffice, but the key must also be saved
 
-- name: Ensure systemd user dir exists
-  file:
-    path: "{{ ansible_env.HOME }}/.config/systemd/user"
-    state: directory
-    mode: 0744
+# Note: for some reason, just adding `become` did not work, as when looking up user directory
+# we still ended up in `/root`, not `/home/user`.
+# This include sets the 'user_home' variable
+- name: Get configured user's home dir
+  vars:
+    username: "{{ backup_user }}"
+  include_tasks: roles/common/tasks/get-user-home.yaml
 
 # TODO: Loop over all borg configs to backup without manually specifying them
 # TODO: Ensure that backup service is run as unprivileged user
-#       Note: for some reason, just adding `become` here did not work, as when looking up user directory
-#       we still ended up in `/root`. For now we leave it to log in as default user, i.e. root
+
 - name: Setup systemd service and timer for given configuration
   loop:
     - cloud-borg-backup

@@ -1,24 +1,34 @@
 
 - name: Deploy systemd service files
+  become: true
+  become_user: "{{ backup_user }}"
+  become_method: su
   vars:
-    backup_user: root
     executable_location: /usr/local/bin
-    service_file_destination: /etc/systemd/system
-    config_file_dir: "{{ ansible_env.HOME }}/.config/borgmatic.d"
-    # Note: If user scope: {{ ansible_env.HOME }}/.config/systemd/user
+    # service_file_destination: /etc/systemd/system
+    service_file_destination: "{{ user_home }}/.config/systemd/user"
+    config_file_dir: "{{ user_home }}/.config/borgmatic.d"
   block:
   - name: Ensure borgmatic config dir
     file:
       path: "{{ config_file_dir }}"
       state: directory
+      mode: 0744
 
-  - name: "Deploy configuration to {{ config_file_dir }}/{{ borgmatic_config_filename }}"
+  - name: Ensure borgmatic config dir
+    file:
+      path: "{{ service_file_destination }}"
+      state: directory
+      mode: 0744
+
+  - name: "Deploy configuration to {{ config_file_dir }}/{{ borgmatic_config_filename }}.yaml"
     ansible.builtin.copy:
       src: "files/{{ borgmatic_config_filename }}.yaml"
       dest: "{{ config_file_dir }}/{{ borgmatic_config_filename }}.yaml"
       mode: 0600
 
   # TODO: Add notification to <service> if backup does not run
+  # TODO: Ensure that ReadWritePath is restricted to the specific backup directory
   - name: Deploy borgmatic service unit
     ansible.builtin.template:
       src: borgmatic.service.j2
@@ -36,6 +46,6 @@
       name: "{{ borgmatic_config_filename }}.timer"
       daemon_reload: true
       state: started
-      # scope: user
+      scope: user
       enabled: true
       masked: false
