@@ -1,67 +1,67 @@
 ---
 
-- name: Get current VMID
-  import_tasks: roles/common/tasks/find-vmid-from-name.yaml
+- name: Setup host for Tailscale
   delegate_to: pve
+  block:
+  - name: Get current VMID
+    import_tasks: roles/common/tasks/find-vmid-from-name.yaml
 
-- name: Ensure TUN/TAP device is bound to ct
-  import_tasks: roles/common/tasks/add-tun-tap-device.yaml
-  delegate_to: pve
+  - name: Ensure TUN/TAP device is bound to ct
+    import_tasks: roles/common/tasks/add-tun-tap-device.yaml
 
 # Taken from https://github.com/artis3n/ansible-role-tailscale
-- name: Install apt dependencies
+- name: Install tailscale
   become: true
-  apt:
-    pkg:
-      - gnupg2
-      - gnupg-agent
-      - apt-transport-https
-      - python3-apt
-    update_cache: yes
-    state: present
+  block:
+  - name: Install apt dependencies
+    apt:
+      pkg:
+        - gnupg2
+        - gnupg-agent
+        - apt-transport-https
+        - python3-apt
+      update_cache: yes
+      state: present
 
-- name: Add Tailscale Signing Key
-  become: true
-  ansible.builtin.apt_key:
-    url: "{{ apt_signkey }}"
-    state: present
+  - name: Add tailscale gpg key
+    get_url:
+      url: https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release | lower }}.asc
+      dest: /usr/share/keyrings/tailscale-archive-keyring.asc
+      mode: 0644
 
-- name: Add Tailscale Deb
-  become: true
-  ansible.builtin.apt_repository:
-    repo: "{{ apt_deb }}"
-    state: present
+  - name: Add Tailscale Deb
+    apt_repository:
+      repo: "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.asc] https://pkgs.tailscale.com/stable/debian {{ ansible_distribution_release | lower }} main"
+      filename: tailscale
+      state: present
 
-- name: Install Tailscale
-  become: true
-  ansible.builtin.apt:
-    name: tailscale
-    state: present
-    update_cache: true
+  - name: Install Tailscale
+    apt:
+      name: tailscale
+      state: present
+      update_cache: true
 
-- name: Enable Tailscale Service
-  become: true
-  ansible.builtin.service:
-    name: tailscaled
-    state: started
-    enabled: true
+  - name: Enable Tailscale Service
+    service:
+      name: tailscaled
+      state: started
+      enabled: true
 
-# - name: Install | Check if Tailscale is connected
-#   ansible.builtin.command: tailscale status
-#   changed_when: false
-#   register: tailscale_status
-#   failed_when:
-#     - tailscale_status.rc != 0
-#     - "'Logged out.' not in tailscale_status.stdout"
+  # - name: Install | Check if Tailscale is connected
+  #   command: tailscale status
+  #   changed_when: false
+  #   register: tailscale_status
+  #   failed_when:
+  #     - tailscale_status.rc != 0
+  #     - "'Logged out.' not in tailscale_status.stdout"
 
-- name: Bring Tailscale Up
-  become: true
-  ansible.builtin.command: tailscale up --authkey={{ tailscale_key }}
-  # Since the auth key is included in this task's output, we do not want to log output
-  # no_log: true
-  register: tailscale_start
-  # If a failure occurred due to state changes, we still want to log a redacted version of the error if "no_log" is true
-  ignore_errors: true
-  # when: not 'Logged out.' in tailscale_status.stdout
-  async: 60
-  poll: 5
+  - name: Bring Tailscale Up
+    command: tailscale up --authkey={{ tailscale_key }}
+    # Since the auth key is included in this task's output, we do not want to log output
+    # no_log: true
+    register: tailscale_start
+    # If a failure occurred due to state changes, we still want to log a redacted version of the error if "no_log" is true
+    ignore_errors: true
+    # when: not 'Logged out.' in tailscale_status.stdout
+    async: 60
+    poll: 5

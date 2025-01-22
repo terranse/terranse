@@ -1,5 +1,4 @@
 ---
-version: '3.5'
 
 # Taken from https://stackoverflow.com/a/48651071, available since 3.4
 x-common-env: &common-environment
@@ -7,6 +6,7 @@ x-common-env: &common-environment
   PGID: 1000
   UMASK_SET: 022
   TZ: Europe/Stockholm
+
 services:
 ######## MEDIA ACQUISITION ########
   prowlarr:
@@ -96,6 +96,23 @@ services:
       - "{{ mounts.configs.ct_mountpoint }}/lazylibrarian:/config"
       - /storage/media/Books:/media/books
     restart: unless-stopped
+
+  unpackerr:
+    image: golift/unpackerr
+    container_name: unpackerr
+    volumes:
+      - "{{ mounts.configs.ct_mountpoint }}/unpackerr:/config"
+      - /storage/movies:/media/movies
+      - /storage/tv_series/:/media/tv_series
+    restart: always
+    user: 1000:1000
+    environment:
+      TZ: Europe/Stockholm
+      UN_LOG_FILE: /config/unpackerr.log
+      UN_SONARR_0_URL: http://sonarr:8989
+      UN_SONARR_0_API_KEY: 271ab53c333c4aa49a8748fe13d32782
+      UN_RADARR_0_URL: http://radarr:7878
+      UN_RADARR_0_API_KEY: 752c6b177a934e938636cac8ae29e013
 
 ######## MEDIA HANDLING ########
   jellyfin:

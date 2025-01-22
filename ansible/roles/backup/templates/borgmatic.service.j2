@@ -8,7 +8,7 @@ ConditionACPower=true
 
 [Service]
 Type=oneshot
-
+# What to uncomment when using root: https://github.com/systemd/systemd/issues/4959#issuecomment-1128810694
 # Security settings for systemd running as root, optional but recommended to improve security. You
 # can disable individual settings if they cause problems for your use case. For more details, see
 # the systemd manual: https://www.freedesktop.org/software/systemd/man/systemd.exec.html
@@ -63,6 +63,7 @@ Environment=OP_SERVICE_ACCOUNT_TOKEN={{ BACKUP_OP_SERVICE_ACCOUNT_TOKEN }}
 
 # Delay start to prevent backups running during boot. Note that systemd-inhibit requires dbus and
 # dbus-user-session to be installed.
+User=default-user
 
 ExecStartPre=sleep 1m
-ExecStart=systemd-inhibit --who="borgmatic" --what="sleep:shutdown" --why="Prevent interrupting scheduled backup" {{ executable_location }}/borgmatic --verbosity -2 --syslog-verbosity 1
+ExecStart=systemd-inhibit --who="borgmatic" --what="idle" --why="Prevent interrupting scheduled backup" {{ executable_location }}/borgmatic --verbosity -2 --syslog-verbosity 1

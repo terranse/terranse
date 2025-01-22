@@ -2,13 +2,14 @@
 
 - name: Setup smallstep certs for an internal service
   tags:
-    - never
     - smallstep
   vars:
-    ca_host: home.edholm.ca.smallstep.com
+    ca_host: "{{ lookup('onepassword', 'Smallstep', field='ca_host', vault='HomeNetwork') }}"
     ca_fingerprint: "{{ SMALLSTEP_HOME_CA_FINGERPRINT }}"
-    ca_provisioner: home-jwk-issuer
+    ca_provisioner: "{{ lookup('onepassword', 'Smallstep', field='username', vault='HomeNetwork') }}"
+    ca_provisioner_password: "{{ lookup('onepassword', 'Smallstep', field='password', vault='HomeNetwork') }}"
     domain_name: edholm.cc
+    cert_location: /etc/ssl/step/certs
   block:
     - name: Download smallstep CA CLI client
       apt:
@@ -21,21 +22,92 @@
           - curl
           - tar
 
+    - name: Create temporary directory
+      tempfile:
+        state: directory
+        suffix: temp
+      register: ca_dir
+
     - name: Fetch RA setup script
       get_url:
         url: https://files.smallstep.com/install-step-ra.sh
-        dest: /tmp/install-step-ra.sh
+        dest: "{{ ca_dir.path }}/install-step-ra.sh"
         mode: 0700
         owner: root
 
+    - name: Replace faulty line in setup script
+      lineinfile:
+        path: "{{ ca_dir.path }}/install-step-ra.sh"
+        search_string: 'install -m 0755 -t /usr/bin step-ca_${CA_VERSION:1}/step-ca'
+        line:  'install -m 0755 -t /usr/bin ./step-ca'
+
+    - name: Move root CA provisioner password to local temp file
+      copy:
+        content: "{{ ca_provisioner_password }}"
+        dest: "{{ ca_dir.path }}/ca_provisioner_password"
+        mode: 0600
+
     - name: Run RA setup script to authenticate against CA authority
       command:
-        chdir: /tmp
+        chdir: "{{ ca_dir.path }}"
         argv: 
         - ./install-step-ra.sh
-        - --ca-url https://{{ ca_host }}
-        - --fingerprint {{ ca_fingerprint }}
-        - --provisioner-name {{ ca_provisioner }}
-        - --dns-names "ra.{{ role_name }}.{{ domain_name }}"
-        - --listen-address :443
-        creates: /etc/step-ca/ca.json
+        - --ca-url
+        - "https://{{ ca_host }}"
+        - --fingerprint
+        - "{{ ca_fingerprint }}"
+        - --provisioner-name
+        - "{{ ca_provisioner }}"
+        - --provisioner-password-file
+        - "{{ ca_dir.path }}/ca_provisioner_password"
+        - --dns-names
+        - "ra.{{ role_name }}.{{ domain_name }}"
+        - --listen-address
+        - :443
+        creates: /etc/step-ca/config/ca.json
+
+    - name: Ensure cert dir
+      file:
+        state: directory
+        path: "{{ cert_location }}"
+        mode: 0644
+
+    - name: Fetch root cert from CA
+      command: 
+        argv:
+        - step
+        - ca
+        - root
+        - "{{ cert_location }}/root_ca.crt"
+        - --ca-url
+        - "https://{{ ca_host }}"
+        - --fingerprint
+        - "{{ ca_fingerprint }}"
+        creates: "{{ cert_location }}/root_ca.crt"
+
+    - name: Copy Smallstep cert to local SSL dir
+      command: 
+        argv:
+        - step
+        - ca
+        - certificate
+        - --ca-url
+        - "https://{{ ca_host }}"
+        - --root
+        - "{{ cert_location }}/root_ca.crt"
+        - --provisioner
+        - "{{ ca_provisioner }}"
+        - --provisioner-password-file
+        - "{{ ca_dir.path }}/ca_provisioner_password"
+        - "{{ role_name }}.{{ domain_name }}"
+        - "{{ cert_location }}/server.crt"
+        - "{{ cert_location }}/server.key"
+
+    - name: Remove temporary directory
+      file:
+        path: "{{ ca_dir.path }}"
+        state: absent
+
+    - name: Make the CA host value available to caller
+      set_fact:
+        cert_location: "{{ cert_location }}"

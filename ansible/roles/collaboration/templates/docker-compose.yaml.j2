@@ -20,10 +20,13 @@ services:
     volumes:
       - /storage/appdata/nextcloud/config:/var/www/html/config
       - /storage/appdata/nextcloud/data:/var/www/html/data
+      - "{{ cert_location }}:/etc/ssl/nextcloud"
+      # - /etc/ssl/certs/server.crt:/etc/ssl/certs/server.crt:ro
       # Temporary solution for https://github.com/nextcloud/docker/issues/763#issuecomment-1007447212
       - /storage/appdata/nextcloud/redis-session.ini:/usr/local/etc/php/conf.d/redis-session.ini
     ports:
       - 8080:80
+      - 443:443
     user: 1000:1000
     restart: unless-stopped
     depends_on:

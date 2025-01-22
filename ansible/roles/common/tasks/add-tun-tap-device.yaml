@@ -14,11 +14,11 @@
   command: "cat /etc/pve/lxc/{{ current_vmid }}.conf"
   register: ct_conf
 
-- name: Add /dev/net to container if not present
-  when: not 'lxc.mount.entry\:\ /dev/net dev/net none bind,create=dir' in ct_conf.stdout
+- name: Add /dev/net/tun to container if not present
+  when: not 'lxc.mount.entry\:\ /dev/net/tun dev/net/tun none bind,create=file' in ct_conf.stdout
   block: 
   - name: Create temporary file
-    ansible.builtin.tempfile:
+    tempfile:
       state: file
       suffix: temp
     register: tempfile_1
@@ -28,14 +28,14 @@
       dest: "{{ tempfile_1.path }}"
       content: |
         lxc.cgroup2.devices.allow: c 10:200 rwm
-        lxc.mount.entry: /dev/net dev/net none bind,create=dir
+        lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
 
   - name: "Append new config lines to {{current_vmid}}.conf"
     shell: "cat {{ tempfile_1.path }} >> /etc/pve/lxc/{{ current_vmid }}.conf"
     when: tempfile_1.path is defined
 
   - name: Remove temp file
-    ansible.builtin.file:
+    file:
       path: "{{ tempfile_1.path }}"
       state: absent
     when: tempfile_1.path is defined

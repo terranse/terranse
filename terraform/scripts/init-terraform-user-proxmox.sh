@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# This setup was derived from: https://www.cinderblook.com/blog/terraform-proxmox-vm-deploy/
+# This setup was derived from: https://www.cinderblock.tech/p/terraform-proxmox-virtual-machine-deploy/
 # Note that there is zero error handling inside!
 
 echo "You are about to create a terraform user. Please specify a password."
@@ -10,7 +10,7 @@ read PASSWORD
 stty echo
 printf "\n"
 
-ADD_ROLE='pveum role add TerraformProv -privs "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.Monitor VM.Audit VM.PowerMgmt Datastore.AllocateSpace Datastore.Audit VM.Console"'
+ADD_ROLE='pveum role add TerraformProv -privs "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.Monitor VM.Audit VM.PowerMgmt Datastore.AllocateSpace Datastore.Audit VM.Console SDN.Use"'
 ADD_USER="pveum user add terraform-prov@pve --password ${PASSWORD}"
 ADD_PERM="pveum aclmod / -user terraform-prov@pve -role TerraformProv"
 ADD_TOKEN="pveum user token add terraform-prov@pve terraform-token --privsep=0"

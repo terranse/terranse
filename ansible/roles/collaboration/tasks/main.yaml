@@ -67,6 +67,9 @@
         state: latest
 
     - name: Ensure database directory
+      become: true
+      become_user: default-user
+      become_method: su
       file:
         path: "/home/default-user/nextcloud-database"
         state: directory

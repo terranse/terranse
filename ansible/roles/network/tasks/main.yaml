@@ -1,4 +1,4 @@
 ---
 
 - name: Make sure tailscale is running
-  include_tasks: tailscale.yaml
+  include_tasks: netbird.yaml
