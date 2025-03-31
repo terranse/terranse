@@ -1,20 +1,3 @@
-### Common setup ###
-terraform {
-  required_providers {
-    proxmox = {
-      source  = "telmate/proxmox"
-      version = "2.9.10"
-    }
-  }
-}
-
-provider "proxmox" {
-  pm_api_url          = "https://192.168.1.100:8006/api2/json"
-  pm_tls_insecure     = "true"
-  pm_api_token_id     = "terraform-prov@pve!terraform-token"
-  pm_api_token_secret = "op://HomeNetwork/Proxmox/terraform-api-key"
-}
-
 ### Module defintions ###
 locals {
   module_shared_configurations = {
@@ -42,7 +25,17 @@ locals {
       memory = 4096
       vmid   = 105
     }
+    network = {
+      vmid = 107
+    }
+    dls-server = {
+      vmid = 108
+    }
+    sharing = {
+      vmid = 109
+    }
   }
+
   module_configurations = {
     for module_name, specific_configurations in local.module_specific_configurations : module_name => merge(
       local.module_shared_configurations,
