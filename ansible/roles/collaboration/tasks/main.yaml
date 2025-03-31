@@ -56,7 +56,7 @@
       become: true
       become_user: default-user
       become_method: su
-      community.docker.docker_compose:
+      community.docker.docker_compose_v2:
         project_src: "{{ docker_compose_dir }}"
         remove_orphans: true
         state: present
