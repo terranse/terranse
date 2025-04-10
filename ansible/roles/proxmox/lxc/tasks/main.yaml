@@ -1,0 +1,10 @@
+---
+- name: Check precense of appdata
+  stat:
+    path: "{{ mounts.configs.ct_mountpoint }}"
+  register: appdata
+
+- name: Perform common base setup
+  import_tasks: container-setup.yaml
+  when: not appdata.stat.exists
+

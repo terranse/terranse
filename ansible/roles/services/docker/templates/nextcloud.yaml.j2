@@ -1,5 +1,4 @@
 ---
-version: "3.5"
 services:
   nextcloud:
     image: nextcloud:latest
@@ -59,7 +58,6 @@ services:
       MYSQL_DATABASE: nextcloud
       MYSQL_USER: nextcloud
 
-# TODO: Incompatible with linuxserver version of NC, swtich to official?
   onlyoffice-document-server:
     container_name: onlyoffice-document-server
     image: onlyoffice/documentserver:latest

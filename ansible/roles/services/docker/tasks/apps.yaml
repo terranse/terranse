@@ -1,0 +1,15 @@
+- name: Generate docker-compose files for selected apps
+  template:
+    src: "{{ item_override | default(item) }}.yml.j2"
+    dest: "/opt/docker/{{ item }}.yml"
+  loop: "{{ docker_apps }}"
+  vars:
+    item_override: "{{ lookup('first_found', params) }}"
+    params:
+      files:
+        - "{{ inventory_hostname }}/{{ item }}.yml.j2"
+        - "{{ item }}.yml.j2"
+      paths:
+        - "{{ role_path }}/templates/overrides"
+        - "{{ role_path }}/templates"
+  notify: Restart docker apps

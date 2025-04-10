@@ -1,0 +1,4 @@
+include:
+{% for app in docker_apps %}
+  - {{ app }}.yml
+{% endfor %}

@@ -1,0 +1,5 @@
+- name: Restart docker apps
+  community.docker.docker_compose_v2:
+    project_src: /opt/docker
+    remove_orphans: true
+    state: present
