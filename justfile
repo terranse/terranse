@@ -24,11 +24,16 @@ install-ansible: _python-venv
   #!{{shebang}}
   pip install -r requirements.txt
   ansible-galaxy collection install community.general
+  ansible-galaxy install -r requirements.yml
 
 # Installs tofu
-install-tofu:
+install-tofu install-method="deb":
   #!{{shebang}}
   curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh -o install-opentofu.sh
   chmod +x install-opentofu.sh
-  ./install-opentofu.sh --install-method deb
+  ./install-opentofu.sh --install-method {{install-method}}
   rm -f install-opentofu.sh
+
+# Sets up tofu user on Proxmox cluster
+setup-tofu-user:
+  ./tofu/scripts/init-terraform-user-proxmox.sh
