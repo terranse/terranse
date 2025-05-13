@@ -1,9 +1,13 @@
-# Fill it will variables, e.g. ssh keys, hostnames, etc
-
 variable "ssh_key" {
   default = <<EOT
     ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEkdwh5G9JuqNpThbxYqP7RBT9CQJ1fkFeOGuP1sUrXK
   EOT
+}
+
+variable "domain" {
+  type = string
+  default = "edholm.cc"
+  description = "The top domain where all your services will live"
 }
 
 # TODO: Automatically download and create new tags for different CT images
@@ -51,6 +55,5 @@ variable "vmid" {
 
 variable "user" {
   type = string
-  # default = "terraform-prov"
   default = "root"
 }

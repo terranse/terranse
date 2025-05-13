@@ -1,3 +1,13 @@
+terraform {
+  required_providers {
+    proxmox = {
+      source = "telmate/proxmox"
+      version = ">= 2.9.14"
+      configuration_aliases = [ proxmox.vm ]
+    }
+  }
+}
+
 locals {
   module_ip = "192.168.1.${var.vmid}"
 }
