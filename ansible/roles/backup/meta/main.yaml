@@ -1,6 +1,0 @@
----
-# dependencies:
-#   - src: https://github.com/borgbase/ansible-role-borgbackup.git
-#     scm: git
-#     version: master
-#     name: borgbase
