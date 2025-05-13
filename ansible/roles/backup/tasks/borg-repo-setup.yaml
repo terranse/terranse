@@ -1,5 +1,0 @@
----
-
-# TODO: Create some ways to setup backup repos. This should *only* be called
-# when the repo is not already setup, lest it overwrite the existing repo.
-# Also include copying of ssh key to remote server from 1pass
