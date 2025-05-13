@@ -1,0 +1,87 @@
+---
+- name: Setup Samba Server
+  become: true
+  vars:
+    samba_users:
+      - daniel
+      - hanna
+    shares:
+      - CloudShare: /storage/cloud
+
+  tasks:
+    - name: Install Samba
+      package:
+        name: samba
+        state: present
+
+    - name: Ensure smbusers group exists
+      group:
+        name: smbusers
+        state: present
+
+    - name: Ensure shared directory
+      file:
+        path: /storage/cloud
+        state: directory
+        owner: root
+        group: smbusers
+        mode: "2775"
+
+    - name: Set default ACL for shared directory
+      acl:
+        path: /storage/cloud
+        default: yes
+        entity: smbusers
+        etype: group
+        permissions: rwx
+        state: present
+
+    - name: Add Samba configuration
+      blockinfile:
+        path: /etc/samba/smb.conf
+        block: |
+          [{{ item.key }}]
+          path = {{ item.value }}
+          read only = no
+          browsable = yes
+          guest ok = no
+          valid users = @smbusers
+          create mask = 0660
+          directory mask = 0770
+          vfs objects = acl_xattr
+          map acl inherit = yes
+          store dos attributes = yes
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - Samba Share"
+      loop: "{{ shares | map('dict2items') | list | flatten }}"
+      notify: Restart Samba
+
+    - name: Create Samba users and set passwords
+      block:
+        - name: Ensure user exists and is in smbusers group
+          user:
+            name: "{{ item }}"
+            groups: smbusers
+            append: yes
+            create_home: yes
+          register: user_created
+
+        - name: Set Samba password for user
+          expect:
+            command: "smbpasswd -s -a {{ item }}"
+            responses:
+              "New SMB password:": "mypassword"
+              "Retype new SMB password:": "mypassword"
+          when: user_created.changed
+      loop: "{{ samba_users }}"
+
+    - name: Enable and start Samba service
+      systemd:
+        name: smbd
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: Restart Samba
+      systemd:
+        name: smbd
+        state: restarted
