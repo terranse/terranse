@@ -1,3 +1,13 @@
+terraform {
+  required_providers {
+    proxmox = {
+      source = "telmate/proxmox"
+      version = ">= 2.9.14"
+      configuration_aliases = [ proxmox.lxc ]
+    }
+  }
+}
+
 locals {
   module_ip = "192.168.1.${var.vmid}"
 }
@@ -44,11 +54,6 @@ resource "proxmox_lxc" "test_ct" {
     ip     = "${local.module_ip}/24"
     ip6    = "auto"
   }
-
-  # provisioner "local-exec" {
-  #   command     = "ansible-playbook -i inventory roles/${var.hostname}/tasks/main.yaml"
-  #   working_dir = "../ansible"
-  # }
 }
 
 // This is needed for a module to make values available to the calling root module

@@ -1,4 +1,8 @@
 ---
+collections:
+  - name: cloud.terraform
+    version: 3.0.0
+
 roles:
   - name: geerlingguy.docker
     src: geerlingguy.docker
