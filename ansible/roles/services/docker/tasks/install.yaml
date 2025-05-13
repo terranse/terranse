@@ -1,3 +1,6 @@
 - name: Install docker from Geerlingguy
   include_role:
+    vars:
+      docker_users:
+        - default-user
     name: geerlingguy.docker

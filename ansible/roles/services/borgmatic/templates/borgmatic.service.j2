@@ -63,7 +63,7 @@ Environment=OP_SERVICE_ACCOUNT_TOKEN={{ BACKUP_OP_SERVICE_ACCOUNT_TOKEN }}
 
 # Delay start to prevent backups running during boot. Note that systemd-inhibit requires dbus and
 # dbus-user-session to be installed.
-User=default-user
+# User=default-user
 
 ExecStartPre=sleep 1m
 ExecStart=systemd-inhibit --who="borgmatic" --what="idle" --why="Prevent interrupting scheduled backup" {{ executable_location }}/borgmatic --verbosity -2 --syslog-verbosity 1

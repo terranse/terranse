@@ -1,3 +1,20 @@
+##
+# The override mechanism allows:
+# - Host-specific templates to override generic app templates.
+# - Custom templates in an "overrides" directory to override the standard ones in the default templates directory.
+#
+# Example:
+# Assume:
+#   docker_apps = ['app1']
+#   inventory_hostname = 'host1'
+#   Files:
+#     roles/myrole/templates/overrides/host1/app1.yml.j2 exists
+#     roles/myrole/templates/app1.yml.j2 also exists
+# Then:
+#   The task will use roles/myrole/templates/overrides/host1/app1.yml.j2 as the template,
+#   overriding the default app1.yml.j2 in the standard templates directory.
+##
+
 - name: Generate docker-compose files for selected apps
   template:
     src: "{{ item_override | default(item) }}.yml.j2"

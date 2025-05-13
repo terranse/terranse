@@ -1,2 +1,4 @@
-- name: geerlingguy.docker
-  src: geerlingguy.docker
+---
+roles:
+  - name: geerlingguy.docker
+    src: geerlingguy.docker
