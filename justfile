@@ -24,7 +24,7 @@ install-ansible: _python-venv
   #!{{shebang}}
   pip install -r requirements.txt
   ansible-galaxy collection install community.general
-  ansible-galaxy install -r requirements.yml
+  ansible-galaxy install -r ansible/requirements.yaml
 
 # Installs tofu
 install-tofu install-method="deb":
