@@ -1,7 +1,7 @@
 locals {
   hosts = {
     proxmox = {
-      TODO: Only necessary to specify IP until DNS is in place
+      #TODO Only necessary to specify IP until DNS is in place
       ansible_host = "192.168.1.100"
       ansible_user = "root"
 
