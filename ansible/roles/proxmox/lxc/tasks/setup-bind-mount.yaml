@@ -111,7 +111,7 @@
   community.general.proxmox:
     vmid: "{{ current_vmid }}"
     api_user: root@pam
-    api_password: aeyfe!2874Pro
+    api_password: "{{ lookup('onepassword', 'Proxmox', field='password') }}"
     api_host: 192.168.1.100
     state: restarted
   when: removed_mountpoints is changed or mount_entry_result is changed
