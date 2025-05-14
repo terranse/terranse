@@ -1,4 +1,25 @@
+# Taken from https://stackoverflow.com/a/48651071, available since 3.4
+x-common-env: &common-environment
+  PUID: 1000
+  PGID: 1000
+  UMASK_SET: 022
+  TZ: Europe/Stockholm
+
 include:
 {% for app in docker_apps %}
   - {{ app }}.yml
 {% endfor %}
+
+## TODO: There will need to be a "network" part here with vlan tagging, e.g. from
+# https://en-designetwork.daichi703n.com/entry/2018/05/02/docker-compose-network-vlan-tag
+# networks:
+#   vlan20:
+#     name: vlan20
+#     driver: macvlan
+#     driver_opts:
+#       parent: ens192.20
+#     ipam:
+#       config:
+#         - subnet: 192.168.20.0/24
+#           gateway: 192.168.20.1
+
