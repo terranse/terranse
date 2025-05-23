@@ -7,32 +7,52 @@ variable "image_name" {
   default = "debian-11-standard_11.3-1_amd64.tar.zst"
 }
 
-variable "hostname" {
-    type = string
+variable "host" {
+  type = string
 }
 
-variable "cores" {
+variable "domain" {
   type = string
-  default = "2"
-}
-
-variable "memory" {
-  type = string
-  default = "1024"
-}
-
-variable "disk_size" {
-  type = string
-  default = "8G"
 }
 
 variable "vmid" {
   type = number
+  default = 1 # Dummy value
+  description = "The VMID to use for the container."
 }
 
 variable "configuration" {
-  type = map(any)
-  description = "The whole set of lxc containers and their properties"
+  description = "Map of LXC configurations"
+  type = map(object({
+    memory          = optional(number)
+    cores           = optional(number)
+    disk_size       = optional(string)
+    vmid            = optional(number)
+    mounts          = optional(map(object({
+      zfs_dataset   = string
+      ct_mountpoint = string
+    })), {})
+    roles           = optional(list(string), [])
+    services        = optional(list(string), [])
+    docker_services = optional(list(string), [])
+  }))
+
+  validation {
+    # Ensure that docker is installed as a service if "docker_services" are declared
+    condition = length([
+      for name, config in var.configuration : name
+      if length(try(config.docker_services, [])) > 0 && 
+        !contains(try(config.services, []), "docker")
+    ]) == 0
+
+    error_message = join(" ", concat(
+      ["The following LXCs have 'docker_services' defined but 'docker' is not declared in 'services':\n"],
+      [for name, config in var.configuration : name
+      if length(try(config.docker_services, [])) > 0 && 
+          !contains(try(config.services, []), "docker")
+      ]
+    ))
+  }
 }
 
 variable "services" {

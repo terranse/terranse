@@ -4,8 +4,8 @@ resource "ansible_host" "physical_hosts" {
   name   = each.key
   groups = ["physical_hosts"]
   variables = {
-    ansible_host = each.ansible_host
-    ansible_user = each.ansible_user
+    ansible_host = each.value.ansible_host
+    ansible_user = each.value.ansible_user
   }
 }
 

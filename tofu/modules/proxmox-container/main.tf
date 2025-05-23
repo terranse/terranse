@@ -15,14 +15,17 @@ terraform {
 locals {
   module_ip = "192.168.1.${var.vmid}"
 }
-resource "proxmox_lxc" "test_ct" {
-  target_node  = "proxmox"
-  vmid         = var.vmid
-  hostname     = var.hostname
+resource "proxmox_lxc" "lxcs" {
+  for_each = var.configuration
+
+  # Use a base VMID per host
+  vmid         = each.value.vmid
+  target_node  = each.value.host
+  hostname     = each.key
   ostemplate   = "local:vztmpl/${var.image_name}"
 
-  cores = var.cores
-  memory = var.memory
+  cores  = each.value.cores
+  memory = each.value.memory
 
   unprivileged = true
   onboot       = true
@@ -48,7 +51,7 @@ resource "proxmox_lxc" "test_ct" {
   // Terraform will crash without rootfs defined
   rootfs {
     storage = "FastStorage"
-    size    = var.disk_size
+    size    = each.value.disk_size
   }
 
   network {
