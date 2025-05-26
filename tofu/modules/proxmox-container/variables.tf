@@ -24,9 +24,9 @@ variable "vmid" {
 variable "configuration" {
   description = "Map of LXC configurations"
   type = map(object({
-    memory          = optional(number)
-    cores           = optional(number)
-    disk_size       = optional(string)
+    memory          = optional(number, 2048)
+    cores           = optional(number, 2)
+    disk_size       = optional(string, "8GB")
     vmid            = optional(number)
     mounts          = optional(map(object({
       zfs_dataset   = string

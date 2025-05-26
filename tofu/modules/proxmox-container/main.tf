@@ -3,7 +3,6 @@ terraform {
     proxmox = {
       source = "telmate/proxmox"
       version = ">= 2.9.14"
-      #configuration_aliases = [ proxmox.lxc ]
     }
     ansible = {
       source  = "ansible/ansible"
@@ -18,9 +17,8 @@ locals {
 resource "proxmox_lxc" "lxcs" {
   for_each = var.configuration
 
-  # Use a base VMID per host
   vmid         = each.value.vmid
-  target_node  = each.value.host
+  target_node  = var.host
   hostname     = each.key
   ostemplate   = "local:vztmpl/${var.image_name}"
 

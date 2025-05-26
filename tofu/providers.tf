@@ -16,12 +16,12 @@ terraform {
 }
 
 provider "proxmox" {
-  alias = "lxc"
-  pm_api_url          = "${local.proxmox.ip}/api2/json"
+  pm_api_url          = "${local.proxmox_secrets["url"]}/api2/json"
   pm_tls_insecure     = "true"
-  pm_api_token_id     = local.proxmox.terraform-token-id
-  pm_api_token_secret = local.proxmox.terraform-token-secret
+  pm_api_token_id     = local.proxmox_secrets[ "terraform-token-id" ]
+  pm_api_token_secret = local.proxmox_secrets[ "terraform-api-key" ]
 }
+
 
 provider "onepassword" {
   account = "NYDLBZ4TCZARLJQURRIVNK3RZM"

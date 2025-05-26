@@ -1,7 +1,6 @@
 module "proxmox-lxc" {
   for_each      = local.hosts
 
-  providers     = { proxmox = proxmox.lxc }
   source        = "./modules/proxmox-container"
 
   # Module interface
