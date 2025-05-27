@@ -24,7 +24,7 @@
 - name: Make group name globally available (in file?)
   set_fact:
     groupname: container-data
-    
+
 # Groups in LXCs are normally prefixed with "10" before real group number
 - name: Create group used for (unprivileged) containers to access data
   group:

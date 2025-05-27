@@ -1,0 +1,5 @@
+---
+
+- name: "Ensure keyctl and fuse features are enabled for {{ current_vmid }}"
+  command: "pct set {{ current_vmid }} -features keyctl=1,fuse=1"
+  become: true

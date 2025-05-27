@@ -6,8 +6,8 @@
   vars:
     executable_location: /usr/local/bin
     # service_file_destination: /etc/systemd/system
-    service_file_destination: "{{ user_home }}/.config/systemd/user"
-    config_file_dir: "{{ user_home }}/.config/borgmatic.d"
+    service_file_destination: "{{ ansible_env.HOME }}/.config/systemd/user"
+    config_file_dir: "{{ ansible_env.HOME }}/.config/borgmatic.d"
   block:
   - name: Ensure borgmatic config dir
     file:
