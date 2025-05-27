@@ -1,0 +1,20 @@
+---
+- name: Install fuse-overlayfs
+  pkg:
+    - fuse-overlayfs
+
+# TODO: This assumes no other dockerd config options are already specified. Does NOT append!
+# More info on daemon config options: https://www.devopsschool.com/blog/how-to-configure-docker-daemon-with-a-configuration-file/
+- name: Create docker config directory
+  file:
+    state: directory
+    path: /etc/docker
+
+- name: Create daemon.json if none exists
+  vars:
+    json:
+      storage-driver: "fuse-overlayfs"
+  copy:
+    content: "{{ json | to_nice_json }}"
+    dest: /etc/docker/daemon.json
+    force: false

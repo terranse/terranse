@@ -4,3 +4,16 @@
       docker_users:
         - default-user
     name: geerlingguy.docker
+
+- name: Add convenience scripts for updating Docker containers
+  lineinfile:
+    path: "{{ ansible_env.HOME }}/.bashrc"
+    line: |
+      # Convenience script for updating docker compose images to latest version
+      dcu() {
+        docker compose pull
+        docker compose up -d --remove-orphans
+        yes | docker image prune
+      }
+    create: true
+

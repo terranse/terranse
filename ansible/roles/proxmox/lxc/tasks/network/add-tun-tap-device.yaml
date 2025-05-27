@@ -43,8 +43,9 @@
 # TODO: Add restart needed here!
 
 # This should not be necessary? A new device will be created with the 'mknod' cap?
-  # - name: Adjust ownership of tun device to allow access from container
-  #   file:
-  #     path: /dev/net/tun
-  #     owner: "101000"
-  #     group: "101000"
+  - name: Adjust ownership of tun device to allow access from container
+    file:
+      path: /dev/net/tun
+      owner: "101000"
+      group: "101000"
+    notify: Restart container

@@ -1,10 +1,44 @@
 ---
-- name: Check precense of appdata
-  stat:
-    path: "{{ mounts.configs.ct_mountpoint }}"
-  register: appdata
+# - name: Ensure pip is installed
+#   apt:
+#     pkg:
+#       - python3-pip
+#
+# - name: Add prerequisites for running Proxmox plugin
+#   pip:
+#     name:
+#       - proxmoxer
+#       - requests
 
-- name: Perform common base setup
-  import_tasks: container-setup.yaml
-  when: not appdata.stat.exists
+- name: Setup user and group in LXC
+  import_tasks: setup/user-group.yaml
+
+# By delegating this, the execution is performed where it is supposed to,
+# but the fact (vmid) will be available in the $inventory_host CT, i.e. calling CT,
+# as long as delegate_facts = False (default); with True, the delegate will have the fact locally instead
+- name: Get the VMID for this container
+  import_tasks: find-vmid-from-name.yaml
+  when: current_vmid is not defined
+  delegate_to: "{{ host }}"
+
+- name: Mount the given zfs dataset in the calling ct
+  import_tasks: storage/bind-mount.yaml
+  when: mounts is defined
+  delegate_to: "{{ host }}"
+
+- name: Setup necessary container features to allow docker
+  import_tasks: "{{ item }}"
+  when: "'docker' in services"
+  loop:
+    - setup/enable-virt-features.yaml
+    - storage/fuse-mount.yaml
+  delegate_to: "{{ host }}"
+
+# TODO: This does not make sense to have here. Enable overrides for adding specific
+# docker containers instead, which would make this a single task at only that spot
+- name: Add TUN device for OpenVPN access
+  import_tasks: network/add-tun-tap-device.yaml
+  when: "'docker/gluetun' in docker_services"
+  delegate_to: "{{ host }}"
+
 

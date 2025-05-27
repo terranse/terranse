@@ -1,6 +1,7 @@
 ---
+- name: Restart container
+  command: "pct restart {{ current_vmid }}"
+  become: true
+  when: current_vmid is defined
 
-# - name: Retart Docker
-#   service:
-#     name: docker
-#     state: restarted
+
