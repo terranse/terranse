@@ -79,9 +79,3 @@
         name: smbd
         enabled: yes
         state: started
-
-  handlers:
-    - name: Restart Samba
-      systemd:
-        name: smbd
-        state: restarted

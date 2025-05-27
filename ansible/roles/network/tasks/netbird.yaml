@@ -28,7 +28,7 @@
     method: POST
     body_format: json
     body:
-      
+
 
 # TODO:
 # - name: Login to netbird
@@ -36,3 +36,6 @@
 
 # - name: Start Netbird
 #   command: netbird up
+
+# TODO: Add possibility of creating a Netbird sidecar container if some
+# default condition is true and docker services are used
