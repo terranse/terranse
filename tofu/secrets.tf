@@ -1,8 +1,3 @@
-# data "onepassword_item" "proxmox_auth" {
-#   vault = "f4h63aecdn7rpzx4sbzyw35jee" # HomeNetwork Vault
-#   title = "Proxmox"
-# }
-
 # Taken from https://github.com/1Password/terraform-provider-onepassword/issues/117#issuecomment-2135001654
 data onepassword_vault ops {
   uuid = "f4h63aecdn7rpzx4sbzyw35jee"
@@ -40,22 +35,3 @@ locals {
     local.section_fields
   )
 }
-
-output "prox_secrets" {
-  value = local.proxmox_secrets
-  sensitive = true
-}
-#output "debug_1password_item" {
-#  value = data.onepassword_item.service
-#  sensitive = true  # temporarily for debugging - remove this later!
-#}
-
-# locals {
-#   op_terraform_fields = { for f in data.onepassword_item.proxmox_auth.section[0].field: f.label => {
-#     id = f.id
-#     purpose = f.purpose
-#     type = f.type
-#     value = f.value
-#   }
-#   }
-# }
