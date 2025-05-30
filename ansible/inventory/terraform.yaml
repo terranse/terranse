@@ -1,4 +1,5 @@
 plugin: cloud.terraform.terraform_provider
-project_path: ../tofu/
+project_path: ../tofu
+search_child_modules: true
 # Terraform binary (available in the $PATH) or full path to the binary.
 binary_path: tofu

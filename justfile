@@ -6,6 +6,7 @@ set -euxo pipefail
 
 _default:
   @just --list
+  echo "NOT CURRENTLY UPDATED, USE tofu AND ansible-playbook SEPARATELY!"
 
 _python-venv:
   #!{{shebang}}
