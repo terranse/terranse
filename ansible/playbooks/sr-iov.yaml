@@ -1,7 +1,7 @@
 ---
 - name: Playbook for enabling SR-IOV on the LAN interface
   # The setup is fetched from here: https://pve.proxmox.com/wiki/PCI(e)_Passthrough#_sr_iov
-  hosts: pve
+  hosts: proxmox
   become: true
   tasks:
     # TODO: Add check if hw is SR-IOV compatible
