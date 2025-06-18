@@ -41,5 +41,11 @@ To add a new module:
    }
    ```
 
-Match the variable interface and output format to ensure compatibility with
-other modules.
+   Match the variable interface and output format to ensure compatibility with
+   other modules.
+
+3. **Add an entry to the `all_plays` and `all_ansible_inventory` locals in
+`tofu/ansible.tf`**  
+
+   There is currently no way just collect all modules from a certain directory,
+   and as such they will need to added explicitly for each output produced.

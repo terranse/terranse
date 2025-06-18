@@ -44,6 +44,11 @@ resource "proxmox_lxc" "lxcs" {
   lifecycle {
     prevent_destroy = false
     ignore_changes  = [features, ]
+    # TODO: Never got this to work.
+    # replace_triggered_by = [
+    #   # This will come from the root module
+    #   var.force_recreate_trigger
+    # ]
   }
 
   // Terraform will crash without rootfs defined
