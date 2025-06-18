@@ -15,12 +15,6 @@ variable "domain" {
   type = string
 }
 
-variable "vmid" {
-  type = number
-  default = 1 # Dummy value
-  description = "The VMID to use for the container."
-}
-
 variable "configuration" {
   description = "Map of LXC configurations"
   type = map(object({
