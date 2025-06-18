@@ -70,3 +70,9 @@ variable "docker_services" {
     error_message = "If 'docker' is in 'services', 'docker_services' must not be empty."
   }
 }
+
+# variable "force_recreate_trigger" {
+#   description = "Trigger to force recreation of the container"
+#   type        = any
+#   default     = null
+# }
