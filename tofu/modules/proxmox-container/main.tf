@@ -11,16 +11,13 @@ terraform {
   }
 }
 
-locals {
-  module_ip = "192.168.1.${var.vmid}"
-}
 resource "proxmox_lxc" "lxcs" {
   for_each = var.configuration
 
-  vmid         = each.value.vmid
-  target_node  = var.host
-  hostname     = each.key
-  ostemplate   = "local:vztmpl/${var.image_name}"
+  vmid        = try(each.value.vmid, 0)
+  target_node = var.host
+  hostname    = each.key
+  ostemplate  = "local:vztmpl/${var.image_name}"
 
   cores  = each.value.cores
   memory = each.value.memory
@@ -61,12 +58,7 @@ resource "proxmox_lxc" "lxcs" {
     name   = "eth0"
     bridge = "vmbr0"
     gw     = "192.168.1.1"
-    ip     = "${local.module_ip}/24"
+    ip     = "dhcp"
     ip6    = "auto"
   }
-}
-
-// This is needed for a module to make values available to the calling root module
-output "module_ip" {
-  value = local.module_ip
 }

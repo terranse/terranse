@@ -9,7 +9,7 @@ locals {
         media = {
           memory    = 4096
           disk_size = "32G"
-          vmid      = 101
+          #vmid      = 101
 
           mounts = {
             configs = {
@@ -38,16 +38,16 @@ locals {
           ]
         }
         backup = {
-          vmid = 102
+          #vmid = 102
           services = [ "borgmatic" ]
         }
         network = {
-          vmid = 103
+          #vmid = 103
         }
         collaboration = {
           memory    = 4096
           disk_size = "32G"
-          vmid      = 104
+          #vmid      = 104
 
           mounts = {
             configs = {
@@ -67,7 +67,7 @@ locals {
         }
         authentication = {
           memory = 4096
-          vmid   = 105
+          #vmid   = 105
 
           mounts = {
             configs = {
@@ -82,15 +82,15 @@ locals {
           ]
         }
         network = {
-          vmid = 107
+          #vmid = 107
           roles = [ "network/netbird" ]
         }
         dls-server = {
-          vmid = 108
+          #vmid = 108
           services = [ "dls-server "]
         }
         sharing = {
-          vmid = 109
+          #vmid = 109
           roles = [ "network/samba" ]
         }
       }
