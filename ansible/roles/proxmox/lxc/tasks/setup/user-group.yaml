@@ -2,6 +2,19 @@
 
 # Groups and users in LXCs are normally prefixed with "10" before real group number
 # Currently the group is called the same in the guest and the host -- maybe that is confusing?
+- name: Check required variables
+  assert:
+    that:
+      - docker_user is defined
+      - groupname is defined
+    fail_msg: "docker_user and groupname must be defined"
+
+- name: Ensure sudo-rs package is installed
+  become: true
+  apt:
+    name: sudo-rs
+    state: present
+
 - name: Setup a corresponding group in LXC container
   group:
     name: "{{ groupname }}" 
@@ -15,49 +28,53 @@
     create_home: true
     uid: 1000
     group: "{{ groupname }}"
-
-- name: Register "{{ docker_user }}" info
-  become: true
-  user:
-    name: "{{ docker_user }}"
-  check_mode: true
-  register: docker_user_info
-  tags:
-    - docker
-
-- name: adding user "{{ docker_user }}" to systemd-journal group
-  become: true
-  ansible.builtin.user:
-    name: "{{ docker_user }}"
-    groups: systemd-journal
+    shell: /usr/bin/fish
+    password: "{{ lookup('onepassword', 'docker_user_password') }}"
+    groups: sudo
     append: true
-  tags:
-    - docker
 
-- name: Add convenience script for switching to "{{ docker_user }}"
+- name: Copy authorized_keys to user
+  copy:
+    src: /root/.ssh/authorized_keys
+    dest: "/home/{{ docker_user }}/.ssh/authorized_keys"
+    owner: "{{ docker_user }}"
+    group: "{{ groupname }}"
+    mode: '0600'
+
+- name: Add valuable aliases for "{{ docker_user }}"
   become: true
   lineinfile:
     path: "{{ ansible_env.HOME }}/.bashrc"
-    line: "alias swu='su {{ docker_user }} -c /bin/bash -l'"
+    line: |
+      alias ll='ls -alF'
+      alias la='ls -A'
+      alias l='ls -CF'
     create: true
     
 - name: ensure "{{ docker_user }}" is lingering
   ansible.builtin.stat:
     path: "/var/lib/systemd/linger/{{ docker_user }}"
   register: docker_user_lingering
-  tags:
-    - systemd
-    - docker
 
 - name: enable lingering for "{{ docker_user }}"
   become: true
   ansible.builtin.command: "loginctl enable-linger {{ docker_user }}"
   when: not docker_user_lingering.stat.exists
-  tags:
-    - systemd
-    - docker
 
 - name: Ensure user local bin directory
   file:
     path: "{{ ansible_env.HOME }}/.local/bin"
     state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ groupname }}"
+    mode: '0755'
+
+- name: Disable SSH root login
+  become: true
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^PermitRootLogin'
+    line: 'PermitRootLogin no'
+    state: present
+  notify: Restart ssh
+
