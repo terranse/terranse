@@ -4,4 +4,10 @@
   become: true
   when: current_vmid is defined
 
+- name: Restart ssh
+  become: true
+  ansible.builtin.service:
+    name: ssh
+    state: restarted
+
 
