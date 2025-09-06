@@ -1,14 +1,6 @@
 ---
-# - name: Ensure pip is installed
-#   apt:
-#     pkg:
-#       - python3-pip
-#
-# - name: Add prerequisites for running Proxmox plugin
-#   pip:
-#     name:
-#       - proxmoxer
-#       - requests
+- name: Install useful packages in all containers
+  import_tasks: setup/packages.yaml
 
 - name: Setup user and group in LXC
   import_tasks: setup/user-group.yaml
