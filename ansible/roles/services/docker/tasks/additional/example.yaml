@@ -1,0 +1,45 @@
+###
+# This additional, optional and complimentary tasks file is for creating pre or
+# post docker deployment tasks in a docker environment. It will be run only if
+# a host has been set up to use a `docker_apps` with the same basename as this
+# file.
+# Note how this file has two parts for pre and post tasks in sepatarate blocks.
+# Keep this separation and setup intact for any custom additional task and add
+# new tasks within their respective blocks.
+
+---
+- name: Pre-deployment tasks for nextcloud
+  block:
+    - name: Create nextcloud data directory
+      file:
+        path: /opt/docker/nextcloud/data
+        state: directory
+        mode: '0755'
+
+    - name: Set up database initialization
+      template:
+        src: nextcloud-init.sql.j2
+        dest: /opt/docker/nextcloud/init.sql
+  when: task_phase == "pre"
+  vars:
+    additional_tasks_pre: true
+
+- name: Post-deployment tasks for nextcloud
+  block:
+    - name: Wait for nextcloud to be ready
+      uri:
+        url: "http://localhost:{{ nextcloud_port }}/status.php"
+        method: GET
+      register: result
+      until: result.status == 200
+      retries: 30
+      delay: 10
+
+    - name: Configure nextcloud admin user
+      command: >
+        docker exec nextcloud_app php occ maintenance:install
+        --database mysql --database-host db --database-name nextcloud
+        --admin-user admin --admin-pass "{{ nextcloud_admin_password }}"
+  when: task_phase == "post"
+  vars:
+    additional_tasks_post: true

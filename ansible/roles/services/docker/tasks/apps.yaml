@@ -1,32 +1,37 @@
-##
-# The override mechanism allows:
-# - Host-specific templates to override generic app templates.
-# - Custom templates in an "overrides" directory to override the standard ones in the default templates directory.
-#
-# Example:
-# Assume:
-#   docker_apps = ['app1']
-#   inventory_hostname = 'host1'
-#   Files:
-#     roles/myrole/templates/overrides/host1/app1.yml.j2 exists
-#     roles/myrole/templates/app1.yml.j2 also exists
-# Then:
-#   The task will use roles/myrole/templates/overrides/host1/app1.yml.j2 as the template,
-#   overriding the default app1.yml.j2 in the standard templates directory.
-##
-
 - name: Generate docker-compose files for selected apps
-  template:
-    src: "{{ item_override | default(item) }}.yml.j2"
-    dest: "/opt/docker/{{ item }}.yml"
-  loop: "{{ docker_apps }}"
-  vars:
-    item_override: "{{ lookup('first_found', params) }}"
-    params:
-      files:
-        - "{{ inventory_hostname }}/{{ item }}.yml.j2"
-        - "{{ item }}.yml.j2"
-      paths:
-        - "{{ role_path }}/templates/overrides"
-        - "{{ role_path }}/templates"
+  block:
+    - name: Check for additional tasks file
+      stat:
+        path: "{{ role_path }}/tasks/additional/{{ item }}.yml"
+      register: additional_tasks_check
+      loop: "{{ docker_apps }}"
+
+    - name: Execute pre-deployment tasks
+      include_tasks: "{{ role_path }}/tasks/additional/{{ item.item }}.yml"
+      vars:
+        task_phase: "pre"
+      when: 
+        - item.stat.exists
+        - additional_tasks_pre is defined
+      loop: "{{ additional_tasks_check.results }}"
+      loop_control:
+        loop_var: item
+
+    - name: Generate docker-compose files
+      template:
+        src: "{{ item }}.yml.j2"
+        dest: "/opt/docker/{{ item }}.yml"
+      loop: "{{ docker_apps }}"
+
+    - name: Execute post-deployment tasks
+      include_tasks: "{{ role_path }}/tasks/additional/{{ item.item }}.yml"
+      vars:
+        task_phase: "post"
+      when: 
+        - item.stat.exists
+        - additional_tasks_post is defined
+      loop: "{{ additional_tasks_check.results }}"
+      loop_control:
+        loop_var: item
+
   notify: Restart docker apps
