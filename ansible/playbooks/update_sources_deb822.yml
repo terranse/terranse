@@ -1,0 +1,50 @@
+---
+# AI generated
+
+- name: Update apt sources to deb822 format
+  hosts: all
+  become: yes
+  tasks:
+    - name: Backup existing sources.list
+      copy:
+        src: /etc/apt/sources.list
+        dest: /etc/apt/sources.list.bak
+        remote_src: yes
+        backup: yes
+
+    - name: Remove old sources.list
+      file:
+        path: /etc/apt/sources.list
+        state: absent
+
+    - name: Configure main Debian repository in deb822 format
+      ansible.builtin.deb822_repository:
+        name: debian-main
+        types: deb
+        uris: http://deb.debian.org/debian
+        suites: stable
+        components:
+          - main
+          - contrib
+          - non-free
+          - non-free-firmware
+        signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
+        state: present
+
+    - name: Configure Debian security repository in deb822 format
+      ansible.builtin.deb822_repository:
+        name: debian-security
+        types: deb
+        uris: http://security.debian.org/debian-security
+        suites: stable-security
+        components:
+          - main
+          - contrib
+          - non-free
+          - non-free-firmware
+        signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
+        state: present
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes

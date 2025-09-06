@@ -1,0 +1,39 @@
+---
+# AI generated
+
+- name: Update all machines
+  hosts: all
+  become: yes
+  tasks:
+    - name: System updates
+      block:
+        - name: Update apt cache (Debian/Ubuntu)
+          apt:
+            update_cache: yes
+          when: ansible_facts['os_family'] == "Debian"
+
+        - name: Upgrade all packages (Debian/Ubuntu)
+          apt:
+            upgrade: dist
+          when: ansible_facts['os_family'] == "Debian"
+    - tags: always
+
+    # TODO: Add support for RedHat/CentOS/Fedora
+    # - name: Update all packages (RedHat/CentOS/Fedora)
+    #   yum:
+    #     name: '*'
+    #     state: latest
+    #   when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Update all running Docker containers (optional)
+      community.docker.docker_container:
+        name: "{{ item }}"
+        image: "{{ (lookup('community.docker.docker_image', item)).repository }}:latest"
+        state: started
+        recreate: yes
+        pull: yes
+      loop: "{{ query('community.docker.docker_containers') | map(attribute='Names') | list }}"
+      tags: docker
+
+    # TODO: Add support for other distros (e.g. Arch, SUSE)
+    # See https://docs.ansible.com/ansible/latest/collections/ansible/builtin/package_module.html
