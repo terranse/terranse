@@ -1,0 +1,17 @@
+---
+
+- name: Install useful packages in all containers
+  apt:
+    name:
+      - fd-find
+      - ripgrep
+      - duf
+      - fish
+      - python3-pip
+    state: present
+    update_cache: yes
+
+- name: Install proxmoxer python package
+  pip:
+    name: proxmoxer
+    executable: pip3
