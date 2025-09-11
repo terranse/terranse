@@ -1,3 +1,5 @@
+# This exposes the physical hosts that should be configured by Ansible
+# into its own group "physical_hosts".
 resource "ansible_host" "physical_hosts" {
   for_each = local.hosts
 

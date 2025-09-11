@@ -41,9 +41,6 @@ locals {
           #vmid = 102
           services = [ "borgmatic" ]
         }
-        network = {
-          #vmid = 103
-        }
         collaboration = {
           memory    = 4096
           disk_size = "32G"

@@ -12,5 +12,5 @@ variable "domain" {
 
 variable "user" {
   type = string
-  default = "root"
+  default = "default-user"
 }
