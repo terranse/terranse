@@ -1,5 +1,5 @@
 locals {
-   # Collect all plays from all module types in one place
+  # Collect all plays from all module types in one place
   all_plays_list = concat(
     flatten([
       for instance in module.proxmox-lxc : instance.ansible_plays
