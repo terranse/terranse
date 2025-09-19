@@ -1,4 +1,8 @@
 ---
 
+# TODO: Create a configurable network section, where outside is able to configure
+# which service should be activated and how. E.g., should network be applied to host,
+# machine or container directly? Direct install, docker ct or sidecar ct?
+
 - name: Make sure tailscale is running
   include_tasks: netbird.yaml

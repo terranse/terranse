@@ -13,6 +13,7 @@
     - libxxhash-dev
     - fuse3
     - libfuse3-dev
+    - dbus-user-session
 
 - name: Install Borgmatic
   become: true
