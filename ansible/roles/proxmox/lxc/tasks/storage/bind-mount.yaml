@@ -7,12 +7,12 @@
 
 - name: List all zfs_datasets
   set_fact:
-    zfs_datasets: "{{ zfs_datasets + [ item.value.zfs_dataset ] }}"
+    zfs_datasets: "{{ zfs_datasets + [ item.key ] }}"
   loop: "{{ mounts | dict2items }}"
 
 - name: List all corresponding mountpoints
   set_fact:
-    mountpoints: "{{ mountpoints + [ item.value.ct_mountpoint ] }}"
+    mountpoints: "{{ mountpoints + [ item.value ] }}"
   loop: "{{ mounts | dict2items }}"
 
 # Taken from https://gist.github.com/JSinghDev/10e0824580a84a56022153592ac64faa

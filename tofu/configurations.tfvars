@@ -11,20 +11,16 @@ hosts = {
 
         mounts = {
           configs = {
-            zfs_dataset = "Tank2/appdata"
-            ct_mountpoint = "/appdata"
+            "Tank2/appdata": "/appdata"
           }
           movies = {
-            zfs_dataset = "Tank3/movies"
-            ct_mountpoint = "/storage/movies"
+            "Tank3/movies": "/storage/movies"
           }
           tv_series = {
-            zfs_dataset = "Tank/windows_smb_series"
-            ct_mountpoint = "/storage/tv_series"
+            "Tank/windows_smb_series": "/storage/tv_series"
           }
           media = {
-            zfs_dataset = "Tank/windows_smb_util"
-            ct_mountpoint = "/storage/media"
+            "Tank/windows_smb_util": "/storage/media"
           }
         }
 
@@ -42,18 +38,16 @@ hosts = {
           { name = "borgmatic" }
         ]
       }
-      collaboration = {
+      colab = {
         memory    = 4096
         disk_size = "32G"
 
         mounts = {
           configs = {
-            zfs_dataset = "Tank2/appdata"
-            ct_mountpoint = "/appdata"
+            "Tank2/appdata" : "/appdata"
           }
           cloud = {
-            zfs_dataset = "Tank3/cloud"
-            ct_mountpoint = "/storage/cloud"
+            "Tank3/cloud": "/storage/cloud"
           }
         }
 
@@ -69,8 +63,7 @@ hosts = {
 
         mounts = {
           configs = {
-            zfs_dataset = "Tank2/appdata"
-            ct_mountpoint = "/appdata"
+            "Tank2/appdata": "/appdata"
           }
         }
 

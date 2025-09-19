@@ -26,10 +26,7 @@ variable "configuration" {
     cores           = optional(number, 2)
     disk_size       = optional(string, "8GB")
     vmid            = optional(number)
-    mounts          = optional(map(object({
-      zfs_dataset   = string
-      ct_mountpoint = string
-    })), {})
+    mounts          = optional(map(map(string)), {})
     roles           = optional(list(object({ name = string })), [])
     services        = optional(list(object({ name = string })), [])
     docker_services = optional(list(object({ name = string })), [])
