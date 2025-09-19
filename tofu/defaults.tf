@@ -1,3 +1,7 @@
+locals {
+  ansible_root = abspath("${path.module}/../ansible")
+}
+
 variable "ssh_key" {
   default = <<EOT
     ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEkdwh5G9JuqNpThbxYqP7RBT9CQJ1fkFeOGuP1sUrXK
