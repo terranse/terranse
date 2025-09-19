@@ -1,3 +1,7 @@
+variable "ansible_root" {
+  type = string
+}
+
 variable "ssh_key" {
   type = string
 }
@@ -26,27 +30,10 @@ variable "configuration" {
       zfs_dataset   = string
       ct_mountpoint = string
     })), {})
-    roles           = optional(list(string), [])
-    services        = optional(list(string), [])
-    docker_services = optional(list(string), [])
+    roles           = optional(list(object({ name = string })), [])
+    services        = optional(list(object({ name = string })), [])
+    docker_services = optional(list(object({ name = string })), [])
   }))
-
-  validation {
-    # Ensure that docker is installed as a service if "docker_services" are declared
-    condition = length([
-      for name, config in var.configuration : name
-      if length(try(config.docker_services, [])) > 0 && 
-        !contains(try(config.services, []), "docker")
-    ]) == 0
-
-    error_message = join(" ", concat(
-      ["The following LXCs have 'docker_services' defined but 'docker' is not declared in 'services':\n"],
-      [for name, config in var.configuration : name
-      if length(try(config.docker_services, [])) > 0 && 
-          !contains(try(config.services, []), "docker")
-      ]
-    ))
-  }
 }
 
 variable "services" {
@@ -59,9 +46,15 @@ variable "docker_services" {
   type = list(string)
   description = "List of Docker services."
   default     = []
-  validation {
-    condition     = !(contains(var.services, "docker")) || length(var.docker_services) > 0
-    error_message = "If 'docker' is in 'services', 'docker_services' must not be empty."
+}
+
+module "validate_common" {
+  source         = "../validation"
+  ansible_root   = var.ansible_root
+  machine_common = {
+    roles           = try(var.configuration.roles, [])
+    services        = try(var.configuration.services, [])
+    docker_services = try(var.configuration.docker_services, [])
   }
 }
 
