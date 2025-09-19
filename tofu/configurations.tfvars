@@ -32,9 +32,9 @@ hosts = {
           { name = "docker" }
         ]
         docker_services = [
-          { name = "docker/gluetun" },
-          { name = "docker/serverarr" },
-          { name = "docker/jellyfin" }
+          { name = "gluetun" },
+          { name = "serverarr" },
+          { name = "jellyfin" }
         ]
       }
       backup = {
@@ -61,7 +61,7 @@ hosts = {
           { name = "docker" }
         ]
         docker_services = [
-          { name = "docker/nextcloud" }
+          { name = "nextcloud" }
         ]
       }
       authentication = {
@@ -78,13 +78,13 @@ hosts = {
           { name = "docker" }
         ]
         docker_services = [
-          { name = "docker/authentik" }
+          { name = "authentik" }
         ]
       }
 
       network = {
         roles = [
-          { name = "network/netbird" }
+          { name = "network/netbird" },
         ]
       }
 
