@@ -7,7 +7,7 @@ x-common-env: &common-environment
 
 include:
 {% for app in docker_apps %}
-  - {{ app }}.yml
+  - docker/{{ app.name }}.yml
 {% endfor %}
 
 ## TODO: There will need to be a "network" part here with vlan tagging, e.g. from
