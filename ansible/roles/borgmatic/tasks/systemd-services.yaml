@@ -1,0 +1,48 @@
+---
+
+- name: Deploy systemd service files
+  vars:
+    executable_location: /usr/local/bin
+    service_file_destination: "{{ ansible_env.HOME }}/.config/systemd/user"
+    config_file_dir: "{{ ansible_env.HOME }}/.config/borgmatic.d"
+  block:
+    - name: Ensure borgmatic config dir
+      ansible.builtin.file:
+        path: "{{ config_file_dir }}"
+        state: directory
+        mode: "0744"
+
+    - name: Ensure borgmatic config dir
+      ansible.builtin.file:
+        path: "{{ service_file_destination }}"
+        state: directory
+        mode: "0744"
+
+    - name: "Deploy configuration to {{ config_file_dir }}/{{ borgmatic_config_filename }}.yaml"
+      ansible.builtin.copy:
+        src: "files/{{ borgmatic_config_filename }}.yaml"
+        dest: "{{ config_file_dir }}/{{ borgmatic_config_filename }}.yaml"
+        mode: "0600"
+
+    # TODO: Add notification to <service> if backup does not run
+    # TODO: Ensure that ReadWritePath is restricted to the specific backup directory
+    - name: Deploy borgmatic service unit
+      ansible.builtin.template:
+        src: borgmatic.service.j2
+        dest: "{{ service_file_destination }}/{{ borgmatic_config_filename }}.service"
+        mode: "0640"
+
+    - name: Deploy borgmatic timer
+      ansible.builtin.template:
+        src: borgmatic.timer.j2
+        dest: "{{ service_file_destination }}/{{ borgmatic_config_filename }}.timer"
+        mode: "0640"
+
+    - name: Enable borgmatic systemd timer
+      ansible.builtin.systemd:
+        name: "{{ borgmatic_config_filename }}.timer"
+        daemon_reload: true
+        state: started
+        scope: user
+        enabled: true
+        masked: false
