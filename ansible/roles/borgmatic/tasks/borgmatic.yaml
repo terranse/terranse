@@ -2,27 +2,30 @@
 
 # A missing sys/acl.h solved by this; https://man7.org/tlpi/code/faq.html#sys-acl.h-missing
 - name: Install borg requirements
+  become: true
   apt:
-    pkg: 
-    - pip
-    - pkg-config
-    - libacl1-dev
-    - libssl-dev
-    - liblz4-dev
-    - libzstd-dev
-    - libxxhash-dev
-    - fuse3
-    - libfuse3-dev
-    - dbus-user-session
+    pkg:
+      - pip
+      - pipx
+      - pkg-config
+      - libacl1-dev
+      - libssl-dev
+      - liblz4-dev
+      - libzstd-dev
+      - libxxhash-dev
+      - fuse3
+      - libfuse3-dev
+      - dbus-user-session
 
 - name: Install Borgmatic
-  become: true
-  pip:
+  # become: true
+  community.general.pipx:
     name: "{{ item }}"
+    state: latest
   loop:
-    - setuptools
-    - pkgconfig
-    - pyfuse3
+    # - setuptools
+    # - pkgconfig
+    # - pyfuse3
     - borgmatic
     - borgbackup
 
@@ -39,14 +42,6 @@
 # Enter a passphrase for the repokey encryption, manually
 # borg key export ssh://u368673@u368673.your-storagebox.de:23/./cloud-backup.borg
 # THe passphrase alone does not suffice, but the key must also be saved
-
-# Note: for some reason, just adding `become` did not work, as when looking up user directory
-# we still ended up in `/root`, not `/home/user`.
-# This include sets the 'user_home' variable
-- name: Get configured user's home dir
-  vars:
-    username: "{{ backup_user }}"
-  include_tasks: roles/common/tasks/get-user-home.yaml
 
 # TODO: Loop over all borg configs to backup without manually specifying them
 # TODO: Ensure that backup service is run as unprivileged user

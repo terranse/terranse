@@ -39,11 +39,13 @@
 #     project_src: "{{ docker_compose_dir }}"
 #     state: present
 
-- name: Add packages
-  package:
-    name: fuse
-    state: present
+# - name: Add packages
+#   package:
+#     name: fuse
+#     state: present
 
 - name: Setup Borgmatic
+  tags:
+    - borgmatic
   include_tasks:
     file: borgmatic.yaml
