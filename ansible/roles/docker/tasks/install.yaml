@@ -1,9 +1,9 @@
 - name: Install docker from Geerlingguy
   include_role:
-    vars:
-      docker_users:
-        - default-user
     name: geerlingguy.docker
+  vars:
+    docker_users:
+      - default-user
 
 - name: Add convenience scripts for updating Docker containers
   lineinfile:
@@ -16,4 +16,4 @@
         yes | docker image prune
       }
     create: true
-
+    mode: "0644"

@@ -1,13 +1,6 @@
-# Taken from https://stackoverflow.com/a/48651071, available since 3.4
-x-common-env: &common-environment
-  PUID: 1000
-  PGID: 1000
-  UMASK_SET: 022
-  TZ: Europe/Stockholm
-
 include:
-{% for app in docker_apps %}
-  - docker/{{ app.name }}.yml
+{% for app in (docker_services | from_json) %}
+  - {{ app.name }}.yaml
 {% endfor %}
 
 ## TODO: There will need to be a "network" part here with vlan tagging, e.g. from

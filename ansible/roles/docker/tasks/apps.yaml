@@ -1,37 +1,82 @@
 - name: Generate docker-compose files for selected apps
+  notify: Restart docker apps
+  when: docker_services is defined and docker_services != ''
   block:
     - name: Check for additional tasks file
       stat:
-        path: "{{ role_path }}/tasks/additional/{{ item }}.yml"
+        path: "{{ role_path }}/tasks/additional/{{ item }}.yaml"
       register: additional_tasks_check
-      loop: "{{ docker_apps }}"
+      loop: "{{ docker_services | default('[]') | from_json }}"
 
     - name: Execute pre-deployment tasks
-      include_tasks: "{{ role_path }}/tasks/additional/{{ item.item }}.yml"
+      include_tasks: "{{ role_path }}/tasks/additional/{{ item.item }}.yaml"
       vars:
         task_phase: "pre"
-      when: 
+      when:
         - item.stat.exists
         - additional_tasks_pre is defined
       loop: "{{ additional_tasks_check.results }}"
       loop_control:
         loop_var: item
 
+    # Parse mounts list into a dictionary for easier access in templates
+    # resulting format looks like this:
+    #    service_mounts:
+    #      configs: "/appdata"
+    #      cloud: "/storage/cloud"
+    # Meaning that, e.g., configs can be accessed as `service_mounts.configs`
+    # Only mounts with a 'name' attribute are included in the dictionary
+    - name: Parse and flatten mounts
+      set_fact:
+        service_mounts: >-
+          {%- if mounts is defined and mounts != '' -%}
+            {%- set result = {} -%}
+            {%- set mounts_list = mounts | from_json -%}
+            {%- for mount in mounts_list -%}
+              {%- if mount.name is defined -%}
+                {%- set _ = result.update({mount.name: mount.path}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ result }}
+          {%- else -%}
+            {}
+          {%- endif -%}
+
+    - name: Ensure /opt/docker dir
+      become: true
+      file:
+        state: directory
+        path: /opt/docker/
+        mode: "0775"
+        owner: root
+        group: "{{ docker_group }}"
+
     - name: Generate docker-compose files
       template:
-        src: "{{ item }}.yml.j2"
-        dest: "/opt/docker/{{ item }}.yml"
-      loop: "{{ docker_apps }}"
+        src: "{{ item.name }}.yaml.j2"
+        dest: "/opt/docker/{{ item.name }}.yaml"
+        mode: "0600"
+      loop: "{{ docker_services | default('[]') | from_json }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Generate main docker-compose.yaml with includes
+      template:
+        src: "{{ item }}.j2"
+        dest: "/opt/docker/{{ item }}"
+        mode: "0600"
+      loop:
+        - "docker-compose.yaml"
+        - "common.yaml"
+      when: docker_services is defined and docker_services != ''
 
     - name: Execute post-deployment tasks
-      include_tasks: "{{ role_path }}/tasks/additional/{{ item.item }}.yml"
+      include_tasks: "{{ role_path }}/tasks/additional/{{ item.item }}.yaml"
       vars:
         task_phase: "post"
-      when: 
+      when:
         - item.stat.exists
         - additional_tasks_post is defined
       loop: "{{ additional_tasks_check.results }}"
       loop_control:
         loop_var: item
-
-  notify: Restart docker apps
