@@ -1,1 +1,4 @@
 project_dir: /home/daniel/Repos/infra/terraform
+
+become_method: sudo
+become_user: root
