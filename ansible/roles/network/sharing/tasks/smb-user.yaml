@@ -1,0 +1,20 @@
+---
+
+- name: Create Samba users and set passwords
+  become: true
+  block:
+    - name: Ensure user exists and is in smbusers group
+      user:
+        name: "{{ item }}"
+        groups: smbusers,container-data
+        append: true
+        create_home: true
+      register: user_created
+
+    - name: Set Samba password for user
+      expect:
+        command: "smbpasswd -s -a {{ item }}"
+        responses:
+          "New SMB password:": "mypassword"
+          "Retype new SMB password:": "mypassword"
+      when: user_created.changed

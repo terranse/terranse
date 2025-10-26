@@ -1,0 +1,7 @@
+---
+samba_users:
+  - daniel
+  - hanna
+share_user: default-user
+shares:
+  - CloudShare: /storage/cloud
