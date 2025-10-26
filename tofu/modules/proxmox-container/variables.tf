@@ -8,7 +8,7 @@ variable "ssh_key" {
 
 variable "image_name" {
   type = string
-  default = "debian-11-standard_11.3-1_amd64.tar.zst"
+  default = "debian-13-standard_13.1-1_amd64.tar.zst"
 }
 
 variable "host" {
@@ -24,7 +24,7 @@ variable "configuration" {
   type = map(object({
     memory          = optional(number, 2048)
     cores           = optional(number, 2)
-    disk_size       = optional(string, "8GB")
+    disk_size       = optional(string, "8G")
     vmid            = optional(number)
     mounts          = optional(map(map(string)), {})
     roles           = optional(list(object({ name = string })), [])
