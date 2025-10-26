@@ -1,0 +1,58 @@
+#!/bin/bash
+set -euo pipefail
+
+# Wrapper script to run borgmatic with SSH key from 1Password
+# The SSH key is retrieved, added to ssh-agent, and removed after backup completes
+
+# Trap to ensure cleanup happens even on error
+cleanup() {
+    local exit_code=$?
+    if [ -n "${SSH_AGENT_PID:-}" ]; then
+        echo "Cleaning up SSH agent (PID: $SSH_AGENT_PID)..."
+        # Remove all identities from the agent
+        ssh-add -D 2>/dev/null || true
+        # Kill the agent
+        kill "$SSH_AGENT_PID" 2>/dev/null || true
+    fi
+    exit $exit_code
+}
+
+trap cleanup EXIT INT TERM
+
+# Check that required environment variables are set
+if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
+    echo "ERROR: OP_SERVICE_ACCOUNT_TOKEN environment variable is not set" >&2
+    exit 1
+fi
+
+if [ -z "${OP_SSH_KEY_REFERENCE:-}" ]; then
+    echo "ERROR: OP_SSH_KEY_REFERENCE environment variable is not set" >&2
+    echo "Example format: op://vault-name/item-name/private-key" >&2
+    exit 1
+fi
+
+# Start ssh-agent
+echo "Starting SSH agent..."
+eval "$(ssh-agent -s)"
+
+if [ -z "${SSH_AGENT_PID:-}" ]; then
+    echo "ERROR: Failed to start SSH agent" >&2
+    exit 1
+fi
+
+echo "SSH agent started (PID: $SSH_AGENT_PID)"
+
+# Retrieve SSH private key from 1Password and add to agent
+echo "Retrieving SSH key from 1Password..."
+if ! op read "$OP_SSH_KEY_REFERENCE" | ssh-add -; then
+    echo "ERROR: Failed to retrieve SSH key from 1Password or add to agent" >&2
+    exit 1
+fi
+
+echo "SSH key successfully added to agent"
+
+# Run borgmatic
+echo "Running borgmatic..."
+{{ executable_location }}/borgmatic --verbosity -2 --syslog-verbosity 1
+
+echo "Borgmatic backup completed successfully"

@@ -198,7 +198,7 @@ encryption_passphrase: "{{ BORGMATIC_REPO_PASSPHRASE }}"
 
 # Command to use instead of "ssh". This can be used to specify ssh
 # options. Defaults to not set.
-ssh_command: ssh -i ~/.ssh/hetzner_key
+# ssh_command: ssh -i ~/.ssh/hetzner_key
 
 # Base path used for various Borg directories. Defaults to $HOME,
 # ~$USER, or ~.

@@ -1,0 +1,8 @@
+---
+dependencies: []
+
+galaxy_info:
+  role_name: 1password
+  author: yarcod
+  description: Install 1password desktop/cli
+  license: "license (BSD, MIT)"

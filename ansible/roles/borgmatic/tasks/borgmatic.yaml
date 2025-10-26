@@ -13,9 +13,23 @@
       - liblz4-dev
       - libzstd-dev
       - libxxhash-dev
+      # Allows using systemd things for sudo users
+      - dbus-user-session
+      - polkitd
+      # For mounting the remote backup locally
       - fuse3
       - libfuse3-dev
-      - dbus-user-session
+      - python3-pyfuse3
+      - python3-llfuse
+
+- name: Check if local bin directory is in PATH
+  ansible.builtin.set_fact:
+    local_bin_in_path: "{{ ansible_env.HOME ~ '/.local/bin' in ansible_env.PATH.split(':') }}"
+
+- name: Ensure pipx installs are in path
+  command: pipx --ensurepath
+  changed_when: true
+  when: not local_bin_in_path
 
 - name: Install Borgmatic
   # become: true
@@ -23,11 +37,14 @@
     name: "{{ item }}"
     state: latest
   loop:
-    # - setuptools
-    # - pkgconfig
-    # - pyfuse3
     - borgmatic
-    - borgbackup
+    # pyfuse3 needed to enable mounting of remote repo
+    - borgbackup[pyfuse3]
+
+# If there is a system upgrade and `pyfuse3.so.4` is updated, the mounting
+# might break. See https://github.com/borgbackup/borg/issues/8657#issuecomment-3146805611
+# Then reinstall borg via `pipx install -f 'borgbackup[pyfuse3]' --pip-args='--no-cache-dir'`
+
 
 # TODO: At some point, the /usr/local/bin/borg application was not part of the PATH,
 # and as such was not found. `which borg` still replied with the above, correct path,
@@ -41,14 +58,4 @@
 # borgmatic init --encryption repokey --config files/cloud-borg-backup.yaml
 # Enter a passphrase for the repokey encryption, manually
 # borg key export ssh://u368673@u368673.your-storagebox.de:23/./cloud-backup.borg
-# THe passphrase alone does not suffice, but the key must also be saved
-
-# TODO: Loop over all borg configs to backup without manually specifying them
-# TODO: Ensure that backup service is run as unprivileged user
-
-- name: Setup systemd service and timer for given configuration
-  loop:
-    - cloud-borg-backup
-  loop_control:
-    loop_var: borgmatic_config_filename
-  include_tasks: systemd-services.yaml
+# The passphrase alone does not suffice, but the key must also be saved

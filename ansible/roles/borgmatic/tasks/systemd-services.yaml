@@ -1,10 +1,10 @@
----
-
 - name: Deploy systemd service files
   vars:
-    executable_location: /usr/local/bin
+    executable_location: "{{ ansible_env.HOME }}/.local/bin"
     service_file_destination: "{{ ansible_env.HOME }}/.config/systemd/user"
     config_file_dir: "{{ ansible_env.HOME }}/.config/borgmatic.d"
+    wrapper_script_name: "borgmatic-wrapper.sh"
+    environment_file: "{{ config_file_dir }}/{{ borgmatic_config_filename }}.env"
   block:
     - name: Ensure borgmatic config dir
       ansible.builtin.file:
@@ -12,11 +12,32 @@
         state: directory
         mode: "0744"
 
-    - name: Ensure borgmatic config dir
+    - name: Ensure systemd user service dir
       ansible.builtin.file:
         path: "{{ service_file_destination }}"
         state: directory
         mode: "0744"
+
+    - name: Check if 1Password CLI is installed
+      ansible.builtin.command: which op
+      register: op_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if 1Password CLI is not installed
+      ansible.builtin.fail:
+        msg: "1Password CLI (op) is not installed. Please install it first."
+      when: op_check.rc != 0
+
+    - name: Validate required variables are defined
+      ansible.builtin.assert:
+        that:
+          - BACKUP_OP_SERVICE_ACCOUNT_TOKEN is defined
+          - BACKUP_OP_SSH_KEY_REFERENCE is regex('^op://.+/.+/.+$')
+        fail_msg: |
+          Required variables missing or invalid:
+          - BACKUP_OP_SERVICE_ACCOUNT_TOKEN must be defined
+          - BACKUP_OP_SSH_KEY_REFERENCE must be in format: op://vault/item/field
 
     - name: "Deploy configuration to {{ config_file_dir }}/{{ borgmatic_config_filename }}.yaml"
       ansible.builtin.copy:
@@ -24,25 +45,50 @@
         dest: "{{ config_file_dir }}/{{ borgmatic_config_filename }}.yaml"
         mode: "0600"
 
-    # TODO: Add notification to <service> if backup does not run
-    # TODO: Ensure that ReadWritePath is restricted to the specific backup directory
+    - name: Deploy environment file with 1Password credentials
+      ansible.builtin.template:
+        src: borgmatic.env.j2
+        dest: "{{ environment_file }}"
+        mode: "0600"
+
+    - name: Deploy 1Password SSH wrapper script
+      ansible.builtin.template:
+        src: borgmatic-wrapper.sh.j2
+        dest: "{{ executable_location }}/{{ wrapper_script_name }}"
+        mode: "0750"
+
     - name: Deploy borgmatic service unit
       ansible.builtin.template:
         src: borgmatic.service.j2
         dest: "{{ service_file_destination }}/{{ borgmatic_config_filename }}.service"
         mode: "0640"
+      notify: Reload systemd user daemon
 
     - name: Deploy borgmatic timer
       ansible.builtin.template:
         src: borgmatic.timer.j2
         dest: "{{ service_file_destination }}/{{ borgmatic_config_filename }}.timer"
         mode: "0640"
+      notify: Reload systemd user daemon
+
+    - name: Reload systemd user daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+        scope: user
+
+    # This is required for the backup job to run as a user scoped job; the SSH conf
+    # file needs to have the correct permissions (below) from the user's perspective
+    # to work as a SSH config file. Borgmatic runs fine manually without.
+    - name: Set ownership of SystemD's SSH conf file for the job
+      file:
+        state: file
+        path: /usr/lib/systemd/ssh_config.d/20-systemd-ssh-proxy.conf
+        owner: "{{ backup_user }}"
+        mode: "0600"
 
     - name: Enable borgmatic systemd timer
       ansible.builtin.systemd:
         name: "{{ borgmatic_config_filename }}.timer"
-        daemon_reload: true
         state: started
         scope: user
         enabled: true
-        masked: false
