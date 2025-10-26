@@ -1,3 +1,5 @@
-rust-just
 ansible
+passlib
+rust-just
+sh
 
