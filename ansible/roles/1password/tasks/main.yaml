@@ -1,0 +1,74 @@
+---
+
+- name: Install 1Password CLI
+  vars:
+    gpg_key_id: AC2D62742012EA22
+    gpg_key_url: https://downloads.1password.com/linux/keys/1password.asc
+    repo_url: https://downloads.1password.com/linux/debian/amd64
+    arch_map:
+      x86_64: amd64
+      aarch64: arm64
+  block:
+    - name: Remove legacy repository files
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/1password.list
+        - /usr/share/keyrings/1password-archive-keyring.asc
+        - /usr/share/keyrings/1password-archive-keyring.gpg
+
+    - name: Configure 1Password repository (deb822 format)
+      become: true
+      ansible.builtin.deb822_repository:
+        name: 1password
+        types: deb
+        uris: "{{ repo_url }}"
+        suites: stable
+        components: main
+        architectures: "{{ arch_map[ansible_architecture] | default('amd64') }}"
+        signed_by: "{{ gpg_key_url }}"
+        state: present
+      register: repo_configured
+
+    - name: Create debsig policies directory
+      become: true
+      ansible.builtin.file:
+        path: "/etc/debsig/policies/{{ gpg_key_id }}"
+        state: directory
+        mode: '0755'
+
+    - name: Download debsig policy file
+      become: true
+      ansible.builtin.get_url:
+        url: https://downloads.1password.com/linux/debian/debsig/1password.pol
+        dest: "/etc/debsig/policies/{{ gpg_key_id }}/1password.pol"
+        mode: '0644'
+
+    - name: Create debsig keyrings directory
+      become: true
+      ansible.builtin.file:
+        path: "/usr/share/debsig/keyrings/{{ gpg_key_id }}"
+        state: directory
+        mode: '0755'
+
+    - name: Download debsig keyring
+      become: true
+      ansible.builtin.get_url:
+        url: "{{ gpg_key_url }}"
+        dest: "/usr/share/debsig/keyrings/{{ gpg_key_id }}/debsig.gpg"
+        mode: '0644'
+
+    - name: Update apt cache
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: repo_configured.changed
+
+    - name: Install 1Password CLI
+      become: true
+      ansible.builtin.apt:
+        name: 1password-cli
+        state: present
