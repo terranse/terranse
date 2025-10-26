@@ -1,0 +1,7 @@
+---
+
+# Setup hash checking
+# Enable hash-based setup task skipping (set to false to always run setup tasks)
+enable_setup_hash_check: true
+# Force setup tasks to run even if hash matches (useful for troubleshooting)
+force_setup: false

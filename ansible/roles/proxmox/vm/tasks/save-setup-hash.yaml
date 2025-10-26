@@ -1,0 +1,9 @@
+---
+# This task saves the current setup hash to the remote system after successful setup
+
+- name: Save current setup hash to remote
+  ansible.builtin.copy:
+    content: "{{ {'hash': current_setup_hash, 'timestamp': ansible_date_time.iso8601} | to_nice_json }}"
+    dest: /etc/ansible/facts.d/proxmox_vm_setup.fact
+    mode: '0644'
+  become: true
