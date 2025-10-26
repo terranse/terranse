@@ -1,5 +1,17 @@
 ---
 
-- name: "Ensure keyctl and fuse features are enabled for {{ current_vmid }}"
+- name: "Check current features"
+  command: "pct config {{ current_vmid }}"
+  register: lxc_features
+  changed_when: false
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
+
+- name: "Set virt features if not already enabled"
   command: "pct set {{ current_vmid }} -features keyctl=1,fuse=1"
-  become: true
+  changed_when: true
+  delegate_to: "{{ host }}"
+  when: "'keyctl=1' not in lxc_features.stdout"
+  vars:
+    ansible_user: root

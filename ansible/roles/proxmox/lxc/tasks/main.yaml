@@ -1,9 +1,47 @@
 ---
-- name: Install useful packages in all containers
-  import_tasks: setup/packages.yaml
+# Check if setup tasks need to run based on file hash comparison
+- name: Check if setup is required
+  import_tasks: check-setup-hash.yaml
+  when: enable_setup_hash_check | default(true) | bool
 
-- name: Setup user and group in LXC
-  import_tasks: setup/user-group.yaml
+- name: Set setup_required to true if hash check is disabled
+  set_fact:
+    setup_required: true
+  when: not (enable_setup_hash_check | default(true) | bool)
+
+- name: Check if docker_user exists
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ docker_user }}"
+    fail_key: false
+  register: docker_user_entry
+  ignore_errors: true
+
+  # Upon first creation of the container there is just the `root` user, and this setup later
+  # along with `sudo`. Until first setup we connect as root by setting `ansible_user=root` from
+  # the command line, e.g. `ansible-playbook ... -e 'ansible_user=root`
+- name: "Check if {{ docker_user }} is already created"
+  set_fact:
+    use_docker_user: "{{ ansible_facts.getent_passwd[docker_user] is defined }}"
+
+- name: Set ansible_user unless overridden
+  set_fact:
+    ansible_user: "{{ docker_user if use_docker_user else 'root' }}"
+  when: ansible_user is not defined
+
+- name: "Run setup tasks as root or {{ docker_user }}"
+  become: "{{ ansible_user != 'root' }}"
+  when: setup_required | default(true) | bool
+  block:
+    - name: Install useful packages in all containers
+      import_tasks: setup/packages.yaml
+
+    - name: Setup user and group in LXC
+      import_tasks: setup/user-group.yaml
+
+    - name: Save setup hash after successful completion
+      import_tasks: save-setup-hash.yaml
+      when: enable_setup_hash_check | default(true) | bool
 
 # By delegating this, the execution is performed where it is supposed to,
 # but the fact (vmid) will be available in the $inventory_host CT, i.e. calling CT,
@@ -12,19 +50,22 @@
   import_tasks: find-vmid-from-name.yaml
   when: current_vmid is not defined
   delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
 
 - name: Mount the given zfs dataset in the calling ct
   import_tasks: storage/bind-mount.yaml
   when: mounts is defined
   delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
 
 - name: Setup necessary container features to allow docker
-  import_tasks: "{{ item }}"
-  when: "'docker' in services"
+  include_tasks: "{{ item }}"
+  when: (services | from_json | selectattr('name', 'equalto', 'docker') | list | length > 0)
   loop:
     - setup/enable-virt-features.yaml
     - storage/fuse-mount.yaml
-  delegate_to: "{{ host }}"
 
 # TODO: This does not make sense to have here. Enable overrides for adding specific
 # docker containers instead, which would make this a single task at only that spot
@@ -32,5 +73,3 @@
   import_tasks: network/add-tun-tap-device.yaml
   when: "'docker/gluetun' in docker_services"
   delegate_to: "{{ host }}"
-
-

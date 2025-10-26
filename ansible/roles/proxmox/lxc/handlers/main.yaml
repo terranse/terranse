@@ -1,13 +1,15 @@
 ---
 - name: Restart container
-  command: "pct restart {{ current_vmid }}"
+  command: "pct reboot {{ current_vmid }}"
   become: true
+  delegate_to: "{{ host }}"
+  changed_when: false
   when: current_vmid is defined
+  vars:
+    ansible_user: root
 
 - name: Restart ssh
   become: true
   ansible.builtin.service:
     name: ssh
     state: restarted
-
-

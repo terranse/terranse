@@ -1,0 +1,93 @@
+---
+# This task file calculates a hash of all setup-related files and determines
+# if setup tasks need to be re-run based on changes
+
+- name: Find all task files in role
+  ansible.builtin.find:
+    paths: "{{ role_path }}/tasks"
+    patterns: "*.yaml,*.yml"
+    recurse: true
+  register: task_files
+  delegate_to: localhost
+  run_once: true
+
+- name: Check if templates directory exists
+  ansible.builtin.stat:
+    path: "{{ role_path }}/templates"
+  register: templates_dir
+  delegate_to: localhost
+  run_once: true
+
+- name: Find all template files in role
+  ansible.builtin.find:
+    paths: "{{ role_path }}/templates"
+    patterns: "*.j2"
+    recurse: true
+  register: template_files
+  delegate_to: localhost
+  run_once: true
+  when: templates_dir.stat.exists and templates_dir.stat.isdir
+
+- name: Get checksums of all task files
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+  loop: "{{ task_files.files }}"
+  register: task_checksums
+  delegate_to: localhost
+  run_once: true
+
+- name: Get checksums of all template files
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+  loop: "{{ template_files.files | default([]) }}"
+  register: template_checksums
+  delegate_to: localhost
+  run_once: true
+  when: template_files.files is defined
+
+- name: Calculate combined hash of all files
+  ansible.builtin.set_fact:
+    current_setup_hash: "{{ (task_checksums.results | map(attribute='stat.checksum') | list + template_checksums.results | default([]) | map(attribute='stat.checksum') | list) | join('') | hash('sha256') }}"
+  run_once: true
+
+- name: Ensure ansible facts directory exists on remote
+  ansible.builtin.file:
+    path: /etc/ansible/facts.d
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Check if setup hash fact exists on remote
+  ansible.builtin.stat:
+    path: /etc/ansible/facts.d/proxmox_lxc_setup.fact
+  register: setup_fact_file
+
+- name: Read existing setup hash from remote
+  ansible.builtin.slurp:
+    src: /etc/ansible/facts.d/proxmox_lxc_setup.fact
+  register: existing_hash_content
+  when: setup_fact_file.stat.exists
+
+- name: Parse existing hash
+  ansible.builtin.set_fact:
+    existing_setup_hash: "{{ (existing_hash_content.content | b64decode | from_json).hash }}"
+  when: setup_fact_file.stat.exists
+
+- name: Determine if setup is required
+  ansible.builtin.set_fact:
+    setup_required: "{{ force_setup | default(false) | bool or not setup_fact_file.stat.exists or existing_setup_hash | default('') != current_setup_hash }}"
+
+- name: Display setup decision
+  ansible.builtin.debug:
+    msg: >-
+      {% if force_setup | default(false) | bool %}
+      Setup FORCED via force_setup variable
+      {% elif not setup_fact_file.stat.exists %}
+      Setup REQUIRED - no existing hash found (first run)
+      {% elif existing_setup_hash | default('') != current_setup_hash %}
+      Setup REQUIRED - role files have changed (hash mismatch)
+      {% else %}
+      Setup SKIPPED - no changes detected in role files
+      {% endif %}

@@ -4,5 +4,7 @@
 
 # # Docker setup
 # docker_user: "default-user"
-# docker_release: 
-# docker_release_shasum: 
+# docker_release:
+# docker_release_shasum:
+groupname: container-data
+docker_user: default-user

@@ -6,11 +6,10 @@
       - /etc/pve/nodes/proxmox/lxc/
       - /etc/pve/nodes/proxmox/qemu_server/
     patterns: '\d{3}\.conf'
-    contains: ".*name: {{ system_under_config }}"
+    contains: ".*name: {{ inventory_hostname_short }}"
     use_regex: true
   register: wanted_vmid
 
 - name: Propagate the found vmid back to caller
-  set_fact: 
+  set_fact:
     current_vmid: "{{ wanted_vmid.files[0].path | basename | splitext | first }}"
-

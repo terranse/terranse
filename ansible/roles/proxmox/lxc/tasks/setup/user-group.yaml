@@ -9,15 +9,9 @@
       - groupname is defined
     fail_msg: "docker_user and groupname must be defined"
 
-- name: Ensure sudo-rs package is installed
-  become: true
-  apt:
-    name: sudo-rs
-    state: present
-
 - name: Setup a corresponding group in LXC container
   group:
-    name: "{{ groupname }}" 
+    name: "{{ groupname }}"
     gid: 1000
     state: present
 
@@ -29,28 +23,39 @@
     uid: 1000
     group: "{{ groupname }}"
     shell: /usr/bin/fish
-    password: "{{ lookup('onepassword', 'docker_user_password') }}"
+    password: "{{ lookup('onepassword', 'infra_default_user') | password_hash('sha512', 65534 | random(seed=inventory_hostname) | string)}}"
     groups: sudo
     append: true
 
+- name: "Ensure {{ docker_user }} .ssh dir"
+  file:
+    path: "/home/{{ docker_user }}/.ssh"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ groupname }}"
+    mode: "0700"
+
 - name: Copy authorized_keys to user
+  become: true
   copy:
     src: /root/.ssh/authorized_keys
+    remote_src: true
     dest: "/home/{{ docker_user }}/.ssh/authorized_keys"
     owner: "{{ docker_user }}"
     group: "{{ groupname }}"
     mode: '0600'
 
 - name: Add valuable aliases for "{{ docker_user }}"
-  become: true
-  lineinfile:
+  blockinfile:
     path: "{{ ansible_env.HOME }}/.bashrc"
-    line: |
+    block: |
       alias ll='ls -alF'
       alias la='ls -A'
       alias l='ls -CF'
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - Aliases"
     create: true
-    
+    mode: "0644"
+
 - name: ensure "{{ docker_user }}" is lingering
   ansible.builtin.stat:
     path: "/var/lib/systemd/linger/{{ docker_user }}"
@@ -59,6 +64,7 @@
 - name: enable lingering for "{{ docker_user }}"
   become: true
   ansible.builtin.command: "loginctl enable-linger {{ docker_user }}"
+  changed_when: false
   when: not docker_user_lingering.stat.exists
 
 - name: Ensure user local bin directory
@@ -77,4 +83,3 @@
     line: 'PermitRootLogin no'
     state: present
   notify: Restart ssh
-

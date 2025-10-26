@@ -1,117 +1,50 @@
 ---
-- name: Init empty storage vars
+
+- name: Initialize desired mount entries
   set_fact:
-    zfs_datasets: []
-    shared_filesystems: []
-    mountpoints: []
+    desired_mount_entries: []
 
-- name: List all zfs_datasets
+- name: Parse mounts from JSON string
   set_fact:
-    zfs_datasets: "{{ zfs_datasets + [ item.key ] }}"
-  loop: "{{ mounts | dict2items }}"
+    mounts_list: "{{ mounts | from_json }}"
 
-- name: List all corresponding mountpoints
+- name: Gather ZFS mountpoint information
+  include_tasks: gather-mount-entry.yaml
+  loop: "{{ mounts_list }}"
+  loop_control:
+    label: "{{ item.dataset }}"
+
+- name: Get current mountpoints from config
+  slurp:
+    path: "/etc/pve/lxc/{{ current_vmid }}.conf"
+  register: lxc_config
+
+- name: Parse current mount entries
   set_fact:
-    mountpoints: "{{ mountpoints + [ item.value ] }}"
-  loop: "{{ mounts | dict2items }}"
+    current_mount_lines: "{{ lxc_config.content | b64decode | regex_findall('^lxc\\.mount\\.entry:.*$', multiline=True) }}"
 
-# Taken from https://gist.github.com/JSinghDev/10e0824580a84a56022153592ac64faa
-- name: Get mountpoint for zfs_datasets and make a list
-  # import_tasks: get-zfs-mountpoint.yaml
-  include_tasks: roles/common/tasks/get-zfs-mountpoint.yaml
-  loop: "{{ mounts | dict2items }}"
-
-- name: Make group name globally available (in file?)
+- name: Determine mount entries to add
   set_fact:
-    groupname: container-data
+    mounts_to_add: "{{ desired_mount_entries | rejectattr('line', 'in', current_mount_lines) | list }}"
 
-# Groups in LXCs are normally prefixed with "10" before real group number
-- name: Create group used for (unprivileged) containers to access data
-  group:
-    name: "{{ groupname }}"
-    gid: 101000
-    state: present
+- name: Determine mount entries to remove
+  set_fact:
+    mounts_to_remove: "{{ current_mount_lines | difference(desired_mount_entries | map(attribute='line') | list) }}"
 
-- name: Install ACLs
-  apt:
-    name: acl
-
-# TODO: Sometime this hangs, disable for now
-# - name: Make sure that ZFS uses posix acls
-#   zfs:
-#     name: "{{ item }}"
-#     state: present
-#     extra_zfs_properties:
-#       acltype: posixacl
-#   loop: "{{ zfs_datasets }}"
-
-# TODO: Currently takes a looong time for most shares, enable when needed;
-#       And in the end, add a naive check to see if this is needed at all. 
-# - name: Set group permissions and mod for the share
-#   file:
-#     path: "{{ item }}"
-#     recurse: yes
-#     group: "{{ groupname }}"
-#     # mode: '2775'
-#   loop: "{{ shared_filesystems }}"
-
-# TODO: This can sometimes break if files are corrupted
-# - name: Set default ACL permissions for {{ groupname }}
-#   acl:
-#     path: "{{ item }}"
-#     recursive: yes
-#     entity: "{{ groupname }}"
-#     etype: group
-#     permissions: rwx
-#     default: yes
-#     state: present
-#   loop: "{{ shared_filesystems }}"
-
-# - name: Set ACL permissions for {{ groupname }} for current files
-#   acl:
-#     path: "{{ item }}"
-#     recursive: yes
-#     entity: "{{ groupname }}"
-#     etype: group
-#     permissions: rwx
-#     state: present
-#   loop: "{{ shared_filesystems }}"
-
-- name: Register mountpoints currently in config file
+- name: Add missing mount entries
   lineinfile:
     path: "/etc/pve/lxc/{{ current_vmid }}.conf"
-    regex: "^lxc.mount.entry.*"
+    line: "{{ item.line }}"
+    insertafter: "^unprivileged"
+  loop: "{{ mounts_to_add }}"
+  loop_control:
+    label: "{{ item.source }} -> {{ item.target }}"
+  notify: Restart container
+
+- name: Remove obsolete mount entries
+  lineinfile:
+    path: "/etc/pve/lxc/{{ current_vmid }}.conf"
+    line: "{{ item }}"
     state: absent
-  register: current_mountpoints
-  changed_when: false
-  check_mode: true
-
-- name: Mount data storage using rbind
-  lineinfile:
-    path: "/etc/pve/lxc/{{ current_vmid }}.conf"
-    line: "lxc.mount.entry: {{ item.0 }} {{ item.1[1:] }} none rbind,create=dir,optional 0 0"
-    insertafter: "^unprivileged" # At present the last value in the lxc conf file
-  loop: "{{ shared_filesystems | zip(mountpoints) | list }}"
-  when: not (item.0 and item.1[1:]) in current_mountpoints.diff[0].before
-  register: mount_entry_result
-
-# TODO: This is evidently not fool proof, did not work when existing mount point
-# /storage/appdata was changed to /appdata instead and the old was left in place.
-- name: Remove mountpoints not part of current configuration
-  replace:
-    path: "/etc/pve/lxc/{{ current_vmid }}.conf"
-    regexp: "{{ item }}"
-  loop: "{{ current_mountpoints.diff[0].before | regex_findall('lxc.mount.entry.*0 0\n') }}"
-  when:
-    - item in current_mountpoints
-    - not item in mount_entry_result
-  register: removed_mountpoints
-
-- name: "Restart CT {{ current_vmid }} if mounts have changed"
-  community.general.proxmox:
-    vmid: "{{ current_vmid }}"
-    api_user: root@pam
-    api_password: "{{ lookup('onepassword', 'Proxmox', field='password') }}"
-    api_host: 192.168.1.100
-    state: restarted
-  when: removed_mountpoints is changed or mount_entry_result is changed
+  loop: "{{ mounts_to_remove }}"
+  notify: Restart container
