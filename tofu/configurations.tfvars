@@ -1,30 +1,22 @@
 hosts = {
   "proxmox" = {
     #TODO Only necessary to specify IP until DNS is in place
-    ansible_host = "192.168.1.100"
-    ansible_user = "default-user"
+    # ansible_host = "192.168.1.100"
+    ansible_user = "root"
 
     lxcs = {
       media = {
         memory    = 4096
         disk_size = "32G"
 
-        mounts = {
-          configs = {
-            "Tank2/appdata": "/appdata"
-          }
-          movies = {
-            "Tank3/movies": "/storage/movies"
-          }
-          tv_series = {
-            "Tank/windows_smb_series": "/storage/tv_series"
-          }
-          media = {
-            "Tank/windows_smb_util": "/storage/media"
-          }
-        }
+        mounts = [
+          {name = "config", dataset = "tank/appdata", path = "/appdata"},
+          {name = "movies", dataset = "Tank3/movies", path = "/storage/movies"},
+          {name = "tv_series", dataset = "Tank/windows_smb_series", path = "/storage/tv_series"},
+          {name = "util", dataset = "Tank/windows_smb_util", path = "/storage/media"},
+        ]
 
-        services = [ 
+        roles = [ 
           { name = "docker" }
         ]
         docker_services = [
@@ -34,7 +26,11 @@ hosts = {
         ]
       }
       backup = {
-        services = [
+        mounts = [
+          {dataset = "tank/appdata", path = "/appdata"},
+          {dataset = "tank/cloud", path = "/storage/cloud"},
+        ]
+        roles = [
           { name = "borgmatic" }
         ]
       }
@@ -42,16 +38,12 @@ hosts = {
         memory    = 4096
         disk_size = "32G"
 
-        mounts = {
-          configs = {
-            "Tank2/appdata" : "/appdata"
-          }
-          cloud = {
-            "Tank3/cloud": "/storage/cloud"
-          }
-        }
+        mounts = [
+          {name = "config", dataset = "tank/appdata", path = "/appdata"},
+          {name = "cloud", dataset = "tank/cloud", path = "/storage/cloud"},
+        ]
 
-        services = [ 
+        roles = [ 
           { name = "docker" }
         ]
         docker_services = [
@@ -61,13 +53,11 @@ hosts = {
       authentication = {
         memory = 4096
 
-        mounts = {
-          configs = {
-            "Tank2/appdata": "/appdata"
-          }
-        }
+        mounts = [
+          {name = "config", dataset = "tank/appdata", path = "/appdata"},
+        ]
 
-        services = [ 
+        roles = [ 
           { name = "docker" }
         ]
         docker_services = [
@@ -75,21 +65,41 @@ hosts = {
         ]
       }
 
+      # TODO: Add configuration for a VPN client container, to route specific traffic through a VPN
+      # TODO: Set, e.g., netbird to be a `service` instead of a role path
       network = {
         roles = [
-          { name = "network/netbird" },
+          { name = "network" },
         ]
       }
 
       dls-server = {
-        services = [
+        roles = [
+          { name = "docker" }
+        ]
+        docker_services = [
           { name = "dls-server" }
         ]
       }
 
       sharing = {
+        mounts = [
+          {name = "cloudShare", dataset = "tank/cloud", path = "/storage/cloud"}
+        ]
         roles = [
-          { name = "network/samba" }
+          { name = "network/sharing" }
+        ]
+      }
+
+      tasks = {
+        mounts = [
+          {name = "config", dataset = "tank/appdata", path = "/appdata"}
+        ]
+        roles = [
+          { name = "docker" }
+        ]
+        docker_services = [
+          { name = "vikunja" }
         ]
       }
     }
