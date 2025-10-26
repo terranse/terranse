@@ -1,8 +1,8 @@
 ---
 
-- name: Get mountpoint for {{ item.key }}
+- name: Get mountpoint for {{ item.dataset }}
   zfs_facts:
-    name: "{{ item.key }}"
+    name: "{{ item.dataset }}"
   register: dataset_facts
 
 - name: Validate and add to mount entries
@@ -13,7 +13,7 @@
     loop_var: dataset
     label: "{{ dataset.name }}"
   vars:
-    mountpoint_in_container: "{{ item.value }}"
+    mountpoint_in_container: "{{ item.path }}"
     entry:
       source: "{{ dataset.mountpoint }}"
       target: "{{ mountpoint_in_container }}"

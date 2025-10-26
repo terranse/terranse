@@ -1,16 +1,21 @@
 ---
 - name: Install fuse-overlayfs
-  pkg:
-    - fuse-overlayfs
+  become: true
+  ansible.builtin.package:
+    name: fuse-overlayfs
+    state: latest # noqa package-latest
 
 # TODO: This assumes no other dockerd config options are already specified. Does NOT append!
 # More info on daemon config options: https://www.devopsschool.com/blog/how-to-configure-docker-daemon-with-a-configuration-file/
 - name: Create docker config directory
+  become: true
   file:
     state: directory
     path: /etc/docker
+    mode: "0644"
 
 - name: Create daemon.json if none exists
+  become: true
   vars:
     json:
       storage-driver: "fuse-overlayfs"
@@ -18,3 +23,4 @@
     content: "{{ json | to_nice_json }}"
     dest: /etc/docker/daemon.json
     force: false
+    mode: "0644"

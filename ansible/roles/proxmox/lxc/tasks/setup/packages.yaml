@@ -1,17 +1,26 @@
 ---
 
-- name: Install useful packages in all containers
-  apt:
+- name: Install system-wide .deb packages
+  become: "{{ ansible_user != 'root' }}"
+  ansible.builtin.apt:
     name:
       - fd-find
-      - ripgrep
       - duf
       - fish
-      - python3-pip
-    state: present
-    update_cache: yes
+      - gpg
+      - python3-full
+      - pipx
+      - ripgrep
+      - sudo
+      # For password hashing when creating user
+      - python3-passlib
+    state: latest # noqa package-latest
+    update_cache: true
 
-- name: Install proxmoxer python package
-  pip:
-    name: proxmoxer
-    executable: pip3
+- name: Symlink fd-find to fd
+  become: true
+  ansible.builtin.file:
+    src: /usr/bin/fdfind
+    dest: /usr/bin/fd
+    state: link
+    mode: "0755"
