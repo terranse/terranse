@@ -1,1 +1,22 @@
+---
+# Check if setup tasks need to run based on file hash comparison
+- name: Check if setup is required
+  import_tasks: check-setup-hash.yaml
+  when: enable_setup_hash_check | default(true) | bool
+
+- name: Set setup_required to true if hash check is disabled
+  set_fact:
+    setup_required: true
+  when: not (enable_setup_hash_check | default(true) | bool)
+
 # TODO: Ensure VM specific things inside, e.g. data mount over NFS
+# When setup tasks are added, wrap them in:
+# - name: "Run setup tasks"
+#   when: setup_required | default(true) | bool
+#   block:
+#     - name: Your setup tasks here
+#       ...
+#
+#     - name: Save setup hash after successful completion
+#       import_tasks: save-setup-hash.yaml
+#       when: enable_setup_hash_check | default(true) | bool
