@@ -9,7 +9,7 @@ services:
       # Generate Windscribe credentials: https://windscribe.com/getconfig/wireguard
       VPN_SERVICE_PROVIDER: windscribe
       VPN_TYPE: wireguard
-      WIREGUARD_PRIVATE_KEY: "{{ lookup('onepassword', 'Windscribe Wireguard Copenhagen', vault: 'HomeNetwork', section: 'Interface', field: 'PrivateKey') }}"
-      WIREGUARD_ADDRESSES: "{{ lookup('onepassword', 'Windscribe Wireguard Copenhagen', vault: 'HomeNetwork', section: 'Interface', field: 'Address') }}"
-      WIREGUARD_PRESHARED_KEY: "{{ lookup('onepassword', 'Windscribe Wireguard Copenhagen', vault: 'HomeNetwork', section: 'Peer', field: 'PreSharedKey') }}"
-      WIREGUARD_ENDPOINT_PORT: "{{ lookup('onepassword', 'Windscribe Wireguard Copenhagen', vault: 'HomeNetwork', field: 'port') }}"
+      WIREGUARD_PRIVATE_KEY: "{{ lookup('onepassword', 'Windscribe Wireguard Copenhagen', vault= 'HomeNetwork', section= 'Interface', field= 'PrivateKey') }}"
+      WIREGUARD_ADDRESSES: "{{ lookup('onepassword', 'Windscribe Wireguard Copenhagen', vault= 'HomeNetwork', section= 'Interface', field= 'Address') }}"
+      WIREGUARD_PRESHARED_KEY: "{{ lookup('onepassword', 'Windscribe Wireguard Copenhagen', vault= 'HomeNetwork', section= 'Peer', field= 'PreSharedKey') }}"
+      WIREGUARD_ENDPOINT_PORT: "{{ lookup('onepassword', 'Windscribe Wireguard Copenhagen', vault= 'HomeNetwork', field= 'port') }}"

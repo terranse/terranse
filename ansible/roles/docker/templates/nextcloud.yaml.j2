@@ -4,25 +4,27 @@ services:
     image: nextcloud:latest
     hostname: nextcloud
     container_name: nextcloud
+    extends:
+      file: common.yaml
+      service: base-service
     environment:
-      TZ: Europe/Stockholm
       MYSQL_PASSWORD: "{{ MYSQL_PASSWORD }}"
       MYSQL_DATABASE: nextcloud
       MYSQL_USER: nextcloud
       MYSQL_HOST: db
-      NEXTCLOUD_ADMIN_USER: something_admin
+      NEXTCLOUD_ADMIN_USER: some_admin
       NEXTCLOUD_ADMIN_PASSWORD: "{{ NEXTCLOUD_ADMIN_PASSWORD }}"
       REDIS_HOST: cache
       REDIS_HOST_PORT: 6379
       REDIS_HOST_PASSWORD: "{{ REDIS_PASSWORD }}"
       JWT_SECRET: "{{ JWT_SECRET }}"
     volumes:
-      - /storage/appdata/nextcloud/config:/var/www/html/config
-      - /storage/appdata/nextcloud/data:/var/www/html/data
+      - "{{ service_mounts.configs }}/{{ item.name }}/config:/var/www/html/config"
+      - "{{ service_mounts.configs }}/{{ item.name }}/data:/var/www/html/data"
       # - "{{ cert_location }}:/etc/ssl/nextcloud"
       # - /etc/ssl/certs/server.crt:/etc/ssl/certs/server.crt:ro
       # Temporary solution for https://github.com/nextcloud/docker/issues/763#issuecomment-1007447212
-      - /storage/appdata/nextcloud/redis-session.ini:/usr/local/etc/php/conf.d/redis-session.ini
+      - "{{ service_mounts.configs }}/{{ item.name }}/redis-session.ini:/usr/local/etc/php/conf.d/redis-session.ini
     ports:
       - 8080:80
       - 443:443
@@ -36,6 +38,9 @@ services:
     image: redis
     container_name: redis
     command: redis-server --requirepass "{{ REDIS_PASSWORD }}"
+    extends:
+      file: common.yaml
+      service: base-service
     environment:
       REDIS_PASSWORD: "{{ REDIS_PASSWORD }}"
     expose:
@@ -52,8 +57,7 @@ services:
       - "{{ ansible_env.HOME }}/nextcloud-database:/var/lib/mysql"
     environment:
       TZ: Europe/Stockholm
-      # MYSQL_ROOT_PASSWORD: "{{ MYSQL_ROOT_PASSWORD }}"
-      MYSQL_RANDOM_ROOT_PASSWORD: "true"
+      MYSQL_ROOT_PASSWORD: "{{ MYSQL_ROOT_PASSWORD }}"
       MYSQL_PASSWORD: "{{ MYSQL_PASSWORD }}"
       MYSQL_DATABASE: nextcloud
       MYSQL_USER: nextcloud
@@ -61,6 +65,9 @@ services:
   onlyoffice-document-server:
     container_name: onlyoffice-document-server
     image: onlyoffice/documentserver:latest
+    extends:
+      file: common.yaml
+      service: base-service
     restart: always
     environment:
       JWT_ENABLED: "true"
@@ -69,5 +76,5 @@ services:
       - '80'
       # - '443'
     volumes:
-      - /storage/appdata/nextcloud/onlyoffice:/var/www/onlyoffice/Data
-      - /storage/appdata/nextcloud/onlyoffice/logs:/var/log/onlyoffice
+      - "{{ service_mounts.configs }}/{{ item.name }}/onlyoffice:/var/www/onlyoffice/Data
+      - "{{ service_mounts.configs }}/{{ item.name }}/onlyoffice/logs:/var/log/onlyoffice
