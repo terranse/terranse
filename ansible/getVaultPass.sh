@@ -1,2 +1,2 @@
 #!/bin/bash
-op item get ansible_vault --fields=password --reveal
+OP_BIOMETRIC_UNLOCK_ENABLED=true op item get ansible_vault --fields=password --reveal
