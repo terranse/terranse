@@ -1,0 +1,12 @@
+---
+profile: moderate
+
+exclude_paths:
+  - ansible/roles/geerlingguy.docker/
+
+warn_list:
+  - role-name  # Allow nested role names like proxmox/lxc
+  - yaml[line-length]
+
+skip_list:
+  - name[casing]  # Allow mixed case in task names
