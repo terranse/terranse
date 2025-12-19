@@ -8,3 +8,26 @@ dependencies = [
     "rust-just>=1.43.0",
     "sh>=2.2.2",
 ]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "molecule>=24.0.0",
+    "molecule-plugins[docker,vagrant]>=23.0.0",
+    "docker>=7.0.0",
+    "ansible-lint>=24.0.0",
+    "yamllint>=1.35.0",
+    "pyyaml>=6.0.0",
+    "jinja2>=3.1.0",
+]
+
+[tool.setuptools]
+# This is an infrastructure project, not a Python package
+packages = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

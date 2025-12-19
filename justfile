@@ -8,7 +8,7 @@ set script-interpreter := ['uv', 'run', '--script']
 bash := '/usr/bin/env bash
 set -euxo pipefail
 '
-domain := `grep -A 3 'variable "domain"' tofu/defaults.tf | grep 'default' | sed 's/.*"\(.*\)".*/\1/'`
+domain := `grep -A 3 'variable "domain"' tofu/deployments/edholm/defaults.tf 2>/dev/null | grep 'default' | sed 's/.*"\(.*\)".*/\1/' || echo "edholm.cc"`
 vault-file := "secrets.yaml"
 
 _default:
@@ -21,36 +21,18 @@ _python-venv:
       exit 1
     fi
 
-[script]
-_validate_flags *flags:
-    import sys
-
-    # Define allowed flags
-    POSSIBLE_FLAGS = {"--debug", "--init"}
-
-    # Parse flags from string
-    flags_str = "{{ flags }}"
-    opts = flags_str.split()
-
-    # Validate each flag
-    for opt in opts:
-        if opt not in POSSIBLE_FLAGS:
-            print(f"Error: Optional argument '{opt}' is not valid!", file=sys.stderr)
-            sys.exit(1)
-
-# Setup a certain machine, or default all, opt. with --debug or --init flags
+# Setup a machine with Ansible. Use init=true for first-time setup, debug=true for verbose output
 [working-directory('ansible')]
-setup machine="all" *flags: _python-venv (_validate_flags flags)
+setup machine="all" init="false" debug="false": _python-venv
     ansible-playbook {{ if machine == "all" { "" } else if machine =~ '\.' { "--limit " + machine } else { "--limit " + machine + "." + domain } }} \
       playbook.yaml --extra-vars @./{{ vault-file }} \
-      {{ if flags == "--init" { "-e 'ansible_user=root'" } else { "" } }} \
-      {{ if flags == "--debug" { "-vvv" } else { "" } }}
-    # TODO: Apply tags for debugging
+      {{ if init == "true" { "-e 'ansible_user=root'" } else { "" } }} \
+      {{ if debug == "true" { "-vvv" } else { "" } }}
 
-# Setup each machine that has not already been initialized
+# Auto-discover and setup uninitialized machines
 [script]
 [working-directory('ansible')]
-init *flags: _python-venv (_validate_flags flags)
+init-machines: _python-venv
     from ansible.inventory.manager import InventoryManager
     from ansible.parsing.dataloader import DataLoader
     from sh import ssh, just
@@ -88,7 +70,7 @@ init *flags: _python-venv (_validate_flags flags)
                     _out=None
                 )
                 print(f"  ⚙  Provisioned but not setup, running setup...")
-                sh.just("setup", hostname, _fg=True)  # Run in foreground
+                sh.just("setup", hostname, "init=true", _fg=True)
 
             except (sh.TimeoutException, sh.ErrorReturnCode) as e:
                 print(f"  ✗ Cannot connect with root either: {e}")
@@ -100,10 +82,11 @@ setup-secrets vault-item='infra_default_user': _python-venv
     op item get {{ vault-item }} --reveal --fields password | \ 
     ansible-vault encrypt_string --stdin-name 'ansible_become_pass' --output {{ vault-file }} --vault-password-file getVaultPass.sh
 
-# Plan and auto apply tofu config; deployment saved to ./tfplan
-[working-directory('tofu')]
-apply-tofu *flags: _python-venv (_validate_flags flags)
-    tofu plan -var-file=configurations.tfvars -out=tfplan {{ if flags == "--debug" { "-var='debug_ansible=true'" } else { "" } }}
+# Plan and auto apply tofu config for a deployment
+[working-directory('tofu/deployments')]
+apply-tofu deployment="edholm" debug="false": _python-venv
+    cd {{ deployment }} && \
+    tofu plan -var-file=configurations.tfvars -out=tfplan {{ if debug == "true" { "-var='debug_ansible=true'" } else { "" } }} && \
     tofu apply -auto-approve tfplan
 
 # Installs ansible, galaxy and required components
@@ -122,3 +105,56 @@ install-tofu install-method="deb":
 # Sets up tofu user on Proxmox cluster
 setup-tofu-user:
     ./tofu/scripts/init-terraform-user-proxmox.sh
+
+# ============== TESTING TASKS ==============
+
+# Run all static analysis checks
+lint: _python-venv
+    yamllint -c tests/static/.yamllint.yaml ansible/
+    ansible-lint -c tests/static/.ansible-lint ansible/
+    cd tofu && tflint --config ../tests/static/.tflint.hcl --recursive
+
+# Run OpenTofu validation for all deployments
+validate-tofu:
+    @for deployment in tofu/deployments/*/; do \
+        echo "Validating $$deployment..."; \
+        (cd "$$deployment" && tofu init -backend=false -input=false >/dev/null && tofu validate) || exit 1; \
+    done
+
+# Run unit tests (fast, no VMs)
+test-unit: _python-venv
+    uv run pytest tests/unit/ -v --tb=short
+
+# Run Molecule tests for a specific role (supports nested roles like proxmox/lxc)
+[working-directory('ansible/roles')]
+test-role role scenario="default": _python-venv
+    cd {{ role }} && molecule test -s {{ scenario }}
+
+# List available Molecule scenarios for a role
+[working-directory('ansible/roles')]
+test-role-list role:
+    @ls -1 {{ role }}/molecule/ 2>/dev/null || echo "No molecule scenarios found for {{ role }}"
+
+# Pre-cache Vagrant boxes for offline testing
+cache-boxes:
+    vagrant box add debian/bookworm64 --provider libvirt || true
+
+# Run full test suite (lint + unit + validation)
+test-all: lint validate-tofu test-unit
+    @echo "All tests passed!"
+
+# Quick test run (lint + unit only, no VMs)
+test-quick: lint test-unit
+    @echo "Quick tests passed!"
+
+# Cleanup test artifacts
+test-clean:
+    @echo "Cleaning up test artifacts..."
+    find . -name "*.pyc" -delete 2>/dev/null || true
+    find . -name "__pycache__" -type d -delete 2>/dev/null || true
+    find . -name ".molecule" -type d -exec rm -rf {} + 2>/dev/null || true
+    find . -name ".pytest_cache" -type d -exec rm -rf {} + 2>/dev/null || true
+
+# Install test dependencies
+install-test: _python-venv
+    uv pip install -e ".[test]"

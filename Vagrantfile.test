@@ -1,0 +1,49 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Terranse Test Vagrant Configuration
+#
+# This Vagrantfile provides shared configuration for Molecule tests
+# using Vagrant with libvirt provider.
+#
+# Features:
+# - Uses libvirt/KVM for better Linux performance
+# - Enables nested virtualization for Docker testing
+# - Configures host-passthrough CPU mode
+# - Disables synced folders for speed
+
+ENV['VAGRANT_DEFAULT_PROVIDER'] = 'libvirt'
+
+# Boxes used in testing - pinned versions for reproducibility
+BOXES = {
+  'debian/bookworm64' => '13.20241231.1',
+}
+
+Vagrant.configure("2") do |config|
+  # Global libvirt settings for all VMs
+  config.vm.provider :libvirt do |libvirt|
+    # Use KVM acceleration
+    libvirt.driver = "kvm"
+
+    # Connection URI (system session for performance)
+    libvirt.uri = "qemu:///system"
+
+    # Performance optimizations
+    libvirt.cpu_mode = "host-passthrough"
+    libvirt.nested = true
+
+    # Default resources (can be overridden per-VM)
+    libvirt.memory = 2048
+    libvirt.cpus = 2
+
+    # Virtual disk size
+    libvirt.machine_virtual_size = 20
+  end
+
+  # Disable synced folder (not needed, slows things down)
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  # SSH configuration for faster connections
+  config.ssh.insert_key = false
+  config.ssh.forward_agent = true
+end
