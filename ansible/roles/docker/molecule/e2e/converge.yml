@@ -1,0 +1,44 @@
+---
+- name: Converge - E2E Docker Services Test
+  hosts: all
+  become: true
+
+  vars:
+    docker_install_compose_plugin: true
+    docker_users:
+      - default-user
+    docker_group: docker
+
+  pre_tasks:
+    - name: Wait for systemd to be ready
+      ansible.builtin.wait_for:
+        path: /run/systemd/system
+        timeout: 30
+
+  tasks:
+    - name: Include docker role
+      ansible.builtin.include_role:
+        name: docker
+
+  post_tasks:
+    - name: Start docker compose services
+      community.docker.docker_compose_v2:
+        project_src: /opt/docker
+        state: present
+      register: compose_result
+      retries: 3
+      delay: 10
+      until: compose_result is succeeded
+
+    - name: Wait for services to initialize
+      ansible.builtin.pause:
+        seconds: 30
+
+    - name: Show running containers
+      ansible.builtin.command: docker ps
+      register: docker_ps
+      changed_when: false
+
+    - name: Display running containers
+      ansible.builtin.debug:
+        var: docker_ps.stdout_lines

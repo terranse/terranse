@@ -1,0 +1,59 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: ../../../../requirements.yaml
+
+driver:
+  name: docker
+
+platforms:
+  - name: docker-e2e-test
+    image: debian:bookworm
+    pre_build_image: false
+    dockerfile: Dockerfile.j2
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    command: /lib/systemd/systemd
+    tmpfs:
+      - /run
+      - /tmp
+    # Expose ports for service health checks
+    published_ports:
+      - "8096:8096"   # Jellyfin
+      - "5055:5055"   # Jellyseerr
+      - "3456:3456"   # Vikunja
+      - "9000:9000"   # Authentik
+
+provisioner:
+  name: ansible
+  playbooks:
+    converge: converge.yml
+    verify: verify.yml
+  config_options:
+    defaults:
+      roles_path: ${MOLECULE_PROJECT_DIRECTORY}/..:${HOME}/.ansible/roles:/usr/share/ansible/roles:/etc/ansible/roles
+      lookup_plugins: ${MOLECULE_SCENARIO_DIRECTORY}/lookup_plugins
+  inventory:
+    host_vars:
+      docker-e2e-test:
+        # Test multiple services
+        docker_services: '[{"name": "jellyfin"}, {"name": "vikunja"}, {"name": "authentik"}]'
+        mounts: '[{"name": "config", "path": "/appdata"}, {"name": "configs", "path": "/appdata"}, {"name": "tv_series", "path": "/media/tv"}, {"name": "movies", "path": "/media/movies"}]'
+        # Mock secrets for authentik (uses variables, not lookups)
+        AUTHENTIK_DB_PASSWORD: "test_db_password_123"
+        AUTHENTIK_SECRET_KEY: "test_secret_key_456"
+
+verifier:
+  name: ansible
+
+scenario:
+  test_sequence:
+    - dependency
+    - create
+    - prepare
+    - converge
+    - verify
+    - destroy

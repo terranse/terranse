@@ -1,0 +1,136 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+
+  tasks:
+    # Basic Docker installation checks
+    - name: Check Docker is installed
+      ansible.builtin.command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Verify Docker is installed
+      ansible.builtin.assert:
+        that:
+          - docker_version.rc == 0
+        fail_msg: "Docker is not installed"
+        success_msg: "Docker version: {{ docker_version.stdout }}"
+
+    - name: Check Docker service is running
+      ansible.builtin.service:
+        name: docker
+        state: started
+      check_mode: true
+      register: docker_service
+
+    - name: Verify Docker service is running
+      ansible.builtin.assert:
+        that:
+          - docker_service.status.ActiveState == "active"
+        fail_msg: "Docker service is not running"
+        success_msg: "Docker service is running"
+
+    # Compose files generated
+    - name: Check compose files were generated
+      ansible.builtin.stat:
+        path: "/opt/docker/{{ item }}"
+      register: compose_files
+      loop:
+        - docker-compose.yaml
+        - common.yaml
+        - jellyfin.yaml
+
+    - name: Verify compose files exist
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+        fail_msg: "{{ item.item }} was not generated"
+        success_msg: "{{ item.item }} exists"
+      loop: "{{ compose_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Validate docker-compose configuration
+      ansible.builtin.command: docker compose -f /opt/docker/docker-compose.yaml config
+      register: compose_config
+      changed_when: false
+
+    - name: Verify compose config is valid
+      ansible.builtin.assert:
+        that:
+          - compose_config.rc == 0
+        fail_msg: "Docker compose configuration is invalid"
+        success_msg: "Docker compose configuration is valid"
+
+    # Container running checks
+    - name: Get list of running containers
+      ansible.builtin.command: docker ps --format "{{ '{{' }}.Names{{ '}}' }}"
+      register: running_containers
+      changed_when: false
+
+    - name: Display running containers
+      ansible.builtin.debug:
+        msg: "Running containers: {{ running_containers.stdout_lines }}"
+
+    - name: Verify jellyfin container is running
+      ansible.builtin.assert:
+        that:
+          - "'jellyfin' in running_containers.stdout"
+        fail_msg: "Jellyfin container is not running"
+        success_msg: "Jellyfin container is running"
+
+    - name: Verify jellyseerr container is running
+      ansible.builtin.assert:
+        that:
+          - "'jellyseerr' in running_containers.stdout"
+        fail_msg: "Jellyseerr container is not running"
+        success_msg: "Jellyseerr container is running"
+
+    # Port checks
+    - name: Check jellyfin port is listening
+      ansible.builtin.wait_for:
+        port: 8096
+        timeout: 30
+        state: started
+
+    - name: Verify jellyfin HTTP response
+      ansible.builtin.uri:
+        url: http://localhost:8096
+        method: GET
+        status_code: [200, 302, 401]
+        timeout: 30
+      register: jellyfin_response
+      retries: 3
+      delay: 5
+      until: jellyfin_response is succeeded
+
+    - name: Verify jellyfin is responding
+      ansible.builtin.assert:
+        that:
+          - jellyfin_response.status in [200, 302, 401]
+        fail_msg: "Jellyfin is not responding on port 8096"
+        success_msg: "Jellyfin is responding (status: {{ jellyfin_response.status }})"
+
+    # User permissions
+    - name: Check default-user is in docker group
+      ansible.builtin.command: groups default-user
+      register: user_groups
+      changed_when: false
+
+    - name: Verify user is in docker group
+      ansible.builtin.assert:
+        that:
+          - "'docker' in user_groups.stdout"
+        fail_msg: "default-user is not in docker group"
+        success_msg: "default-user is in docker group"
+
+    # Summary
+    - name: Test summary
+      ansible.builtin.debug:
+        msg: |
+          ========== TEST SUMMARY ==========
+          Docker installed: {{ docker_version.stdout }}
+          Containers running: {{ running_containers.stdout_lines | length }}
+          Jellyfin responding: {{ jellyfin_response.status }}
+          ==================================

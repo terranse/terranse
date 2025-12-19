@@ -1,0 +1,21 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Create test user
+      ansible.builtin.user:
+        name: default-user
+        shell: /bin/bash
+        create_home: true
+
+    - name: Create test mount directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /appdata
+        - /media/tv
+        - /media/movies
