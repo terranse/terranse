@@ -66,6 +66,7 @@
     release:
       name: cockpit-file-sharing
       repo: 45Drives/cockpit-file-sharing
+  when: not (skip_cockpit_extensions | default(false))
 
 - name: Enable and start Samba service
   systemd:

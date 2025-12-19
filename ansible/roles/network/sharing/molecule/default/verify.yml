@@ -1,0 +1,59 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Check Samba is installed
+      ansible.builtin.package:
+        name: samba
+        state: present
+      check_mode: true
+      register: samba_check
+
+    - name: Verify Samba is installed
+      ansible.builtin.assert:
+        that:
+          - not samba_check.changed
+        fail_msg: "Samba is not installed"
+        success_msg: "Samba is installed"
+
+    - name: Check smbusers group exists
+      ansible.builtin.getent:
+        database: group
+        key: smbusers
+      register: group_check
+
+    - name: Verify smbusers group exists
+      ansible.builtin.assert:
+        that:
+          - group_check is not failed
+        fail_msg: "smbusers group was not created"
+        success_msg: "smbusers group exists"
+
+    - name: Check smb.conf contains share configuration
+      ansible.builtin.command: grep -c "ANSIBLE MANAGED BLOCK" /etc/samba/smb.conf
+      register: smb_conf_check
+      changed_when: false
+      failed_when: false
+
+    - name: Verify Samba share is configured
+      ansible.builtin.assert:
+        that:
+          - smb_conf_check.rc == 0
+        fail_msg: "Samba share not configured in smb.conf"
+        success_msg: "Samba share is configured"
+
+    - name: Check Samba service is running
+      ansible.builtin.service:
+        name: smbd
+        state: started
+      check_mode: true
+      register: smbd_service
+
+    - name: Verify Samba service is running
+      ansible.builtin.assert:
+        that:
+          - smbd_service.status.ActiveState == "active"
+        fail_msg: "Samba service is not running"
+        success_msg: "Samba service is running"
