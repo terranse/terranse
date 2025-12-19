@@ -1,0 +1,69 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Check default-user exists
+      ansible.builtin.getent:
+        database: passwd
+        key: default-user
+      register: user_check
+
+    - name: Verify default-user exists
+      ansible.builtin.assert:
+        that:
+          - user_check is not failed
+        fail_msg: "default-user was not created"
+        success_msg: "default-user exists"
+
+    - name: Check container-data group exists
+      ansible.builtin.getent:
+        database: group
+        key: container-data
+      register: group_check
+
+    - name: Verify container-data group exists
+      ansible.builtin.assert:
+        that:
+          - group_check is not failed
+        fail_msg: "container-data group was not created"
+        success_msg: "container-data group exists"
+
+    - name: Check default-user is in container-data group
+      ansible.builtin.command: groups default-user
+      register: user_groups
+      changed_when: false
+
+    - name: Verify user is in container-data group
+      ansible.builtin.assert:
+        that:
+          - "'container-data' in user_groups.stdout"
+        fail_msg: "default-user is not in container-data group"
+        success_msg: "default-user is in container-data group"
+
+    - name: Check sudo is installed
+      ansible.builtin.package:
+        name: sudo
+        state: present
+      check_mode: true
+      register: sudo_check
+
+    - name: Verify sudo is installed
+      ansible.builtin.assert:
+        that:
+          - not sudo_check.changed
+        fail_msg: "sudo is not installed"
+        success_msg: "sudo is installed"
+
+    - name: Check default-user can use sudo
+      ansible.builtin.stat:
+        path: /etc/sudoers.d/default-user
+      register: sudoers_file
+
+    - name: Verify sudoers file exists
+      ansible.builtin.assert:
+        that:
+          - sudoers_file.stat.exists
+        fail_msg: "sudoers file for default-user does not exist"
+        success_msg: "sudoers file for default-user exists"

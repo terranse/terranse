@@ -1,0 +1,13 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Include proxmox/lxc role
+      ansible.builtin.include_role:
+        name: proxmox/lxc
+      vars:
+        skip_proxmox_delegation: true
+        enable_setup_hash_check: false
+        services: '[]'

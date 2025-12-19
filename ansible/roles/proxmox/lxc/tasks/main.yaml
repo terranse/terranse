@@ -48,21 +48,27 @@
 # as long as delegate_facts = False (default); with True, the delegate will have the fact locally instead
 - name: Get the VMID for this container
   import_tasks: find-vmid-from-name.yaml
-  when: current_vmid is not defined
+  when:
+    - current_vmid is not defined
+    - not (skip_proxmox_delegation | default(false))
   delegate_to: "{{ host }}"
   vars:
     ansible_user: root
 
 - name: Mount the given zfs dataset in the calling ct
   import_tasks: storage/bind-mount.yaml
-  when: mounts is defined
+  when:
+    - mounts is defined
+    - not (skip_proxmox_delegation | default(false))
   delegate_to: "{{ host }}"
   vars:
     ansible_user: root
 
 - name: Setup necessary container features to allow docker
   include_tasks: "{{ item }}"
-  when: (services | from_json | selectattr('name', 'equalto', 'docker') | list | length > 0)
+  when:
+    - (services | from_json | selectattr('name', 'equalto', 'docker') | list | length > 0)
+    - not (skip_proxmox_delegation | default(false))
   loop:
     - setup/enable-virt-features.yaml
     - storage/fuse-mount.yaml
@@ -71,5 +77,7 @@
 # docker containers instead, which would make this a single task at only that spot
 - name: Add TUN device for OpenVPN access
   import_tasks: network/add-tun-tap-device.yaml
-  when: "'docker/gluetun' in docker_services"
+  when:
+    - "'docker/gluetun' in docker_services"
+    - not (skip_proxmox_delegation | default(false))
   delegate_to: "{{ host }}"
