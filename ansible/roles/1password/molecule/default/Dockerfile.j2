@@ -1,0 +1,16 @@
+# Molecule managed dockerfile for 1password role testing
+FROM {{ item.image }}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install required packages for apt repository management
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        python3-apt \
+        gpg \
+        gpg-agent \
+        curl \
+        ca-certificates \
+        sudo \
+    && rm -rf /var/lib/apt/lists/*

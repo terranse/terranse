@@ -1,0 +1,22 @@
+---
+dependency:
+  name: galaxy
+
+driver:
+  name: docker
+
+platforms:
+  - name: 1password-test-debian
+    image: debian:bookworm
+    pre_build_image: false
+    dockerfile: Dockerfile.j2
+    privileged: false
+
+provisioner:
+  name: ansible
+  playbooks:
+    converge: converge.yml
+    verify: verify.yml
+
+verifier:
+  name: ansible

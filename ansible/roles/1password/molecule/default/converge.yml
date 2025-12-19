@@ -1,0 +1,9 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Include 1password role
+      ansible.builtin.include_role:
+        name: 1password

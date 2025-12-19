@@ -1,0 +1,42 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Check 1Password CLI is installed
+      ansible.builtin.command: op --version
+      register: op_version
+      changed_when: false
+
+    - name: Verify op version output
+      ansible.builtin.assert:
+        that:
+          - op_version.rc == 0
+          - "'2.' in op_version.stdout"
+        fail_msg: "1Password CLI not installed correctly"
+        success_msg: "1Password CLI version {{ op_version.stdout }} installed"
+
+    - name: Check apt repository is configured
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list.d/1password.sources
+      register: repo_file
+
+    - name: Verify repository file exists
+      ansible.builtin.assert:
+        that:
+          - repo_file.stat.exists
+        fail_msg: "1Password apt repository not configured"
+        success_msg: "1Password apt repository is configured"
+
+    - name: Check debsig policy exists
+      ansible.builtin.stat:
+        path: /etc/debsig/policies/AC2D62742012EA22/1password.pol
+      register: policy_file
+
+    - name: Verify debsig policy exists
+      ansible.builtin.assert:
+        that:
+          - policy_file.stat.exists
+        fail_msg: "1Password debsig policy not configured"
+        success_msg: "1Password debsig policy is configured"
