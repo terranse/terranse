@@ -4,12 +4,18 @@
   tags:
     - borgmatic
   vars:
-    BACKUP_OP_SERVICE_ACCOUNT_TOKEN: "{{ lookup( 'onepassword', '67z7ujj5gtk6lgnzrwn72xcsva', field='credential', vault='Infrastructure' }}"
-    BACKUP_OP_SSH_KEY_REFERENCE: "op://Infrastructure/wlt2nyygivk6bp7ar67zq4w6wq/private key"
+    # Use test mode credentials when borgmatic_test_mode is true
+    BACKUP_OP_SERVICE_ACCOUNT_TOKEN: >-
+      {{ 'test_token_for_molecule' if borgmatic_test_mode | default(false)
+         else lookup('onepassword', '67z7ujj5gtk6lgnzrwn72xcsva', field='credential', vault='Infrastructure') }}
+    BACKUP_OP_SSH_KEY_REFERENCE: >-
+      {{ 'op://Test/test-item/private key' if borgmatic_test_mode | default(false)
+         else 'op://Infrastructure/wlt2nyygivk6bp7ar67zq4w6wq/private key' }}
   block:
     - name: Setup 1password
       import_role:
         name: 1password
+      when: not (borgmatic_test_mode | default(false))
 
     - name: Setup Borgmatic
       include_tasks:
@@ -21,3 +27,4 @@
       loop_control:
         loop_var: borgmatic_config_filename
       include_tasks: systemd-services.yaml
+      when: not (borgmatic_test_mode | default(false))

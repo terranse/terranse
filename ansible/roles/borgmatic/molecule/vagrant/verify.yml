@@ -1,0 +1,48 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  become_user: default-user
+
+  tasks:
+    - name: Check borgmatic is installed
+      ansible.builtin.command: "{{ ansible_env.HOME }}/.local/bin/borgmatic --version"
+      register: borgmatic_version
+      changed_when: false
+
+    - name: Verify borgmatic is installed
+      ansible.builtin.assert:
+        that:
+          - borgmatic_version.rc == 0
+        fail_msg: "Borgmatic is not installed"
+        success_msg: "Borgmatic version: {{ borgmatic_version.stdout }}"
+
+    - name: Check borg is installed
+      ansible.builtin.command: "{{ ansible_env.HOME }}/.local/bin/borg --version"
+      register: borg_version
+      changed_when: false
+
+    - name: Verify borg is installed
+      ansible.builtin.assert:
+        that:
+          - borg_version.rc == 0
+        fail_msg: "Borg is not installed"
+        success_msg: "Borg version: {{ borg_version.stdout }}"
+
+    - name: Check required packages are installed
+      ansible.builtin.package:
+        name:
+          - pipx
+          - pkg-config
+          - libacl1-dev
+          - fuse3
+        state: present
+      check_mode: true
+      register: packages_check
+
+    - name: Verify required packages are installed
+      ansible.builtin.assert:
+        that:
+          - not packages_check.changed
+        fail_msg: "Required packages are not installed"
+        success_msg: "All required packages are installed"
