@@ -1,0 +1,71 @@
+---
+# GPU Manager Monitoring Tasks
+#
+# Deploys health checks, session monitoring, and alerting
+
+- name: Create gpu-manager directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /opt/gpu-manager
+    - /var/lib/gpu-manager
+
+- name: Deploy health check script
+  ansible.builtin.copy:
+    src: health-check.sh
+    dest: /opt/gpu-manager/health-check.sh
+    mode: '0755'
+
+- name: Deploy session monitor script
+  ansible.builtin.copy:
+    src: session-monitor.sh
+    dest: /opt/gpu-manager/session-monitor.sh
+    mode: '0755'
+
+- name: Deploy session monitor systemd service
+  ansible.builtin.template:
+    src: session-monitor.service.j2
+    dest: /etc/systemd/system/session-monitor.service
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Enable session monitor service
+  ansible.builtin.systemd:
+    name: session-monitor
+    enabled: "{{ enable_session_monitor | default(true) }}"
+    state: "{{ 'started' if (enable_session_monitor | default(true)) else 'stopped' }}"
+    daemon_reload: true
+  when: enable_session_monitor | default(true)
+
+# Health check integration with Ansible
+- name: Run initial health check
+  ansible.builtin.command:
+    cmd: /opt/gpu-manager/health-check.sh --json --quiet
+  register: health_check_result
+  changed_when: false
+  failed_when: false
+
+- name: Parse health check results
+  ansible.builtin.set_fact:
+    health_check: "{{ health_check_result.stdout | from_json }}"
+  when: health_check_result.rc == 0
+
+- name: Display health check summary
+  ansible.builtin.debug:
+    msg: |
+      Health Check Results:
+      - Failed checks: {{ health_check.failed_count | default('N/A') }}
+      - GPU: {{ health_check.checks['nvidia-driver'] | default(health_check.checks['intel-gpu'] | default('unknown')) }}
+      - NFS: {{ health_check.checks['nfs-mount'] | default('unknown') }}
+      - Sunshine: {{ health_check.checks['sunshine-service'] | default('unknown') }}
+  when: health_check is defined
+
+- name: Warn if health checks failed
+  ansible.builtin.fail:
+    msg: "Health check failed with {{ health_check.failed_count }} errors. Review output above."
+  when:
+    - health_check is defined
+    - health_check.failed_count | int > 0
+    - fail_on_health_check | default(false)

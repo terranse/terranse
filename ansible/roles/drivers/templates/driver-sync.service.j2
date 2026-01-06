@@ -1,0 +1,25 @@
+[Unit]
+Description=GPU Driver Sync Service
+Documentation=https://github.com/your-repo/gaming-infra
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/nvidia-vgpu
+
+[Service]
+Type=oneshot
+ExecStart=/opt/gpu-manager/sync-drivers.sh
+RemainAfterExit=no
+
+# Environment
+Environment=DRIVERS_NFS_PATH={{ drivers_nfs_path | default('/mnt/gaming-drivers') }}
+Environment=NVIDIA_DRIVER_DIR={{ nvidia_driver_dir | default('/opt/nvidia-vgpu') }}
+
+# Security
+User=root
+ProtectSystem=strict
+ReadWritePaths=/mnt/gaming-drivers /var/lib/gpu-manager
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=driver-sync

@@ -1,0 +1,36 @@
+[Unit]
+Description=Gaming Session Monitor
+Documentation=https://github.com/your-repo/gaming-infra
+After=network-online.target nfs-client.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/gpu-manager/session-monitor.sh --daemon
+Restart=on-failure
+RestartSec=30
+
+# Environment
+Environment=POLL_INTERVAL={{ session_monitor_interval | default(30) }}
+{% if gaming_webhook_url is defined %}
+Environment=GAMING_WEBHOOK_URL={{ gaming_webhook_url }}
+{% endif %}
+{% if gaming_webhook_type is defined %}
+Environment=GAMING_WEBHOOK_TYPE={{ gaming_webhook_type }}
+{% endif %}
+
+# Security
+User=root
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/gpu-manager
+ReadOnlyPaths=/mnt/gaming
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=session-monitor
+
+[Install]
+WantedBy=multi-user.target

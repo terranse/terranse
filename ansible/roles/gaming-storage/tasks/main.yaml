@@ -187,7 +187,53 @@
       Helper Scripts:
         /usr/local/bin/zfs-game-clone.sh      - Create per-user game clones
         /usr/local/bin/manage-user-games.sh   - Manage user game directories
+        /opt/gaming/backup-saves.sh           - Game save backup utility
+
+      Automated Backups:
+        {{ 'Enabled (hourly)' if (enable_backup_saves | default(true)) else 'Disabled' }}
 
       Mount from gaming VMs:
         mount -t nfs {{ ansible_default_ipv4.address }}:{{ gaming_mount }}/games /mnt/games
       ========================================
+
+# =============================================================================
+# Automated Save Backups
+# =============================================================================
+- name: Create backups directory
+  ansible.builtin.file:
+    path: "{{ gaming_mount }}/backups"
+    state: directory
+    owner: "{{ gaming_uid | default(1000) }}"
+    group: "{{ gaming_gid | default(1000) }}"
+    mode: '0755'
+
+- name: Create /opt/gaming directory
+  ansible.builtin.file:
+    path: /opt/gaming
+    state: directory
+    mode: '0755'
+
+- name: Deploy backup-saves script
+  ansible.builtin.copy:
+    src: backup-saves.sh
+    dest: /opt/gaming/backup-saves.sh
+    mode: '0755'
+
+- name: Deploy backup-saves systemd service
+  ansible.builtin.template:
+    src: backup-saves.service.j2
+    dest: /etc/systemd/system/backup-saves.service
+    mode: '0644'
+
+- name: Deploy backup-saves systemd timer
+  ansible.builtin.template:
+    src: backup-saves.timer.j2
+    dest: /etc/systemd/system/backup-saves.timer
+    mode: '0644'
+
+- name: Enable backup-saves timer
+  ansible.builtin.systemd:
+    name: backup-saves.timer
+    enabled: "{{ enable_backup_saves | default(true) }}"
+    state: "{{ 'started' if (enable_backup_saves | default(true)) else 'stopped' }}"
+    daemon_reload: true

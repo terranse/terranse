@@ -121,6 +121,13 @@
   notify: Reload systemd
   when: enable_gpu_api | default(false)
 
+# =============================================================================
+# Monitoring and Health Checks
+# =============================================================================
+- name: Include monitoring tasks
+  ansible.builtin.include_tasks: monitoring.yaml
+  when: enable_monitoring | default(true)
+
 - name: Display GPU Manager setup info
   ansible.builtin.debug:
     msg: |
@@ -128,11 +135,12 @@
       GPU Manager Setup Complete!
 
       Scripts installed:
-        gpu-allocate.sh request <vmid> [profile]
-        gpu-allocate.sh release <vmid>
+        gpu-allocate.sh request <vm_id> [profile]
+        gpu-allocate.sh release <vm_id>
         gpu-status.sh
-        gpu-preempt.sh <vmid>
-        vm-snapshot.sh <vmid> <action>
+        gpu-preempt.sh <vm_id>
+        vm-snapshot.sh <vm_id> <action>
+        health-check.sh [component...]
 
       Configuration:
         /etc/gpu-manager/gpu-profiles.conf
@@ -140,4 +148,8 @@
 
       State:
         /var/lib/gpu-manager/allocations.json
+
+      Monitoring:
+        Session monitor: {{ 'enabled' if (enable_session_monitor | default(true)) else 'disabled' }}
+        Health checks: Run with 'health-check.sh all'
       ========================================

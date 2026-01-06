@@ -1,0 +1,23 @@
+[Unit]
+Description=Game Save Backup Service
+Documentation=https://github.com/your-repo/gaming-infra
+After=network-online.target nfs-client.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/gaming/backup-saves.sh --all --user {{ gaming_user | default('gamer') }}
+RemainAfterExit=no
+
+# Environment
+Environment=GAMING_NFS_MOUNT={{ gaming_mount | default('/mnt/gaming') }}
+Environment=BACKUP_RETENTION={{ backup_retention | default(10) }}
+
+# Security
+User={{ gaming_user | default('gamer') }}
+ProtectSystem=strict
+ReadWritePaths={{ gaming_mount | default('/mnt/gaming') }}/backups {{ gaming_mount | default('/mnt/gaming') }}/cloud-saves
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=backup-saves
