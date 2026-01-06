@@ -1,0 +1,68 @@
+#!/bin/bash
+# Gaming VM Snapshot Hook
+# Communicates with GPU Manager to coordinate snapshots
+#
+# Managed by Ansible - do not edit manually
+
+set -e
+
+GPU_MANAGER_API="{{ gpu_manager_url | default('http://192.168.1.100:8080') }}"
+VM_ID="{{ vmid | default('unknown') }}"
+SNAPSHOT_NAME="${2:-boot-clean}"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+case "$1" in
+    create-boot)
+        log "VM ${VM_ID} boot complete, notifying GPU manager..."
+
+        # Notify GPU Manager that VM is ready
+        if command -v curl &> /dev/null; then
+            curl -s -X POST "${GPU_MANAGER_API}/vm/${VM_ID}/ready" \
+                -H "Content-Type: application/json" \
+                -d '{"status": "ready", "timestamp": "'$(date -Iseconds)'"}' \
+                || log "Warning: Could not reach GPU manager"
+        fi
+
+        log "Boot snapshot hook complete"
+        ;;
+
+    notify-game-start)
+        GAME_ID="$2"
+        PROFILE="${3:-Q-8C}"
+
+        log "Game starting: ${GAME_ID}, requesting GPU profile: ${PROFILE}"
+
+        if command -v curl &> /dev/null; then
+            RESPONSE=$(curl -s -X POST "${GPU_MANAGER_API}/gpu/request" \
+                -H "Content-Type: application/json" \
+                -d "{\"vm_id\": \"${VM_ID}\", \"game_id\": \"${GAME_ID}\", \"profile\": \"${PROFILE}\"}")
+
+            echo "$RESPONSE"
+        fi
+        ;;
+
+    notify-game-end)
+        log "Game ended, releasing GPU resources"
+
+        if command -v curl &> /dev/null; then
+            curl -s -X DELETE "${GPU_MANAGER_API}/gpu/release/${VM_ID}" \
+                || log "Warning: Could not notify GPU manager"
+        fi
+        ;;
+
+    status)
+        log "Checking GPU manager status..."
+
+        if command -v curl &> /dev/null; then
+            curl -s "${GPU_MANAGER_API}/gpu/status" | jq . 2>/dev/null || echo "GPU manager not available"
+        fi
+        ;;
+
+    *)
+        echo "Usage: $0 {create-boot|notify-game-start <game_id> [profile]|notify-game-end|status}"
+        exit 1
+        ;;
+esac

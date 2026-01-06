@@ -1,0 +1,5 @@
+{
+{% for vm_name, vm_config in gaming_vms | default({}) | dictsort %}
+  "{{ vm_name }}": {{ vm_config.vmid }}{{ "," if not loop.last else "" }}
+{% endfor %}
+}

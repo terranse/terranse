@@ -1,0 +1,36 @@
+# GPU Profile Configuration
+# Managed by Ansible - do not edit manually
+
+# NVIDIA RTX A5000 vGPU Profiles
+# Total VRAM: 24576 MB
+
+[nvidia]
+total_vram=24576
+pci_address={{ nvidia_pci_address | default('0000:41:00.0') }}
+
+# Profile definitions (name=vram_mb:max_instances:mdev_type)
+Q-1C=1024:24:nvidia-256
+Q-2C=2048:12:nvidia-257
+Q-4C=4096:6:nvidia-258
+Q-8C=8192:3:nvidia-259
+Q-12C=12288:2:nvidia-260
+Q-24C=24576:1:nvidia-261
+
+# Default profile for gaming
+default_profile=Q-8C
+
+[intel]
+# Intel iGPU SR-IOV configuration
+max_vfs={{ intel_sriov_num_vfs | default(7) }}
+pci_address=0000:00:02.0
+
+# VF0 is typically used for physical display passthrough
+physical_display_vf=0
+
+[priority]
+# Priority levels (higher = more important)
+game=100
+background=10
+
+# Preemption settings
+preempt_timeout=30

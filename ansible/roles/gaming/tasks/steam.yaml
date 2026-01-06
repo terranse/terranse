@@ -1,0 +1,124 @@
+---
+# Steam Installation and Configuration
+#
+# Installs Steam with Proton for Linux gaming
+
+- name: Enable i386 architecture for Steam
+  ansible.builtin.command: dpkg --add-architecture i386
+  changed_when: false
+
+- name: Update apt cache after adding i386
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install Steam dependencies
+  ansible.builtin.apt:
+    name:
+      - steam-installer
+      - steam-devices
+      - libgl1-mesa-dri:i386
+      - libgl1:i386
+      - libc6:i386
+    state: present
+  failed_when: false
+
+# Install Steam via Flatpak as fallback (more reliable)
+- name: Install Flatpak
+  ansible.builtin.apt:
+    name: flatpak
+    state: present
+
+- name: Add Flathub repository
+  community.general.flatpak_remote:
+    name: flathub
+    flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
+    state: present
+
+- name: Install Steam via Flatpak
+  community.general.flatpak:
+    name: com.valvesoftware.Steam
+    state: present
+
+# Configure Steam library paths
+- name: Create Steam library directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+  loop:
+    - "/home/{{ gaming_user }}/.steam"
+    - "/home/{{ gaming_user }}/.local/share/Steam"
+
+# Link to shared game storage if available
+- name: Check if shared game storage is mounted
+  ansible.builtin.stat:
+    path: /mnt/games/steam
+  register: steam_share
+
+- name: Create symlink to shared Steam library
+  ansible.builtin.file:
+    src: /mnt/games/steam
+    dest: "/home/{{ gaming_user }}/.local/share/Steam/steamapps"
+    state: link
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    force: true
+  when: steam_share.stat.exists | default(false)
+
+# Install Proton-GE for better compatibility
+- name: Create Proton-GE directory
+  ansible.builtin.file:
+    path: "/home/{{ gaming_user }}/.steam/root/compatibilitytools.d"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+
+- name: Get latest Proton-GE release
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest
+    return_content: true
+  register: proton_ge_release
+  changed_when: false
+
+- name: Extract Proton-GE version
+  ansible.builtin.set_fact:
+    proton_ge_version: "{{ proton_ge_release.json.tag_name }}"
+    proton_ge_url: "{{ proton_ge_release.json.assets | selectattr('name', 'match', '.*\\.tar\\.gz$') | map(attribute='browser_download_url') | first }}"
+
+- name: Check if Proton-GE is installed
+  ansible.builtin.stat:
+    path: "/home/{{ gaming_user }}/.steam/root/compatibilitytools.d/{{ proton_ge_version }}"
+  register: proton_ge_installed
+
+- name: Download Proton-GE
+  ansible.builtin.get_url:
+    url: "{{ proton_ge_url }}"
+    dest: "/tmp/proton-ge.tar.gz"
+    mode: '0644'
+  when: not proton_ge_installed.stat.exists | default(false)
+
+- name: Extract Proton-GE
+  ansible.builtin.unarchive:
+    src: /tmp/proton-ge.tar.gz
+    dest: "/home/{{ gaming_user }}/.steam/root/compatibilitytools.d/"
+    remote_src: true
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+  when: not proton_ge_installed.stat.exists | default(false)
+
+- name: Display Steam setup info
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Steam Setup Complete!
+
+      Proton-GE version: {{ proton_ge_version }}
+
+      To launch Steam in Big Picture mode:
+        flatpak run com.valvesoftware.Steam -bigpicture
+
+      Or use the Sunshine app shortcut.
+      ========================================

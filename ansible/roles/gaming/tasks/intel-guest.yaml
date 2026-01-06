@@ -1,0 +1,48 @@
+---
+# Intel Graphics Driver Setup (Guest)
+#
+# Configures Intel graphics drivers for SR-IOV Virtual Function
+
+- name: Install Intel graphics packages
+  ansible.builtin.apt:
+    name:
+      - intel-media-va-driver
+      - intel-gpu-tools
+      - vainfo
+      - mesa-va-drivers
+      - libva2
+      - libva-drm2
+      - libva-x11-2
+    state: present
+    update_cache: true
+
+- name: Add user to render group for GPU access
+  ansible.builtin.user:
+    name: "{{ gaming_user }}"
+    groups: render,video
+    append: true
+
+- name: Verify Intel GPU is available
+  ansible.builtin.command: ls /dev/dri/
+  register: dri_devices
+  changed_when: false
+
+- name: Display DRI devices
+  ansible.builtin.debug:
+    msg: "DRI devices available: {{ dri_devices.stdout_lines }}"
+
+- name: Check VA-API support
+  ansible.builtin.command: vainfo
+  register: vainfo_output
+  changed_when: false
+  failed_when: false
+  become: true
+  become_user: "{{ gaming_user }}"
+  environment:
+    DISPLAY: ":0"
+
+- name: Display VA-API status
+  ansible.builtin.debug:
+    msg: |
+      VA-API Status:
+      {{ vainfo_output.stdout | default('VA-API not available or display not set') }}

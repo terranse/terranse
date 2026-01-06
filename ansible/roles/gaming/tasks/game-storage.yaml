@@ -1,0 +1,98 @@
+---
+# Game Storage Mount Configuration
+#
+# Mounts shared game storage from NAS via NFS
+
+- name: Install NFS client
+  ansible.builtin.apt:
+    name:
+      - nfs-common
+    state: present
+
+# Create mount points
+- name: Create game storage mount points
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /mnt/games
+    - /mnt/games/steam
+    - /mnt/games/emulation
+    - /mnt/sunshine-creds
+    - /mnt/gaming/session-state
+
+# Mount game storage from NAS
+- name: Mount shared game storage (Steam/GOG)
+  ansible.posix.mount:
+    path: /mnt/games/steam
+    src: "{{ nfs_server }}:/tank/gaming/games/steam"
+    fstype: nfs
+    opts: "rw,noatime,nfsvers=4.2,soft,timeo=150,retrans=3"
+    state: mounted
+  when: nfs_server is defined
+
+# Mount emulation ROMs (read-only master)
+- name: Mount emulation ROMs (read-only)
+  ansible.posix.mount:
+    path: /mnt/games/emulation/roms
+    src: "{{ nfs_server }}:/tank/gaming/emulation/roms"
+    fstype: nfs
+    opts: "ro,noatime,nfsvers=4.2"
+    state: mounted
+  when: nfs_server is defined
+
+# Mount user-specific emulation saves (read-write)
+- name: Mount user emulation saves
+  ansible.posix.mount:
+    path: /mnt/games/emulation/users
+    src: "{{ nfs_server }}:/tank/gaming/emulation/users"
+    fstype: nfs
+    opts: "rw,noatime,nfsvers=4.2"
+    state: mounted
+  when: nfs_server is defined
+
+# Mount Sunshine credentials (read-only)
+- name: Mount Sunshine credentials
+  ansible.posix.mount:
+    path: /mnt/sunshine-creds
+    src: "{{ nfs_server }}:/tank/gaming/sunshine-credentials"
+    fstype: nfs
+    opts: "ro,noatime,nfsvers=4.2"
+    state: mounted
+  when: nfs_server is defined
+
+# Mount session state for Sunshine hooks (GPU manager reads this)
+- name: Mount session state directory
+  ansible.posix.mount:
+    path: /mnt/gaming/session-state
+    src: "{{ nfs_server }}:/tank/gaming/session-state"
+    fstype: nfs
+    opts: "rw,noatime,nfsvers=4.2,async"
+    state: mounted
+  when: nfs_server is defined
+
+# Create user-specific game directory for ZFS clones
+- name: Create user game directory
+  ansible.builtin.file:
+    path: "/mnt/games/emulation/users/{{ gaming_user }}"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+  when: nfs_server is defined
+
+- name: Display storage mount info
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Game Storage Configuration:
+
+      Steam/GOG games: /mnt/games/steam
+      Emulation ROMs:  /mnt/games/emulation/roms (read-only)
+      User saves:      /mnt/games/emulation/users/{{ gaming_user }}
+      Sunshine creds:  /mnt/sunshine-creds
+      Session state:   /mnt/gaming/session-state (GPU manager)
+
+      NFS Server: {{ nfs_server | default('Not configured') }}
+      ========================================

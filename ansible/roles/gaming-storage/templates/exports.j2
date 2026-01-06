@@ -1,0 +1,30 @@
+# Gaming NFS Exports
+# Managed by Ansible - do not edit manually
+#
+# Security note: Using root_squash (default) maps root to nobody/nogroup.
+# VMs should use a dedicated gaming user (e.g., uid/gid 1000) for NFS access.
+# Set anonuid/anongid for consistent mapping across VMs.
+
+# Emulation ROMs - Read-only master library
+{{ gaming_mount }}/emulation/roms    {{ gaming_network }}(ro,sync,no_subtree_check)
+
+# Emulation user saves - Read-write per-user directories
+{{ gaming_mount }}/emulation/users   {{ gaming_network }}(rw,sync,no_subtree_check,all_squash,anonuid={{ gaming_uid | default(1000) }},anongid={{ gaming_gid | default(1000) }})
+
+# Steam games - Shared library
+{{ gaming_mount }}/games/steam       {{ gaming_network }}(rw,sync,no_subtree_check,all_squash,anonuid={{ gaming_uid | default(1000) }},anongid={{ gaming_gid | default(1000) }})
+
+# GOG games - Shared library
+{{ gaming_mount }}/games/gog         {{ gaming_network }}(rw,sync,no_subtree_check,all_squash,anonuid={{ gaming_uid | default(1000) }},anongid={{ gaming_gid | default(1000) }})
+
+# Cloud saves backup
+{{ gaming_mount }}/cloud-saves       {{ gaming_network }}(rw,sync,no_subtree_check,all_squash,anonuid={{ gaming_uid | default(1000) }},anongid={{ gaming_gid | default(1000) }})
+
+# Sunshine credentials - Read-only for clients
+{{ gaming_mount }}/sunshine-credentials {{ gaming_network }}(ro,sync,no_subtree_check)
+
+# Session state - VMs report active Sunshine sessions here
+{{ gaming_mount }}/session-state     {{ gaming_network }}(rw,async,no_subtree_check,all_squash,anonuid={{ gaming_uid | default(1000) }},anongid={{ gaming_gid | default(1000) }})
+
+# GPU guest drivers - synced from Proxmox hosts, read-only for VMs
+{{ gaming_mount }}/drivers           {{ gaming_network }}(ro,sync,no_subtree_check)

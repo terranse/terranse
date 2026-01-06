@@ -1,0 +1,37 @@
+[Unit]
+Description=Cage Wayland Kiosk for Gaming
+Documentation=https://github.com/cage-kiosk/cage
+After=systemd-user-sessions.service
+After=dbus.service
+After=systemd-logind.service
+Wants=dbus.service
+
+[Service]
+Type=simple
+User={{ gaming_user | default('gamer') }}
+PAMName=login
+TTYPath=/dev/tty7
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+# Environment for Wayland + NVIDIA
+Environment=WLR_BACKENDS=drm
+Environment=WLR_DRM_NO_ATOMIC=1
+Environment=GBM_BACKEND=nvidia-drm
+Environment=__GLX_VENDOR_LIBRARY_NAME=nvidia
+Environment=WLR_NO_HARDWARE_CURSORS=1
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=LIBVA_DRIVER_NAME=nvidia
+
+# Cage runs Sunshine, which then streams the desktop
+# -s: disable client-side decorations
+# -d: enable hardware cursor (disable for vGPU)
+# -r: rotate (0=normal)
+ExecStart=/usr/bin/cage -s -- /usr/bin/sunshine
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

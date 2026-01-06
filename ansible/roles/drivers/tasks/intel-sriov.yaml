@@ -1,0 +1,232 @@
+---
+# Intel iGPU SR-IOV Setup
+#
+# This task file sets up Intel iGPU SR-IOV on a Proxmox host:
+# 1. Verifies Intel iGPU is present
+# 2. Configures kernel parameters for SR-IOV
+# 3. Creates Virtual Functions via sysfs
+# 4. Sets up persistent VF configuration
+#
+# Note: Intel SR-IOV requires 11th gen (Tiger Lake) or newer Intel CPUs
+#
+# Optional variables:
+#   intel_sriov_num_vfs: Number of VFs to create (default: 7)
+
+- name: Set default Intel SR-IOV variables
+  ansible.builtin.set_fact:
+    intel_sriov_num_vfs: "{{ intel_sriov_num_vfs | default(7) }}"
+    drivers_auto_reboot: "{{ drivers_auto_reboot | default(false) }}"
+    drivers_reboot_confirm: "{{ drivers_reboot_confirm | default(true) }}"
+    drivers_reboot_timeout: "{{ drivers_reboot_timeout | default(600) }}"
+
+# =============================================================================
+# Step 1: Verify Intel iGPU presence
+# =============================================================================
+- name: Check for Intel iGPU
+  ansible.builtin.shell: lspci | grep -i "VGA.*Intel"
+  register: intel_gpu_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if no Intel iGPU found
+  ansible.builtin.fail:
+    msg: |
+      No Intel integrated GPU found.
+      Intel SR-IOV requires an Intel CPU with integrated graphics (11th gen+).
+      lspci output: {{ intel_gpu_check.stdout | default('empty') }}
+  when: intel_gpu_check.rc != 0
+
+- name: Display detected Intel GPU
+  ansible.builtin.debug:
+    msg: "Detected Intel GPU: {{ intel_gpu_check.stdout }}"
+
+# =============================================================================
+# Step 2: Configure kernel parameters for SR-IOV
+# =============================================================================
+- name: Get current GRUB cmdline
+  ansible.builtin.slurp:
+    src: /etc/default/grub
+  register: grub_config
+
+- name: Check if SR-IOV parameters already configured
+  ansible.builtin.set_fact:
+    sriov_params_present: "{{ 'intel_iommu=on' in (grub_config.content | b64decode) and 'i915.enable_guc=3' in (grub_config.content | b64decode) }}"
+
+- name: Backup current GRUB config
+  ansible.builtin.copy:
+    src: /etc/default/grub
+    dest: /etc/default/grub.backup.{{ ansible_date_time.epoch }}
+    remote_src: true
+  when: not sriov_params_present
+
+- name: Configure GRUB for Intel SR-IOV
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on i915.enable_guc=3 i915.max_vfs={{ intel_sriov_num_vfs }}"'
+    backup: true
+  register: grub_updated
+  when: not sriov_params_present
+
+- name: Update GRUB
+  ansible.builtin.command: update-grub
+  when: grub_updated.changed | default(false)
+
+- name: Display reboot requirement for GRUB changes
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      REBOOT REQUIRED
+
+      GRUB has been updated with Intel SR-IOV parameters.
+      A reboot is required for changes to take effect.
+
+      {% if drivers_auto_reboot %}
+      Auto-reboot is ENABLED. The system will reboot automatically.
+      {% else %}
+      Auto-reboot is DISABLED.
+      After reboot, verify SR-IOV support with:
+        cat /sys/devices/pci0000:00/0000:00:02.0/sriov_totalvfs
+
+      Set drivers_auto_reboot=true to enable automatic reboots.
+      {% endif %}
+      ========================================
+  when: grub_updated.changed | default(false)
+
+# Auto-reboot flow
+- name: Confirm reboot with user for Intel SR-IOV
+  ansible.builtin.pause:
+    prompt: |
+      Press ENTER to reboot {{ inventory_hostname }} now, or Ctrl+C to abort.
+      The playbook will continue after the system comes back online.
+  when:
+    - grub_updated.changed | default(false)
+    - drivers_auto_reboot | bool
+    - drivers_reboot_confirm | bool
+
+- name: Reboot for Intel SR-IOV kernel parameters
+  ansible.builtin.reboot:
+    msg: "Rebooting for Intel SR-IOV kernel parameters"
+    reboot_timeout: "{{ drivers_reboot_timeout }}"
+    post_reboot_delay: 30
+  when:
+    - grub_updated.changed | default(false)
+    - drivers_auto_reboot | bool
+
+# Manual reboot flow
+- name: Fail if reboot required (manual mode)
+  ansible.builtin.fail:
+    msg: |
+      Reboot required for Intel SR-IOV kernel parameters.
+      Please reboot and re-run the playbook.
+      To enable automatic reboot, set: drivers_auto_reboot=true
+  when:
+    - grub_updated.changed | default(false)
+    - not (drivers_auto_reboot | bool)
+
+# =============================================================================
+# Step 3: Verify SR-IOV support is active
+# =============================================================================
+- name: Check SR-IOV support
+  ansible.builtin.stat:
+    path: /sys/devices/pci0000:00/0000:00:02.0/sriov_totalvfs
+  register: sriov_support
+
+- name: Fail if SR-IOV not supported
+  ansible.builtin.fail:
+    msg: |
+      Intel SR-IOV is not available. Possible causes:
+      1. Kernel parameters not applied (reboot required)
+      2. CPU doesn't support SR-IOV (requires 11th gen+)
+      3. BIOS/UEFI settings need adjustment
+  when: not sriov_support.stat.exists
+
+- name: Get maximum VFs supported
+  ansible.builtin.slurp:
+    src: /sys/devices/pci0000:00/0000:00:02.0/sriov_totalvfs
+  register: max_vfs_raw
+
+- name: Set max VFs fact
+  ansible.builtin.set_fact:
+    max_vfs: "{{ max_vfs_raw.content | b64decode | trim | int }}"
+
+- name: Warn if requested VFs exceed maximum
+  ansible.builtin.debug:
+    msg: "WARNING: Requested {{ intel_sriov_num_vfs }} VFs but only {{ max_vfs }} supported. Using {{ max_vfs }}."
+  when: intel_sriov_num_vfs | int > max_vfs | int
+
+- name: Adjust VF count if necessary
+  ansible.builtin.set_fact:
+    intel_sriov_num_vfs: "{{ [intel_sriov_num_vfs | int, max_vfs | int] | min }}"
+
+# =============================================================================
+# Step 4: Install sysfsutils for persistent configuration
+# =============================================================================
+- name: Install sysfsutils
+  ansible.builtin.apt:
+    name: sysfsutils
+    state: present
+    update_cache: true
+
+# =============================================================================
+# Step 5: Create Virtual Functions
+# =============================================================================
+- name: Check current VF count
+  ansible.builtin.slurp:
+    src: /sys/devices/pci0000:00/0000:00:02.0/sriov_numvfs
+  register: current_vfs_raw
+
+- name: Set current VFs fact
+  ansible.builtin.set_fact:
+    current_vfs: "{{ current_vfs_raw.content | b64decode | trim | int }}"
+
+- name: Create Virtual Functions
+  ansible.builtin.shell: |
+    echo {{ intel_sriov_num_vfs }} > /sys/devices/pci0000:00/0000:00:02.0/sriov_numvfs
+  when: current_vfs | int != intel_sriov_num_vfs | int
+  register: vf_creation
+
+# =============================================================================
+# Step 6: Make VF configuration persistent
+# =============================================================================
+- name: Configure persistent SR-IOV VFs
+  ansible.builtin.copy:
+    content: |
+      # Intel iGPU SR-IOV configuration
+      # Managed by Ansible - do not edit manually
+      #
+      # This creates {{ intel_sriov_num_vfs }} Virtual Functions on the Intel iGPU
+      # VF0 (0000:00:02.1) can be used for physical display passthrough
+      # VF1-VF{{ intel_sriov_num_vfs }} (0000:00:02.2-x) for virtual display VMs
+      /sys/devices/pci0000:00/0000:00:02.0/sriov_numvfs = {{ intel_sriov_num_vfs }}
+    dest: /etc/sysfs.d/intel-sriov.conf
+    mode: '0644'
+
+# =============================================================================
+# Step 7: Verify VFs are created
+# =============================================================================
+- name: List created Virtual Functions
+  ansible.builtin.shell: ls -la /sys/devices/pci0000:00/0000:00:02.0/ | grep virtfn
+  register: vf_list
+  changed_when: false
+
+- name: Display VF information
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Intel SR-IOV Setup Complete!
+
+      Created {{ intel_sriov_num_vfs }} Virtual Functions:
+      {{ vf_list.stdout }}
+
+      PCI addresses for VM passthrough:
+      - VF0: 0000:00:02.1 (use for physical display)
+      - VF1: 0000:00:02.2
+      - VF2: 0000:00:02.3
+      ...
+
+      To pass VF0 to a VM with physical HDMI:
+        qm set <vmid> -hostpci0 0000:00:02.1,pcie=1
+
+      Note: VF0 typically inherits physical display capability.
+      ========================================

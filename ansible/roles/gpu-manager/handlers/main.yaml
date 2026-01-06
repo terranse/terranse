@@ -1,0 +1,12 @@
+---
+# Handlers for gpu-manager role
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart session watcher
+  ansible.builtin.systemd:
+    name: session-watcher
+    state: restarted
+  failed_when: false

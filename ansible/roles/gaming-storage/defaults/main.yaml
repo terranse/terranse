@@ -1,0 +1,8 @@
+---
+# Default variables for gaming-storage role
+
+# ZFS pool containing gaming datasets
+gaming_zfs_pool: tank
+
+# Network CIDR for NFS exports
+gaming_network: 192.168.1.0/24

@@ -1,0 +1,97 @@
+#!/bin/bash
+# User Game Management Script
+#
+# Manages per-user game directories and provides a simple interface
+# for users to request games from the master library.
+#
+# Usage:
+#   manage-user-games.sh add-user <username>
+#   manage-user-games.sh list-games
+#   manage-user-games.sh request <game> <username>
+
+set -e
+
+ROMS_DATASET="{{ gaming_base_path }}/emulation/roms"
+USERS_DATASET="{{ gaming_base_path }}/emulation/users"
+MOUNT_BASE="{{ gaming_mount }}"
+
+# Add a new user
+add_user() {
+    local username="$1"
+    [[ -z "$username" ]] && { echo "Usage: $0 add-user <username>"; exit 1; }
+
+    local user_dataset="${USERS_DATASET}/${username}"
+
+    if zfs list "$user_dataset" &>/dev/null; then
+        echo "User '${username}' already exists"
+        return 0
+    fi
+
+    echo "Creating user dataset: ${username}"
+    zfs create "$user_dataset"
+    mkdir -p "${MOUNT_BASE}/emulation/users/${username}/saves"
+    chmod 755 "${MOUNT_BASE}/emulation/users/${username}"
+
+    echo "User '${username}' created successfully"
+    echo "Path: ${MOUNT_BASE}/emulation/users/${username}"
+}
+
+# List available games in master library
+list_games() {
+    echo "Available games in master library:"
+    echo "==================================="
+    echo ""
+
+    if [[ -d "${MOUNT_BASE}/emulation/roms" ]]; then
+        for game_dir in "${MOUNT_BASE}/emulation/roms"/*/; do
+            if [[ -d "$game_dir" ]]; then
+                game=$(basename "$game_dir")
+                # Check if it has a master snapshot
+                if zfs list -t snapshot "${ROMS_DATASET}/${game}@master" &>/dev/null; then
+                    echo "  [ready] ${game}"
+                else
+                    echo "  [no snapshot] ${game}"
+                fi
+            fi
+        done
+    else
+        echo "  No games found"
+    fi
+
+    echo ""
+    echo "To request a game: $0 request <game> <username>"
+}
+
+# Request a game (creates clone if needed)
+request_game() {
+    local game="$1"
+    local username="$2"
+
+    [[ -z "$game" || -z "$username" ]] && { echo "Usage: $0 request <game> <username>"; exit 1; }
+
+    # Use the clone helper
+    /usr/local/bin/zfs-game-clone.sh create "$game" "$username"
+}
+
+# Main
+case "${1:-}" in
+    add-user)
+        add_user "$2"
+        ;;
+    list-games)
+        list_games
+        ;;
+    request)
+        request_game "$2" "$3"
+        ;;
+    *)
+        echo "User Game Management"
+        echo ""
+        echo "Usage:"
+        echo "  $0 add-user <username>           - Create user directory"
+        echo "  $0 list-games                    - List available games"
+        echo "  $0 request <game> <username>     - Request game for user"
+        echo ""
+        exit 1
+        ;;
+esac

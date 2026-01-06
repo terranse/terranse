@@ -1,0 +1,102 @@
+---
+# RetroArch Emulator Setup
+#
+# Installs RetroArch with common cores for emulation
+
+- name: Install RetroArch via Flatpak
+  community.general.flatpak:
+    name: org.libretro.RetroArch
+    state: present
+
+# Alternative: Install from apt
+- name: Install RetroArch from apt
+  ansible.builtin.apt:
+    name:
+      - retroarch
+      - retroarch-assets
+      - libretro-core-info
+    state: present
+  failed_when: false
+
+# Install common cores
+- name: Install common RetroArch cores
+  ansible.builtin.apt:
+    name:
+      - libretro-beetle-psx
+      - libretro-beetle-psx-hw
+      - libretro-mgba
+      - libretro-snes9x
+      - libretro-nestopia
+      - libretro-desmume
+      - libretro-mupen64plus-next
+      - libretro-ppsspp
+      - libretro-dolphin
+      - libretro-pcsx2
+    state: present
+  failed_when: false
+
+# Create RetroArch directories
+- name: Create RetroArch config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+  loop:
+    - "/home/{{ gaming_user }}/.config/retroarch"
+    - "/home/{{ gaming_user }}/.config/retroarch/saves"
+    - "/home/{{ gaming_user }}/.config/retroarch/states"
+
+# Link to shared ROM storage
+- name: Check if shared ROM storage is mounted
+  ansible.builtin.stat:
+    path: /mnt/games/emulation/roms
+  register: roms_share
+
+- name: Create symlink to shared ROMs
+  ansible.builtin.file:
+    src: /mnt/games/emulation/roms
+    dest: "/home/{{ gaming_user }}/ROMs"
+    state: link
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+  when: roms_share.stat.exists | default(false)
+
+# Link to user-specific saves
+- name: Check if user saves directory exists
+  ansible.builtin.stat:
+    path: "/mnt/games/emulation/users/{{ gaming_user }}"
+  register: user_saves
+
+- name: Create user saves directory on NFS
+  ansible.builtin.file:
+    path: "/mnt/games/emulation/users/{{ gaming_user }}/saves"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+  when: user_saves.stat.exists | default(false)
+
+- name: Link RetroArch saves to NFS
+  ansible.builtin.file:
+    src: "/mnt/games/emulation/users/{{ gaming_user }}/saves"
+    dest: "/home/{{ gaming_user }}/.config/retroarch/saves"
+    state: link
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    force: true
+  when: user_saves.stat.exists | default(false)
+
+- name: Display RetroArch setup info
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      RetroArch Setup Complete!
+
+      Launch RetroArch from Sunshine or:
+        flatpak run org.libretro.RetroArch
+
+      ROMs location: ~/ROMs
+      Saves location: ~/.config/retroarch/saves
+      ========================================

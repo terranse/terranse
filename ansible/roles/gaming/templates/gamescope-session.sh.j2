@@ -1,0 +1,74 @@
+#!/bin/bash
+# Gamescope Gaming Session
+#
+# Gamescope is Valve's gaming-focused Wayland compositor (used on Steam Deck).
+# It provides:
+# - Virtual displays at any resolution
+# - Frame limiting and latency optimization
+# - FSR upscaling
+# - HDR support
+# - Nested or standalone mode
+#
+# Managed by Ansible - do not edit manually
+
+set -e
+
+# Display configuration
+WIDTH="{{ virtual_display_width | default(1920) }}"
+HEIGHT="{{ virtual_display_height | default(1080) }}"
+REFRESH="{{ virtual_display_refresh | default(60) }}"
+
+# NVIDIA environment
+export WLR_BACKENDS=drm
+export GBM_BACKEND=nvidia-drm
+export __GLX_VENDOR_LIBRARY_NAME=nvidia
+export WLR_NO_HARDWARE_CURSORS=1
+export LIBVA_DRIVER_NAME=nvidia
+
+# Wayland environment
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=gamescope
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+# Gamescope options
+GAMESCOPE_OPTS=(
+    # Output resolution (what gets streamed)
+    -W "$WIDTH"
+    -H "$HEIGHT"
+
+    # Internal resolution (can be lower for performance)
+    -w "$WIDTH"
+    -h "$HEIGHT"
+
+    # Refresh rate
+    -r "$REFRESH"
+
+    # Fullscreen borderless
+    -f
+
+    # Enable FSR upscaling (if internal res < output res)
+    # --fsr-sharpness 2
+
+    # Expose Wayland for nested apps
+    -e
+
+    # Use NVIDIA backend
+    --backend drm
+
+    # Disable mouse hiding (Sunshine handles this)
+    --hide-cursor-delay 0
+)
+
+# What to run inside gamescope
+# Option 1: Just Sunshine (recommended)
+INNER_CMD="/usr/bin/sunshine"
+
+# Option 2: Steam Big Picture (Sunshine launched separately)
+# INNER_CMD="flatpak run com.valvesoftware.Steam -bigpicture -steamos"
+
+# Log startup
+echo "[$(date)] Starting gamescope session: ${WIDTH}x${HEIGHT}@${REFRESH}Hz"
+echo "[$(date)] Running: $INNER_CMD"
+
+# Start gamescope
+exec gamescope "${GAMESCOPE_OPTS[@]}" -- $INNER_CMD

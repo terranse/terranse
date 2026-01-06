@@ -1,0 +1,164 @@
+#!/bin/bash
+# ZFS Game Clone Helper
+#
+# Creates instant ZFS clones of games for per-user isolated saves.
+# Uses copy-on-write for minimal storage overhead.
+#
+# Usage:
+#   zfs-game-clone.sh create <game> <username>   - Clone game for user
+#   zfs-game-clone.sh delete <game> <username>   - Delete user's clone
+#   zfs-game-clone.sh reset <game> <username>    - Reset to master state
+#   zfs-game-clone.sh list [username]            - List clones
+
+set -e
+
+ROMS_DATASET="{{ gaming_base_path }}/emulation/roms"
+USERS_DATASET="{{ gaming_base_path }}/emulation/users"
+MOUNT_BASE="{{ gaming_mount }}"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+error() {
+    echo "[ERROR] $1" >&2
+    exit 1
+}
+
+# Ensure master snapshot exists for a game
+ensure_master_snapshot() {
+    local game="$1"
+    local dataset="${ROMS_DATASET}/${game}"
+
+    if ! zfs list -t snapshot "${dataset}@master" &>/dev/null; then
+        log "Creating master snapshot for ${game}"
+        zfs snapshot "${dataset}@master"
+    fi
+}
+
+# Create a clone for a user
+create_clone() {
+    local game="$1"
+    local username="$2"
+
+    [[ -z "$game" || -z "$username" ]] && error "Usage: $0 create <game> <username>"
+
+    local source="${ROMS_DATASET}/${game}"
+    local target="${USERS_DATASET}/${username}/${game}"
+
+    # Check if source game exists
+    if ! zfs list "$source" &>/dev/null; then
+        error "Game '${game}' not found in ${ROMS_DATASET}"
+    fi
+
+    # Check if clone already exists
+    if zfs list "$target" &>/dev/null; then
+        log "Clone already exists: ${target}"
+        echo "${MOUNT_BASE}/emulation/users/${username}/${game}"
+        return 0
+    fi
+
+    # Ensure user dataset exists
+    if ! zfs list "${USERS_DATASET}/${username}" &>/dev/null; then
+        log "Creating user dataset: ${username}"
+        zfs create "${USERS_DATASET}/${username}"
+        chmod 755 "${MOUNT_BASE}/emulation/users/${username}"
+    fi
+
+    # Ensure master snapshot exists
+    ensure_master_snapshot "$game"
+
+    # Create clone (instant, no data copy)
+    log "Creating clone: ${target} from ${source}@master"
+    zfs clone "${source}@master" "$target"
+
+    # Set permissions
+    chmod 755 "${MOUNT_BASE}/emulation/users/${username}/${game}"
+
+    log "Clone created successfully"
+    echo "${MOUNT_BASE}/emulation/users/${username}/${game}"
+}
+
+# Delete a user's clone
+delete_clone() {
+    local game="$1"
+    local username="$2"
+
+    [[ -z "$game" || -z "$username" ]] && error "Usage: $0 delete <game> <username>"
+
+    local target="${USERS_DATASET}/${username}/${game}"
+
+    if ! zfs list "$target" &>/dev/null; then
+        log "Clone does not exist: ${target}"
+        return 0
+    fi
+
+    log "Deleting clone: ${target}"
+    zfs destroy "$target"
+    log "Clone deleted"
+}
+
+# Reset clone to master state
+reset_clone() {
+    local game="$1"
+    local username="$2"
+
+    [[ -z "$game" || -z "$username" ]] && error "Usage: $0 reset <game> <username>"
+
+    log "Resetting ${game} for ${username} to master state"
+    delete_clone "$game" "$username"
+    create_clone "$game" "$username"
+}
+
+# List clones
+list_clones() {
+    local username="${1:-}"
+
+    if [[ -n "$username" ]]; then
+        echo "Clones for user: ${username}"
+        echo "================================"
+        zfs list -r -t filesystem "${USERS_DATASET}/${username}" 2>/dev/null | tail -n +2 || echo "No clones found"
+    else
+        echo "All user game clones:"
+        echo "====================="
+        zfs list -r -t filesystem "$USERS_DATASET" 2>/dev/null | tail -n +2 || echo "No clones found"
+    fi
+
+    echo ""
+    echo "Storage usage (clones only store differences from master):"
+    zfs list -r -o name,used,refer "$USERS_DATASET" 2>/dev/null | tail -n +2 || true
+}
+
+# Main
+case "${1:-}" in
+    create)
+        create_clone "$2" "$3"
+        ;;
+    delete)
+        delete_clone "$2" "$3"
+        ;;
+    reset)
+        reset_clone "$2" "$3"
+        ;;
+    list)
+        list_clones "$2"
+        ;;
+    *)
+        echo "ZFS Game Clone Helper"
+        echo ""
+        echo "Creates instant copy-on-write clones of games for per-user saves."
+        echo ""
+        echo "Usage:"
+        echo "  $0 create <game> <username>  - Create game clone for user"
+        echo "  $0 delete <game> <username>  - Delete user's game clone"
+        echo "  $0 reset <game> <username>   - Reset game to master state"
+        echo "  $0 list [username]           - List all clones"
+        echo ""
+        echo "Example:"
+        echo "  $0 create pokemon-emerald alice"
+        echo "  $0 list alice"
+        echo ""
+        echo "The clone only stores changes (saves), so it uses minimal space."
+        exit 1
+        ;;
+esac

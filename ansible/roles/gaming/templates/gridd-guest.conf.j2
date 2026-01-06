@@ -1,0 +1,26 @@
+# NVIDIA vGPU Guest Licensing Configuration
+# Managed by Ansible - do not edit manually
+#
+# Points to FastAPI-DLS server for vGPU licensing
+
+# Enable vGPU licensing
+FeatureType=1
+
+# FastAPI-DLS server configuration
+ServerAddress={{ dls_server_ip }}
+ServerPort=443
+EnableMultiServer=false
+
+# License server type (1 = DLS)
+LicenseServerType=1
+
+# Client configuration
+ClientConfigTokenPath=/etc/nvidia/ClientConfigToken
+
+# Logging
+EnableLog=1
+LogFilePath=/var/log/nvidia/gridd.log
+LogLevel=3
+
+# Heartbeat configuration
+LicenseInterval=600

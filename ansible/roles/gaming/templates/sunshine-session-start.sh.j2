@@ -1,0 +1,42 @@
+#!/bin/bash
+# Sunshine Session Start Hook
+# Notifies GPU manager that a gaming session is active
+#
+# Managed by Ansible - do not edit manually
+
+set -e
+
+SESSION_STATE_DIR="{{ sunshine_session_state_dir | default('/mnt/gaming/session-state') }}"
+VM_ID="{{ vm_id | default(ansible_hostname) }}"
+HOSTNAME=$(hostname)
+SESSION_FILE="${SESSION_STATE_DIR}/${HOSTNAME}.session"
+
+# Log function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sunshine-hook] $1" >> /var/log/sunshine-hooks.log
+}
+
+log "Session starting for VM: ${VM_ID}"
+
+# Create session state file
+mkdir -p "${SESSION_STATE_DIR}" 2>/dev/null || true
+
+cat > "${SESSION_FILE}" << EOF
+{
+    "vm_id": "${VM_ID}",
+    "hostname": "${HOSTNAME}",
+    "session_start": "$(date -Iseconds)",
+    "gpu_profile": "{{ vgpu_profile | default('Q-8C') }}",
+    "user": "${SUNSHINE_CLIENT_NAME:-unknown}",
+    "status": "active"
+}
+EOF
+
+log "Session state written to ${SESSION_FILE}"
+
+{% if sunshine_session_start_extra is defined %}
+# Custom session start commands
+{{ sunshine_session_start_extra }}
+{% endif %}
+
+exit 0

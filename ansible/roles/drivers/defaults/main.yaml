@@ -1,0 +1,44 @@
+---
+# Drivers Role Defaults
+#
+# These variables control the behavior of the GPU driver installation.
+
+# =============================================================================
+# Reboot Configuration
+# =============================================================================
+
+# Enable automatic reboots when required (e.g., after blacklisting nouveau)
+# When false, the playbook will fail with instructions to reboot manually
+drivers_auto_reboot: false
+
+# Prompt for confirmation before rebooting
+# When true, user must press ENTER to continue with reboot
+# When false, reboots happen immediately (use with caution)
+drivers_reboot_confirm: true
+
+# Maximum time in seconds to wait for host to come back after reboot
+drivers_reboot_timeout: 600
+
+# =============================================================================
+# NVIDIA vGPU Configuration
+# =============================================================================
+
+# Directory to store downloaded NVIDIA drivers
+vgpu_driver_dir: /opt/nvidia-vgpu-drivers
+
+# FastAPI-DLS server IP for vGPU licensing
+# Required for vGPU to function - set this to your DLS server
+# dls_server_ip: 192.168.1.100
+
+# NVIDIA GPU PCI address (auto-detected if not specified)
+# nvidia_pci_address: "0000:41:00.0"
+
+# =============================================================================
+# Intel SR-IOV Configuration
+# =============================================================================
+
+# Number of Virtual Functions to create for Intel iGPU
+intel_sriov_vfs: 7
+
+# Enable GUC submission for better SR-IOV performance
+intel_enable_guc: true

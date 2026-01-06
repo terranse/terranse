@@ -1,0 +1,151 @@
+---
+# Sunshine Streaming Server Setup
+#
+# Installs and configures Sunshine for game streaming via Moonlight
+
+- name: Install Sunshine dependencies
+  ansible.builtin.apt:
+    name:
+      - libavcodec-dev
+      - libdrm-dev
+      - libevdev-dev
+      - libpulse-dev
+      - libx11-dev
+      - libxfixes-dev
+      - libxrandr-dev
+      - libxtst-dev
+      - libcap2-bin
+      - libssl-dev
+      - libcurl4-openssl-dev
+      - libopus-dev
+      - libboost-all-dev
+      - cmake
+      - g++
+    state: present
+
+# Install Sunshine from package or AppImage
+- name: Check if Sunshine is installed
+  ansible.builtin.command: which sunshine
+  register: sunshine_installed
+  changed_when: false
+  failed_when: false
+
+- name: Create Sunshine directory
+  ansible.builtin.file:
+    path: /opt/sunshine
+    state: directory
+    mode: '0755'
+
+- name: Download Sunshine AppImage
+  ansible.builtin.get_url:
+    url: "https://github.com/LizardByte/Sunshine/releases/download/v0.23.1/sunshine-debian-bookworm-amd64.deb"
+    dest: /tmp/sunshine.deb
+    mode: '0644'
+  when: sunshine_installed.rc != 0
+
+- name: Install Sunshine package
+  ansible.builtin.apt:
+    deb: /tmp/sunshine.deb
+    state: present
+  when: sunshine_installed.rc != 0
+
+# Configure Sunshine
+- name: Create Sunshine config directory
+  ansible.builtin.file:
+    path: "/home/{{ gaming_user }}/.config/sunshine"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+
+# Session hooks for GPU management
+- name: Create Sunshine hooks directory
+  ansible.builtin.file:
+    path: /opt/sunshine/hooks
+    state: directory
+    mode: '0755'
+
+- name: Deploy session start hook
+  ansible.builtin.template:
+    src: sunshine-session-start.sh.j2
+    dest: /opt/sunshine/hooks/session-start.sh
+    mode: '0755'
+
+- name: Deploy session stop hook
+  ansible.builtin.template:
+    src: sunshine-session-stop.sh.j2
+    dest: /opt/sunshine/hooks/session-stop.sh
+    mode: '0755'
+
+- name: Deploy Sunshine configuration
+  ansible.builtin.template:
+    src: sunshine.conf.j2
+    dest: "/home/{{ gaming_user }}/.config/sunshine/sunshine.conf"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
+  notify: Restart sunshine
+
+- name: Deploy Sunshine apps configuration
+  ansible.builtin.template:
+    src: sunshine-apps.json.j2
+    dest: "/home/{{ gaming_user }}/.config/sunshine/apps.json"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
+  notify: Restart sunshine
+
+# Mount shared credentials from NFS (if available)
+- name: Check if shared credentials mount exists
+  ansible.builtin.stat:
+    path: /mnt/sunshine-creds
+  register: creds_mount
+
+- name: Create credentials symlink
+  ansible.builtin.file:
+    src: /mnt/sunshine-creds
+    dest: "/home/{{ gaming_user }}/.config/sunshine/credentials"
+    state: link
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+  when: creds_mount.stat.exists | default(false)
+
+# Set capabilities for Sunshine
+- name: Set capabilities for Sunshine
+  community.general.capabilities:
+    path: /usr/bin/sunshine
+    capability: cap_sys_admin+ep
+    state: present
+  failed_when: false
+
+# Create systemd service for Sunshine
+- name: Create Sunshine systemd service
+  ansible.builtin.template:
+    src: sunshine.service.j2
+    dest: /etc/systemd/system/sunshine.service
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart sunshine
+
+- name: Enable and start Sunshine
+  ansible.builtin.systemd:
+    name: sunshine
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Display Sunshine setup info
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Sunshine Setup Complete!
+
+      Web UI: https://{{ ansible_host }}:47990
+      Default credentials: sunshine / sunshine
+
+      To pair a Moonlight client:
+      1. Open the web UI above
+      2. Go to PIN tab
+      3. Enter the PIN from your Moonlight app
+      ========================================

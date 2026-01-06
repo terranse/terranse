@@ -1,0 +1,67 @@
+---
+# Handlers for drivers role
+#
+# Variables that control reboot behavior:
+#   drivers_auto_reboot: Enable automatic reboots (default: false)
+#   drivers_reboot_confirm: Prompt for confirmation before reboot (default: true)
+#   drivers_reboot_timeout: Seconds to wait for reboot (default: 600)
+
+- name: Reboot host for NVIDIA driver
+  block:
+    - name: Display driver installation complete message
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          NVIDIA vGPU driver has been installed.
+          A REBOOT IS REQUIRED to load the driver.
+
+          {% if drivers_auto_reboot | default(false) %}
+          Auto-reboot is ENABLED.
+          {% else %}
+          After reboot, verify with: nvidia-smi
+
+          To enable automatic reboot, set: drivers_auto_reboot=true
+          {% endif %}
+          ========================================
+
+    - name: Confirm post-install reboot with user
+      ansible.builtin.pause:
+        prompt: |
+          NVIDIA driver installed. Press ENTER to reboot {{ inventory_hostname }} now,
+          or Ctrl+C to abort (you can reboot manually later).
+      when:
+        - drivers_auto_reboot | default(false) | bool
+        - drivers_reboot_confirm | default(true) | bool
+
+    - name: Reboot to load NVIDIA driver
+      ansible.builtin.reboot:
+        msg: "Rebooting to load NVIDIA vGPU driver"
+        reboot_timeout: "{{ drivers_reboot_timeout | default(600) }}"
+        post_reboot_delay: 30
+      when: drivers_auto_reboot | default(false) | bool
+
+    - name: Verify NVIDIA driver loaded after reboot
+      ansible.builtin.command: nvidia-smi
+      register: nvidia_smi_verify
+      changed_when: false
+      when: drivers_auto_reboot | default(false) | bool
+
+    - name: Display NVIDIA driver info
+      ansible.builtin.debug:
+        msg: "{{ nvidia_smi_verify.stdout_lines }}"
+      when:
+        - drivers_auto_reboot | default(false) | bool
+        - nvidia_smi_verify is defined
+
+- name: Update initramfs
+  ansible.builtin.command: update-initramfs -u
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart nvidia-gridd
+  ansible.builtin.systemd:
+    name: nvidia-gridd
+    state: restarted
+  failed_when: false

@@ -1,0 +1,341 @@
+---
+# NVIDIA vGPU Host Driver Setup
+#
+# This task file sets up NVIDIA vGPU on a Proxmox host:
+# 1. Blacklists nouveau driver
+# 2. Installs prerequisites (kernel headers, build tools)
+# 3. Downloads vGPU drivers from AWS S3 bucket
+# 4. Installs the vGPU host driver with DKMS
+# 5. Configures mdev types for GPU slicing
+# 6. Configures FastAPI-DLS licensing
+#
+# Required variables:
+#   dls_server_ip: IP address of FastAPI-DLS server
+#
+# Optional variables:
+#   vgpu_driver_dir: Directory to store drivers (default: /opt/nvidia-vgpu-drivers)
+#   nvidia_pci_address: PCI address of GPU (default: auto-detected)
+
+- name: Set default variables
+  ansible.builtin.set_fact:
+    vgpu_driver_dir: "{{ vgpu_driver_dir | default('/opt/nvidia-vgpu-drivers') }}"
+    drivers_auto_reboot: "{{ drivers_auto_reboot | default(false) }}"
+    drivers_reboot_confirm: "{{ drivers_reboot_confirm | default(true) }}"
+    drivers_reboot_timeout: "{{ drivers_reboot_timeout | default(600) }}"
+
+# =============================================================================
+# Step 1: Blacklist nouveau driver
+# =============================================================================
+- name: Check if nouveau is currently loaded
+  ansible.builtin.shell: lsmod | grep -q nouveau
+  register: nouveau_loaded
+  changed_when: false
+  failed_when: false
+
+- name: Create nouveau blacklist configuration
+  ansible.builtin.copy:
+    content: |
+      # Blacklist nouveau - required for NVIDIA vGPU
+      blacklist nouveau
+      options nouveau modeset=0
+    dest: /etc/modprobe.d/blacklist-nouveau.conf
+    mode: '0644'
+  register: nouveau_blacklist
+
+- name: Update initramfs after blacklisting nouveau
+  ansible.builtin.command: update-initramfs -u
+  when: nouveau_blacklist.changed
+
+- name: Set reboot required flag
+  ansible.builtin.set_fact:
+    _drivers_reboot_required: true
+  when:
+    - nouveau_loaded.rc == 0
+    - nouveau_blacklist.changed
+
+# Auto-reboot flow (when drivers_auto_reboot is true)
+- name: Display reboot warning
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      REBOOT REQUIRED
+
+      The nouveau driver is currently loaded and has been blacklisted.
+      A reboot is required before NVIDIA vGPU driver installation can proceed.
+
+      {% if drivers_auto_reboot %}
+      Auto-reboot is ENABLED. The system will reboot automatically.
+      {% else %}
+      Auto-reboot is DISABLED. Please reboot manually and re-run the playbook.
+      Set drivers_auto_reboot=true to enable automatic reboots.
+      {% endif %}
+      ========================================
+  when: _drivers_reboot_required | default(false)
+
+- name: Confirm reboot with user
+  ansible.builtin.pause:
+    prompt: |
+      Press ENTER to reboot {{ inventory_hostname }} now, or Ctrl+C to abort.
+      The playbook will continue after the system comes back online.
+  when:
+    - _drivers_reboot_required | default(false)
+    - drivers_auto_reboot | bool
+    - drivers_reboot_confirm | bool
+
+- name: Reboot to unload nouveau driver
+  ansible.builtin.reboot:
+    msg: "Rebooting to unload nouveau driver for NVIDIA vGPU installation"
+    reboot_timeout: "{{ drivers_reboot_timeout }}"
+    post_reboot_delay: 30
+  when:
+    - _drivers_reboot_required | default(false)
+    - drivers_auto_reboot | bool
+
+- name: Verify nouveau is unloaded after reboot
+  ansible.builtin.shell: lsmod | grep -q nouveau
+  register: nouveau_after_reboot
+  changed_when: false
+  failed_when: false
+  when:
+    - _drivers_reboot_required | default(false)
+    - drivers_auto_reboot | bool
+
+- name: Fail if nouveau still loaded after reboot
+  ansible.builtin.fail:
+    msg: "nouveau driver is still loaded after reboot. Check /etc/modprobe.d/blacklist-nouveau.conf and initramfs."
+  when:
+    - _drivers_reboot_required | default(false)
+    - drivers_auto_reboot | bool
+    - nouveau_after_reboot.rc == 0
+
+# Manual reboot flow (when drivers_auto_reboot is false)
+- name: Fail if nouveau is loaded (manual reboot required)
+  ansible.builtin.fail:
+    msg: |
+      nouveau driver is loaded. Reboot required before continuing.
+      To enable automatic reboot, set: drivers_auto_reboot=true
+  when:
+    - _drivers_reboot_required | default(false)
+    - not (drivers_auto_reboot | bool)
+
+# =============================================================================
+# Step 2: Install prerequisites
+# =============================================================================
+- name: Install build prerequisites for NVIDIA driver
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - dkms
+      - linux-headers-{{ ansible_kernel }}
+      - pve-headers-{{ ansible_kernel }}
+      - rclone
+      - python3
+      - jq
+    state: present
+    update_cache: true
+
+# =============================================================================
+# Step 3: Download vGPU drivers
+# =============================================================================
+- name: Create vGPU driver directory
+  ansible.builtin.file:
+    path: "{{ vgpu_driver_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Copy rclone configuration for NVIDIA S3 bucket
+  ansible.builtin.copy:
+    src: rclone.conf
+    dest: /root/.config/rclone/rclone.conf
+    mode: '0600'
+
+- name: Ensure rclone config directory exists
+  ansible.builtin.file:
+    path: /root/.config/rclone
+    state: directory
+    mode: '0700'
+
+- name: Copy vGPU driver download script
+  ansible.builtin.copy:
+    src: get-vgpu-drivers.py
+    dest: /usr/local/bin/get-vgpu-drivers.py
+    mode: '0755'
+
+- name: Check if vGPU drivers already downloaded
+  ansible.builtin.find:
+    paths: "{{ vgpu_driver_dir }}"
+    patterns: "NVIDIA-Linux-*.run"
+  register: existing_drivers
+
+- name: Download latest vGPU drivers
+  ansible.builtin.command:
+    cmd: /usr/local/bin/get-vgpu-drivers.py -d "{{ vgpu_driver_dir }}"
+  environment:
+    RCLONE_CONFIG: /root/.config/rclone/rclone.conf
+  when: existing_drivers.matched == 0
+  register: driver_download
+
+# =============================================================================
+# Step 3b: Sync guest drivers to NAS for VM access
+# =============================================================================
+- name: Find downloaded guest drivers
+  ansible.builtin.find:
+    paths: "{{ vgpu_driver_dir }}"
+    patterns:
+      - "NVIDIA-Linux-x86_64-*-grid-vgpu-kvm.run"  # Linux guest
+      - "*-grid-win*.exe"  # Windows guest
+  register: guest_driver_files
+
+- name: Mount NAS drivers share for syncing
+  ansible.posix.mount:
+    path: /mnt/gaming-drivers
+    src: "{{ nfs_server }}:/tank/gaming/drivers"
+    fstype: nfs
+    opts: "rw,noatime,nfsvers=4.2"
+    state: mounted
+  when:
+    - nfs_server is defined
+    - guest_driver_files.matched > 0
+
+- name: Sync Linux guest drivers to NAS
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "/mnt/gaming-drivers/nvidia/linux/"
+    remote_src: true
+    mode: '0644'
+  loop: "{{ guest_driver_files.files | selectattr('path', 'search', 'Linux') | list }}"
+  when:
+    - nfs_server is defined
+    - guest_driver_files.matched > 0
+
+- name: Sync Windows guest drivers to NAS
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "/mnt/gaming-drivers/nvidia/windows/"
+    remote_src: true
+    mode: '0644'
+  loop: "{{ guest_driver_files.files | selectattr('path', 'search', 'win') | list }}"
+  when:
+    - nfs_server is defined
+    - guest_driver_files.matched > 0
+
+- name: Create driver version marker file
+  ansible.builtin.copy:
+    content: |
+      # NVIDIA vGPU Driver Version
+      # This file is auto-generated by Ansible
+      HOST_DRIVER_VERSION={{ nvidia_driver_version | default('unknown') }}
+      LAST_UPDATED={{ ansible_date_time.iso8601 }}
+    dest: /mnt/gaming-drivers/nvidia/VERSION
+    mode: '0644'
+  when: nfs_server is defined
+
+# =============================================================================
+# Step 4: Install NVIDIA vGPU host driver
+# =============================================================================
+- name: Find downloaded host driver
+  ansible.builtin.find:
+    paths: "{{ vgpu_driver_dir }}"
+    patterns: "NVIDIA-Linux-x86_64-*-grid.run"
+  register: host_driver_file
+
+- name: Check if NVIDIA driver is already installed
+  ansible.builtin.command: nvidia-smi
+  register: nvidia_smi_check
+  changed_when: false
+  failed_when: false
+
+- name: Make driver installer executable
+  ansible.builtin.file:
+    path: "{{ host_driver_file.files[0].path }}"
+    mode: '0755'
+  when: host_driver_file.matched > 0
+
+- name: Install NVIDIA vGPU host driver
+  ansible.builtin.command:
+    cmd: "{{ host_driver_file.files[0].path }} --dkms --silent"
+  when:
+    - host_driver_file.matched > 0
+    - nvidia_smi_check.rc != 0
+  register: driver_install
+  notify: Reboot host for NVIDIA driver
+
+# =============================================================================
+# Step 5: Configure vGPU mdev types
+# =============================================================================
+- name: Detect NVIDIA GPU PCI address
+  ansible.builtin.shell: |
+    lspci -nn | grep -i nvidia | grep -i vga | head -1 | cut -d' ' -f1
+  register: nvidia_pci_detect
+  changed_when: false
+  when: nvidia_pci_address is not defined
+
+- name: Set NVIDIA PCI address fact
+  ansible.builtin.set_fact:
+    nvidia_pci_address: "{{ nvidia_pci_address | default(nvidia_pci_detect.stdout) }}"
+
+- name: Debug - Show detected GPU
+  ansible.builtin.debug:
+    msg: "Detected NVIDIA GPU at PCI address: {{ nvidia_pci_address }}"
+
+# =============================================================================
+# Step 6: Configure FastAPI-DLS licensing
+# =============================================================================
+- name: Ensure gridd.conf directory exists
+  ansible.builtin.file:
+    path: /etc/nvidia
+    state: directory
+    mode: '0755'
+
+- name: Configure FastAPI-DLS licensing server
+  ansible.builtin.template:
+    src: gridd.conf.j2
+    dest: /etc/nvidia/gridd.conf
+    mode: '0644'
+  when: dls_server_ip is defined
+
+- name: Warn if DLS server not configured
+  ansible.builtin.debug:
+    msg: |
+      WARNING: dls_server_ip is not defined.
+      vGPU licensing will not be configured.
+      Set dls_server_ip to the IP of your FastAPI-DLS server.
+  when: dls_server_ip is not defined
+
+# =============================================================================
+# Step 7: Setup systemd timer for driver updates (optional)
+# =============================================================================
+- name: Create systemd service for vGPU driver fetcher
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Fetch newest NVIDIA vGPU drivers
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/get-vgpu-drivers.py -d {{ vgpu_driver_dir }}
+      Environment=RCLONE_CONFIG=/root/.config/rclone/rclone.conf
+    dest: /etc/systemd/system/vgpu-driver-fetch.service
+    mode: '0644'
+
+- name: Create systemd timer for daily driver checks
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Run vGPU driver fetcher daily
+
+      [Timer]
+      OnCalendar=03:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+    dest: /etc/systemd/system/vgpu-driver-fetch.timer
+    mode: '0644'
+
+- name: Enable vGPU driver fetch timer
+  ansible.builtin.systemd:
+    name: vgpu-driver-fetch.timer
+    enabled: true
+    state: started
+    daemon_reload: true

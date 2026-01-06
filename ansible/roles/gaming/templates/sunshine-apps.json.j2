@@ -1,0 +1,35 @@
+{
+  "env": {
+    "PATH": "$(PATH):$(HOME)/.local/bin"
+  },
+  "apps": [
+    {
+      "name": "Desktop",
+      "image-path": "",
+      "cmd": "",
+      "auto-detach": true
+    },
+{% if steam_enabled | default(true) %}
+    {
+      "name": "Steam Big Picture",
+      "image-path": "/usr/share/icons/hicolor/256x256/apps/steam.png",
+      "cmd": "flatpak run com.valvesoftware.Steam -bigpicture",
+      "auto-detach": true
+    },
+{% endif %}
+{% if retroarch_enabled | default(false) %}
+    {
+      "name": "RetroArch",
+      "image-path": "/usr/share/icons/hicolor/256x256/apps/retroarch.png",
+      "cmd": "flatpak run org.libretro.RetroArch",
+      "auto-detach": true
+    },
+{% endif %}
+    {
+      "name": "Terminal",
+      "image-path": "",
+      "cmd": "xfce4-terminal",
+      "auto-detach": true
+    }
+  ]
+}

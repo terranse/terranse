@@ -1,0 +1,7 @@
+# LightDM auto-login configuration for gaming VM
+# Managed by Ansible
+
+[Seat:*]
+autologin-user={{ gaming_user }}
+autologin-user-timeout=0
+autologin-session=xfce

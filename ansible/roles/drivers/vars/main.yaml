@@ -1,0 +1,54 @@
+---
+# Default variables for drivers role
+
+# GPU type: nvidia_vgpu, intel_sriov, or none
+# This should be set when including the role
+# gpu_type: nvidia_vgpu
+
+# Directory to store downloaded vGPU drivers
+vgpu_driver_dir: /opt/nvidia-vgpu-drivers
+
+# FastAPI-DLS server IP (required for vGPU licensing)
+# dls_server_ip: 192.168.1.x
+
+# Intel SR-IOV settings
+intel_sriov_num_vfs: 7  # Number of Virtual Functions to create
+
+# RTX A5000 vGPU profile reference (24GB VRAM total)
+# These are the NVIDIA mdev type UUIDs for different profiles
+# Profile names follow NVIDIA naming: Q-{VRAM}C where VRAM is in GB
+vgpu_profiles:
+  # Gaming profiles (optimized for low latency)
+  Q-1C:
+    description: "1GB VRAM - Emulation, light games"
+    vram_mb: 1024
+    max_instances: 24
+    # mdev_type will be determined at runtime based on GPU model
+
+  Q-2C:
+    description: "2GB VRAM - Indie games"
+    vram_mb: 2048
+    max_instances: 12
+
+  Q-4C:
+    description: "4GB VRAM - AAA medium (default)"
+    vram_mb: 4096
+    max_instances: 6
+
+  Q-8C:
+    description: "8GB VRAM - AAA high"
+    vram_mb: 8192
+    max_instances: 3
+
+  Q-12C:
+    description: "12GB VRAM - AAA ultra"
+    vram_mb: 12288
+    max_instances: 2
+
+  Q-24C:
+    description: "24GB VRAM - Full GPU"
+    vram_mb: 24576
+    max_instances: 1
+
+# Default profile for gaming VMs
+default_vgpu_profile: Q-8C

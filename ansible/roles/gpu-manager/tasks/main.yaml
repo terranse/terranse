@@ -1,0 +1,143 @@
+---
+# GPU Manager Role
+#
+# Installs GPU allocation scripts on Proxmox host for managing
+# vGPU and SR-IOV resources with priority-based allocation.
+#
+# This role should be run on the Proxmox HOST, not inside VMs.
+
+- name: Create GPU manager directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /usr/local/bin
+    - /var/lib/gpu-manager
+    - /etc/gpu-manager
+
+- name: Copy GPU allocation script
+  ansible.builtin.copy:
+    src: gpu-allocate.sh
+    dest: /usr/local/bin/gpu-allocate.sh
+    mode: '0755'
+
+- name: Copy GPU status script
+  ansible.builtin.copy:
+    src: gpu-status.sh
+    dest: /usr/local/bin/gpu-status.sh
+    mode: '0755'
+
+- name: Copy GPU preempt script
+  ansible.builtin.copy:
+    src: gpu-preempt.sh
+    dest: /usr/local/bin/gpu-preempt.sh
+    mode: '0755'
+
+- name: Copy VM snapshot script
+  ansible.builtin.copy:
+    src: vm-snapshot.sh
+    dest: /usr/local/bin/vm-snapshot.sh
+    mode: '0755'
+
+- name: Deploy GPU profiles configuration
+  ansible.builtin.template:
+    src: gpu-profiles.conf.j2
+    dest: /etc/gpu-manager/gpu-profiles.conf
+    mode: '0644'
+
+- name: Deploy game profiles database
+  ansible.builtin.template:
+    src: game-profiles.json.j2
+    dest: /etc/gpu-manager/game-profiles.json
+    mode: '0644'
+
+- name: Initialize allocation state file
+  ansible.builtin.copy:
+    content: |
+      {
+        "allocations": {},
+        "last_updated": "{{ ansible_date_time.iso8601 }}"
+      }
+    dest: /var/lib/gpu-manager/allocations.json
+    mode: '0644'
+    force: false
+
+# =============================================================================
+# Session Watcher - VM lifecycle management based on Sunshine sessions
+# =============================================================================
+- name: Install inotify-tools for session watching
+  ansible.builtin.apt:
+    name: inotify-tools
+    state: present
+
+- name: Copy session watcher script
+  ansible.builtin.copy:
+    src: session-watcher.sh
+    dest: /usr/local/bin/session-watcher.sh
+    mode: '0755'
+
+- name: Deploy VM hostname to VMID mapping
+  ansible.builtin.template:
+    src: vm-map.json.j2
+    dest: /etc/gpu-manager/vm-map.json
+    mode: '0644'
+  when: gaming_vms is defined
+
+- name: Deploy session watcher service
+  ansible.builtin.template:
+    src: session-watcher.service.j2
+    dest: /etc/systemd/system/session-watcher.service
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart session watcher
+
+- name: Mount session state directory from NAS
+  ansible.posix.mount:
+    path: /mnt/gaming/session-state
+    src: "{{ nfs_server }}:/tank/gaming/session-state"
+    fstype: nfs
+    opts: "rw,noatime,nfsvers=4.2"
+    state: mounted
+  when: nfs_server is defined
+
+- name: Enable session watcher service
+  ansible.builtin.systemd:
+    name: session-watcher
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: enable_session_watcher | default(true)
+
+# =============================================================================
+# Optional: Simple HTTP API for external integrations
+# =============================================================================
+- name: Create simple HTTP API service (optional)
+  ansible.builtin.template:
+    src: gpu-manager-api.service.j2
+    dest: /etc/systemd/system/gpu-manager-api.service
+    mode: '0644'
+  notify: Reload systemd
+  when: enable_gpu_api | default(false)
+
+- name: Display GPU Manager setup info
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      GPU Manager Setup Complete!
+
+      Scripts installed:
+        gpu-allocate.sh request <vmid> [profile]
+        gpu-allocate.sh release <vmid>
+        gpu-status.sh
+        gpu-preempt.sh <vmid>
+        vm-snapshot.sh <vmid> <action>
+
+      Configuration:
+        /etc/gpu-manager/gpu-profiles.conf
+        /etc/gpu-manager/game-profiles.json
+
+      State:
+        /var/lib/gpu-manager/allocations.json
+      ========================================

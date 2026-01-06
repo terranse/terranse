@@ -1,0 +1,35 @@
+[Unit]
+Description=Gamescope Gaming Session (Wayland)
+Documentation=https://github.com/ValveSoftware/gamescope
+After=systemd-user-sessions.service
+After=dbus.service
+After=nvidia-persistenced.service
+Wants=dbus.service
+
+[Service]
+Type=simple
+User={{ gaming_user | default('gamer') }}
+PAMName=login
+TTYPath=/dev/tty7
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+# Ensure runtime directory exists
+ExecStartPre=/bin/mkdir -p /run/user/%U
+ExecStartPre=/bin/chown %U:%U /run/user/%U
+ExecStartPre=/bin/chmod 700 /run/user/%U
+
+# Gamescope session script
+ExecStart=/opt/gaming/gamescope-session.sh
+
+Restart=on-failure
+RestartSec=5
+
+# Resource limits for gaming
+LimitNOFILE=524288
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=graphical.target
+Alias=display-manager.service

@@ -1,0 +1,40 @@
+# Sway configuration for headless gaming
+# Creates a virtual display for Sunshine streaming
+#
+# Managed by Ansible - do not edit manually
+
+# Output configuration - create headless virtual display
+output HEADLESS-1 {
+    mode {{ virtual_display_width | default(1920) }}x{{ virtual_display_height | default(1080) }}@{{ virtual_display_refresh | default(60) }}Hz
+    position 0 0
+}
+
+# Disable hardware cursor (better for streaming)
+seat seat0 hide_cursor 5000
+
+# Start Sunshine when sway starts
+exec sunshine
+
+# Auto-start apps
+exec {
+{% if steam_enabled | default(true) %}
+    # Start Steam in Big Picture mode after a delay
+    sleep 5 && flatpak run com.valvesoftware.Steam -bigpicture
+{% endif %}
+}
+
+# Keybindings for gaming
+bindsym Mod4+Return exec xfce4-terminal
+bindsym Mod4+q kill
+bindsym Mod4+Shift+e exit
+
+# Gaming-focused settings
+focus_follows_mouse no
+mouse_warping none
+
+# No window decorations for fullscreen games
+default_border none
+default_floating_border none
+
+# Include any user customizations
+include ~/.config/sway/config.d/*

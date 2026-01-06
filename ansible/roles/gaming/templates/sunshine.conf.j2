@@ -1,0 +1,57 @@
+# Sunshine Configuration for Cloud Gaming (Wayland)
+# Managed by Ansible - do not edit manually
+
+# =============================================================================
+# Encoder settings
+# =============================================================================
+encoder = {{ 'nvenc' if gpu_type == 'nvidia_vgpu' else 'vaapi' }}
+hevc_mode = 1
+
+# =============================================================================
+# Capture settings - Wayland via KMS
+# =============================================================================
+# KMS capture provides direct DRM framebuffer access
+# Works with gamescope, cage, sway, and other wlroots compositors
+capture = kms
+
+# =============================================================================
+# Display settings
+# =============================================================================
+adapter_name = auto
+# Virtual display is created by the Wayland compositor (gamescope/cage/sway)
+# Resolution is set via compositor config, not here
+
+# =============================================================================
+# Audio settings - PipeWire (Wayland standard)
+# =============================================================================
+audio_sink = default
+
+# =============================================================================
+# Input settings
+# =============================================================================
+gamepad = true
+keyboard = true
+mouse = true
+
+# =============================================================================
+# Network settings
+# =============================================================================
+origin_web_ui_allowed = wan
+
+# =============================================================================
+# Logging
+# =============================================================================
+min_log_level = 2
+
+# =============================================================================
+# Headless mode
+# =============================================================================
+# Allows Sunshine to run without a physical display
+# The virtual display is created by the Wayland compositor
+headless = true
+
+# =============================================================================
+# Session hooks for GPU management
+# =============================================================================
+# These notify the GPU manager when sessions start/stop
+global_prep_cmd = [{"do": "/opt/sunshine/hooks/session-start.sh", "undo": "/opt/sunshine/hooks/session-stop.sh"}]

@@ -1,0 +1,92 @@
+{
+  "_comment": "Game profile database for adaptive GPU slice sizing. Managed by Ansible.",
+  "profiles": {
+    "steam:1245620": {
+      "name": "Elden Ring",
+      "recommended_profile": "Q-8C",
+      "minimum_profile": "Q-4C",
+      "platform": "linux_proton"
+    },
+    "steam:892970": {
+      "name": "Valheim",
+      "recommended_profile": "Q-4C",
+      "minimum_profile": "Q-2C",
+      "platform": "linux_native"
+    },
+    "steam:1174180": {
+      "name": "Red Dead Redemption 2",
+      "recommended_profile": "Q-12C",
+      "minimum_profile": "Q-8C",
+      "platform": "windows_only",
+      "notes": "Heavy game, benefits from more VRAM"
+    },
+    "steam:1091500": {
+      "name": "Cyberpunk 2077",
+      "recommended_profile": "Q-12C",
+      "minimum_profile": "Q-8C",
+      "platform": "linux_proton"
+    },
+    "steam:730": {
+      "name": "Counter-Strike 2",
+      "recommended_profile": "Q-4C",
+      "minimum_profile": "Q-2C",
+      "platform": "linux_native"
+    },
+    "steam:1085660": {
+      "name": "Destiny 2",
+      "recommended_profile": "Q-8C",
+      "minimum_profile": "Q-4C",
+      "platform": "windows_only",
+      "notes": "Anti-cheat requires Windows"
+    },
+    "steam:271590": {
+      "name": "Grand Theft Auto V",
+      "recommended_profile": "Q-8C",
+      "minimum_profile": "Q-4C",
+      "platform": "linux_proton"
+    },
+    "steam:582010": {
+      "name": "Monster Hunter: World",
+      "recommended_profile": "Q-8C",
+      "minimum_profile": "Q-4C",
+      "platform": "linux_proton"
+    },
+    "emulator:retroarch": {
+      "name": "RetroArch",
+      "recommended_profile": "Q-1C",
+      "minimum_profile": "intel_sriov",
+      "platform": "linux_native",
+      "notes": "Emulation works well with minimal GPU"
+    },
+    "emulator:dolphin": {
+      "name": "Dolphin (GameCube/Wii)",
+      "recommended_profile": "Q-2C",
+      "minimum_profile": "Q-1C",
+      "platform": "linux_native"
+    },
+    "emulator:rpcs3": {
+      "name": "RPCS3 (PS3)",
+      "recommended_profile": "Q-4C",
+      "minimum_profile": "Q-2C",
+      "platform": "linux_native",
+      "notes": "CPU intensive, moderate GPU"
+    },
+    "emulator:pcsx2": {
+      "name": "PCSX2 (PS2)",
+      "recommended_profile": "Q-2C",
+      "minimum_profile": "Q-1C",
+      "platform": "linux_native"
+    }
+  },
+  "defaults": {
+    "unknown_game": "Q-4C",
+    "emulation": "Q-1C",
+    "indie": "Q-2C",
+    "aaa": "Q-8C"
+  },
+  "platform_notes": {
+    "linux_native": "Runs natively on Linux",
+    "linux_proton": "Runs on Linux via Proton/Wine",
+    "windows_only": "Requires Windows VM (anti-cheat or no Proton support)"
+  }
+}

@@ -1,0 +1,23 @@
+[Unit]
+Description=Gaming Session Watcher - VM lifecycle management
+Documentation=https://github.com/your-repo/terranse
+After=network.target nfs-client.target
+Wants=nfs-client.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/session-watcher.sh
+Restart=always
+RestartSec=10
+
+# Environment
+Environment=SESSION_STATE_DIR={{ session_state_dir | default('/mnt/gaming/session-state') }}
+Environment=SUSPEND_GRACE_PERIOD={{ suspend_grace_period | default(300) }}
+Environment=VM_MAP_FILE=/etc/gpu-manager/vm-map.json
+
+# Logging
+StandardOutput=append:/var/log/session-watcher.log
+StandardError=append:/var/log/session-watcher.log
+
+[Install]
+WantedBy=multi-user.target

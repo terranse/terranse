@@ -1,0 +1,160 @@
+# Cloudbase-Init script for Windows Gaming VM
+# This runs on first boot to install NVIDIA drivers and configure streaming
+#
+# Managed by Ansible - do not edit manually
+
+$ErrorActionPreference = "Stop"
+$LogFile = "C:\Windows\Temp\gaming-setup.log"
+
+function Log {
+    param([string]$Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "$timestamp - $Message" | Tee-Object -FilePath $LogFile -Append
+}
+
+function Test-NvidiaDriver {
+    try {
+        $null = & nvidia-smi 2>&1
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
+}
+
+# Check if already configured
+$MarkerFile = "C:\Windows\Temp\gaming-setup-complete"
+if (Test-Path $MarkerFile) {
+    Log "Gaming setup already completed, skipping"
+    exit 0
+}
+
+Log "Starting Windows Gaming VM setup..."
+
+# =============================================================================
+# Mount NFS driver share
+# =============================================================================
+Log "Mounting NFS driver share..."
+
+# Enable NFS client feature
+$nfsFeature = Get-WindowsCapability -Online | Where-Object { $_.Name -like "*NFS*" }
+if ($nfsFeature.State -ne "Installed") {
+    Log "Installing NFS client..."
+    Add-WindowsCapability -Online -Name "Rsat.NFS.Tools~~~~0.0.1.0"
+}
+
+# Mount the driver share
+$nfsServer = "{{ nfs_server | default('nas.local') }}"
+$driverPath = "\\$nfsServer\tank\gaming\drivers\nvidia\windows"
+
+# Try to access NFS share
+$maxRetries = 10
+$retryCount = 0
+while (-not (Test-Path $driverPath) -and $retryCount -lt $maxRetries) {
+    Log "Waiting for NFS share ($retryCount/$maxRetries)..."
+    Start-Sleep -Seconds 5
+    $retryCount++
+}
+
+# =============================================================================
+# Install NVIDIA Driver
+# =============================================================================
+if (-not (Test-NvidiaDriver)) {
+    Log "NVIDIA driver not installed, searching for installer..."
+
+    $driverExe = Get-ChildItem -Path $driverPath -Filter "*grid*.exe" -ErrorAction SilentlyContinue |
+                 Sort-Object LastWriteTime -Descending |
+                 Select-Object -First 1
+
+    if ($driverExe) {
+        Log "Found driver: $($driverExe.FullName)"
+
+        # Copy to local temp to avoid NFS issues during install
+        $localDriver = "C:\Windows\Temp\nvidia-driver.exe"
+        Copy-Item $driverExe.FullName -Destination $localDriver -Force
+
+        Log "Installing NVIDIA driver (silent)..."
+        $process = Start-Process -FilePath $localDriver -ArgumentList "-s", "-noreboot" -Wait -PassThru
+
+        if ($process.ExitCode -eq 0) {
+            Log "NVIDIA driver installed successfully"
+            Remove-Item $localDriver -Force -ErrorAction SilentlyContinue
+        } else {
+            Log "ERROR: NVIDIA driver installation failed with exit code $($process.ExitCode)"
+        }
+    } else {
+        Log "WARNING: No NVIDIA driver found at $driverPath"
+    }
+} else {
+    Log "NVIDIA driver already installed"
+}
+
+# =============================================================================
+# Configure NVIDIA Licensing (FastAPI-DLS)
+# =============================================================================
+Log "Configuring NVIDIA licensing..."
+
+$gridConfPath = "C:\Program Files\NVIDIA Corporation\vGPU Licensing\ClientConfigToken"
+$dlsServer = "{{ dls_server_ip | default('dls.local') }}"
+
+# Create licensing directory if needed
+if (-not (Test-Path $gridConfPath)) {
+    New-Item -ItemType Directory -Path $gridConfPath -Force | Out-Null
+}
+
+# Note: For FastAPI-DLS, you typically need to download a client token
+# This is a placeholder - actual setup depends on your DLS configuration
+Log "Note: Configure licensing in NVIDIA Control Panel -> Manage License"
+Log "Server: $dlsServer"
+
+# =============================================================================
+# Configure Sunshine
+# =============================================================================
+Log "Configuring Sunshine..."
+
+$sunshineConfigPath = "$env:PROGRAMDATA\Sunshine\config"
+if (Test-Path "C:\Program Files\Sunshine") {
+    if (-not (Test-Path $sunshineConfigPath)) {
+        New-Item -ItemType Directory -Path $sunshineConfigPath -Force | Out-Null
+    }
+
+    # Create basic Sunshine config
+    @"
+# Sunshine Configuration
+origin_web_ui_allowed = wan
+encoder = nvenc
+capture = nvfbc
+"@ | Out-File -FilePath "$sunshineConfigPath\sunshine.conf" -Encoding UTF8
+
+    # Add Sunshine to startup
+    $startupFolder = [Environment]::GetFolderPath('CommonStartup')
+    $shortcutPath = "$startupFolder\Sunshine.lnk"
+    if (-not (Test-Path $shortcutPath)) {
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = "C:\Program Files\Sunshine\sunshine.exe"
+        $shortcut.Save()
+        Log "Sunshine startup shortcut created"
+    }
+}
+
+# =============================================================================
+# Configure Auto-Login for Gaming User
+# =============================================================================
+Log "Configuring auto-login for gamer user..."
+
+$regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+Set-ItemProperty -Path $regPath -Name "AutoAdminLogon" -Value "1"
+Set-ItemProperty -Path $regPath -Name "DefaultUserName" -Value "gamer"
+Set-ItemProperty -Path $regPath -Name "DefaultPassword" -Value "gamer"
+
+# =============================================================================
+# Finalize
+# =============================================================================
+Log "Gaming VM setup complete!"
+"Setup completed at $(Get-Date)" | Out-File -FilePath $MarkerFile
+
+# Check if reboot is needed for driver
+if (Test-Path "C:\Windows\Temp\nvidia-driver.exe.reboot") {
+    Log "Rebooting to complete driver installation..."
+    Restart-Computer -Force
+}

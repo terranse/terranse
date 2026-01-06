@@ -1,0 +1,141 @@
+#cloud-config
+# Cloud-init configuration for gaming VMs
+# This runs on first boot to:
+# 1. Install NVIDIA guest drivers from NFS
+# 2. Configure virtual display
+# 3. Set up auto-login for gaming user
+# 4. Start Sunshine
+
+# Managed by Ansible - do not edit manually
+
+packages:
+  - nfs-common
+  - xxd
+  - jq
+
+# Mount NFS shares before running scripts
+mounts:
+  - [ "{{ nfs_server }}:/tank/gaming/drivers", /mnt/drivers, nfs, "ro,noatime,nfsvers=4.2", "0", "0" ]
+  - [ "{{ nfs_server }}:/tank/gaming/session-state", /mnt/gaming/session-state, nfs, "rw,noatime,nfsvers=4.2", "0", "0" ]
+
+write_files:
+  # Driver installation script
+  - path: /opt/gaming/install-nvidia-driver.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Install NVIDIA vGPU guest driver from NFS
+      set -ex
+
+      DRIVER_DIR="/mnt/drivers/nvidia/linux"
+      LOG_FILE="/var/log/nvidia-driver-install.log"
+      MARKER_FILE="/var/lib/nvidia-driver-installed"
+
+      # Skip if already installed
+      if [[ -f "$MARKER_FILE" ]]; then
+          echo "NVIDIA driver already installed, skipping"
+          exit 0
+      fi
+
+      # Wait for NFS mount
+      for i in {1..30}; do
+          if mountpoint -q /mnt/drivers; then
+              break
+          fi
+          echo "Waiting for NFS mount..."
+          sleep 2
+      done
+
+      # Find the guest driver
+      DRIVER=$(find "$DRIVER_DIR" -name "NVIDIA-Linux-x86_64-*-grid*.run" -type f | head -1)
+
+      if [[ -z "$DRIVER" ]]; then
+          echo "ERROR: No NVIDIA driver found in $DRIVER_DIR" | tee -a "$LOG_FILE"
+          exit 1
+      fi
+
+      echo "Installing driver: $DRIVER" | tee -a "$LOG_FILE"
+
+      # Make executable and install
+      chmod +x "$DRIVER"
+      "$DRIVER" --dkms --silent --no-questions 2>&1 | tee -a "$LOG_FILE"
+
+      # Verify installation
+      if nvidia-smi &>/dev/null; then
+          echo "NVIDIA driver installed successfully" | tee -a "$LOG_FILE"
+          touch "$MARKER_FILE"
+      else
+          echo "ERROR: nvidia-smi failed after installation" | tee -a "$LOG_FILE"
+          exit 1
+      fi
+
+  # Virtual display setup script
+  - path: /opt/gaming/setup-virtual-display.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Configure virtual display for headless streaming
+      set -ex
+
+      # Create virtual EDID
+      mkdir -p /etc/X11
+
+      # Standard 1920x1080 EDID binary (base64 encoded)
+      echo "AP///////wAQrLrQTDZJMAwcAQSlPCJ4Ou6Vo1RMmSYPUFSlSwBxT4GApsDRwAEBAQEBAQFWXgCgoKApUDAgNQAPVyEAABoAAAD/AEZYV" \
+           "Fk4NzU4OTA2TAoAAAD8AERFTEwgVTI3MTVICiAAAAAP/QA4TB5aGQAKICAgICAgAR8=" | base64 -d > /etc/X11/edid-virtual.bin
+
+      # Check if xorg.conf exists and has virtual display config
+      if ! grep -q "Virtual Display" /etc/X11/xorg.conf 2>/dev/null; then
+          # Use nvidia-xconfig to generate base config, then customize
+          if command -v nvidia-xconfig &>/dev/null; then
+              nvidia-xconfig --allow-empty-initial-configuration
+          fi
+
+          # Apply our virtual display config
+          cp /etc/X11/xorg-virtual-display.conf /etc/X11/xorg.conf
+      fi
+
+      echo "Virtual display configured"
+
+  # Configure licensing
+  - path: /etc/nvidia/gridd.conf
+    permissions: '0644'
+    content: |
+      # NVIDIA vGPU licensing configuration
+      # Using FastAPI-DLS self-hosted license server
+      ServerAddress={{ dls_server_ip | default('dls.local') }}
+      ServerPort=443
+      FeatureType=1
+      EnableUI=FALSE
+
+runcmd:
+  # Install NVIDIA driver
+  - /opt/gaming/install-nvidia-driver.sh
+
+  # Setup virtual display
+  - /opt/gaming/setup-virtual-display.sh
+
+  # Configure auto-login for gaming user
+  - |
+    mkdir -p /etc/lightdm/lightdm.conf.d
+    cat > /etc/lightdm/lightdm.conf.d/50-autologin.conf << EOF
+    [Seat:*]
+    autologin-user={{ gaming_user | default('gamer') }}
+    autologin-user-timeout=0
+    EOF
+
+  # Enable and start Sunshine after display is ready
+  - systemctl enable sunshine
+  - systemctl restart display-manager || true
+
+  # Reboot if this is first boot with new driver
+  - |
+    if [[ -f /var/run/reboot-required ]]; then
+        echo "Rebooting to load NVIDIA driver..."
+        reboot
+    fi
+
+final_message: |
+  Gaming VM setup complete!
+  NVIDIA driver: $( nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null || echo 'not installed' )
+  Connect via Moonlight to start gaming.

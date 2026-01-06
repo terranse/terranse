@@ -1,0 +1,49 @@
+---
+# Boot Snapshot Hooks
+#
+# Creates ZFS snapshots after clean boot for instant VM restoration
+
+- name: Create snapshot hook script
+  ansible.builtin.template:
+    src: snapshot-hook.sh.j2
+    dest: /usr/local/bin/gaming-snapshot-hook
+    mode: '0755'
+
+- name: Create boot snapshot systemd service
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Create clean boot snapshot for gaming VM
+      After=multi-user.target display-manager.service sunshine.service
+      Wants=sunshine.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/gaming-snapshot-hook create-boot
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/gaming-boot-snapshot.service
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Enable boot snapshot service
+  ansible.builtin.systemd:
+    name: gaming-boot-snapshot
+    enabled: true
+    daemon_reload: true
+
+- name: Display snapshot info
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Snapshot Hooks Configured!
+
+      The VM will notify the GPU manager when ready.
+      A ZFS snapshot can be created after clean boot.
+
+      Manual snapshot commands (run on Proxmox host):
+        zfs snapshot games/vms/{{ inventory_hostname_short }}@clean-boot
+        zfs rollback games/vms/{{ inventory_hostname_short }}@clean-boot
+      ========================================

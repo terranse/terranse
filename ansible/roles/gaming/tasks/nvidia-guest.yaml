@@ -1,0 +1,105 @@
+---
+# NVIDIA vGPU Guest Driver Installation
+#
+# Installs the NVIDIA vGPU guest driver inside the VM
+# and configures it to use FastAPI-DLS for licensing
+
+- name: Check if NVIDIA driver is already installed
+  ansible.builtin.command: nvidia-smi
+  register: nvidia_check
+  changed_when: false
+  failed_when: false
+
+- name: Install NVIDIA driver prerequisites
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - dkms
+      - "linux-headers-{{ ansible_kernel }}"
+    state: present
+  when: nvidia_check.rc != 0
+
+# =============================================================================
+# Mount drivers NFS share and find guest driver
+# =============================================================================
+- name: Create drivers mount point
+  ansible.builtin.file:
+    path: /mnt/drivers
+    state: directory
+    mode: '0755'
+
+- name: Mount drivers NFS share
+  ansible.posix.mount:
+    path: /mnt/drivers
+    src: "{{ nfs_server }}:/tank/gaming/drivers"
+    fstype: nfs
+    opts: "ro,noatime,nfsvers=4.2"
+    state: mounted
+  when: nfs_server is defined
+
+- name: Check for NVIDIA guest driver on NFS mount
+  ansible.builtin.find:
+    paths: /mnt/drivers/nvidia/linux
+    patterns: "NVIDIA-Linux-x86_64-*-grid*.run"
+    recurse: false
+  register: nfs_driver
+  when: nvidia_check.rc != 0
+
+- name: Download NVIDIA guest driver if not on NFS
+  ansible.builtin.get_url:
+    url: "{{ nvidia_guest_driver_url }}"
+    dest: /tmp/nvidia-driver.run
+    mode: '0755'
+  when:
+    - nvidia_check.rc != 0
+    - nfs_driver.matched | default(0) == 0
+    - nvidia_guest_driver_url is defined
+
+- name: Set driver path fact
+  ansible.builtin.set_fact:
+    nvidia_driver_path: "{{ nfs_driver.files[0].path if (nfs_driver.matched | default(0)) > 0 else '/tmp/nvidia-driver.run' }}"
+  when: nvidia_check.rc != 0
+
+- name: Install NVIDIA guest driver
+  ansible.builtin.command:
+    cmd: "{{ nvidia_driver_path }} --dkms --silent"
+  when:
+    - nvidia_check.rc != 0
+    - nvidia_driver_path is defined
+  notify: Reboot for NVIDIA driver
+
+# Configure licensing
+- name: Ensure NVIDIA config directory exists
+  ansible.builtin.file:
+    path: /etc/nvidia
+    state: directory
+    mode: '0755'
+
+- name: Configure FastAPI-DLS licensing
+  ansible.builtin.template:
+    src: gridd-guest.conf.j2
+    dest: /etc/nvidia/gridd.conf
+    mode: '0644'
+  when: dls_server_ip is defined
+  notify: Restart nvidia-gridd
+
+- name: Enable nvidia-persistenced
+  ansible.builtin.systemd:
+    name: nvidia-persistenced
+    enabled: true
+    state: started
+  failed_when: false
+
+- name: Verify NVIDIA driver installation
+  ansible.builtin.command: nvidia-smi
+  register: nvidia_verify
+  changed_when: false
+  failed_when: false
+
+- name: Display NVIDIA driver status
+  ansible.builtin.debug:
+    msg: |
+      NVIDIA Driver Status:
+      {{ nvidia_verify.stdout | default('Not installed or not loaded') }}
+
+      Virtual display will be created by Wayland compositor ({{ wayland_compositor | default('gamescope') }})

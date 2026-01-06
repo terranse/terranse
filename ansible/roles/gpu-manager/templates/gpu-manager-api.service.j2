@@ -1,0 +1,75 @@
+[Unit]
+Description=GPU Manager Simple HTTP API
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -c '
+import http.server
+import socketserver
+import subprocess
+import json
+
+PORT = 8080
+
+class GPUHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/gpu/status":
+            result = subprocess.run(["/usr/local/bin/gpu-status.sh"],
+                                  capture_output=True, text=True)
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(result.stdout.encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        if self.path.startswith("/gpu/request"):
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode()
+            data = json.loads(body) if body else {}
+            vmid = data.get("vm_id", "")
+            profile = data.get("profile", "Q-8C")
+            result = subprocess.run(
+                ["/usr/local/bin/gpu-allocate.sh", "request", str(vmid), profile],
+                capture_output=True, text=True
+            )
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(result.stdout.encode())
+        elif self.path.startswith("/vm/") and "/ready" in self.path:
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(b"{\"status\": \"acknowledged\"}")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_DELETE(self):
+        if self.path.startswith("/gpu/release/"):
+            vmid = self.path.split("/")[-1]
+            result = subprocess.run(
+                ["/usr/local/bin/gpu-allocate.sh", "release", vmid],
+                capture_output=True, text=True
+            )
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(result.stdout.encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+with socketserver.TCPServer(("", PORT), GPUHandler) as httpd:
+    print(f"GPU Manager API serving on port {PORT}")
+    httpd.serve_forever()
+'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

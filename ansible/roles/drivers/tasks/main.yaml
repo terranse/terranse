@@ -1,0 +1,26 @@
+---
+# Drivers role - GPU driver setup for Proxmox hosts
+#
+# Variables:
+#   gpu_type: "nvidia_vgpu" | "intel_sriov" | "none"
+#   dls_server_ip: IP of FastAPI-DLS server (for vGPU licensing)
+
+- name: Validate gpu_type variable
+  ansible.builtin.assert:
+    that:
+      - gpu_type is defined
+      - gpu_type in ['nvidia_vgpu', 'intel_sriov', 'none']
+    fail_msg: "gpu_type must be one of: nvidia_vgpu, intel_sriov, none"
+
+- name: Include NVIDIA vGPU host driver setup
+  ansible.builtin.include_tasks: nvidia-host.yaml
+  when: gpu_type == "nvidia_vgpu"
+
+- name: Include Intel SR-IOV setup
+  ansible.builtin.include_tasks: intel-sriov.yaml
+  when: gpu_type == "intel_sriov"
+
+- name: Skip GPU setup
+  ansible.builtin.debug:
+    msg: "gpu_type is 'none', skipping GPU driver setup"
+  when: gpu_type == "none"

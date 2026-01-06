@@ -1,0 +1,193 @@
+---
+# Gaming Storage Setup Role
+#
+# Creates ZFS datasets and NFS exports for gaming infrastructure.
+# Run this on the NAS to set up shared game storage.
+#
+# Creates:
+#   - tank/gaming/emulation/roms (read-only master ROMs)
+#   - tank/gaming/emulation/users (per-user saves with ZFS clones)
+#   - tank/gaming/cloud-saves (Steam/GOG cloud save backup)
+#   - tank/gaming/sunshine-credentials (shared Moonlight pairing)
+#
+# Variables:
+#   gaming_zfs_pool: ZFS pool name (default: tank)
+#   gaming_network: Network CIDR for NFS exports (default: 192.168.1.0/24)
+
+- name: Set default variables
+  ansible.builtin.set_fact:
+    gaming_zfs_pool: "{{ gaming_zfs_pool | default('tank') }}"
+    gaming_network: "{{ gaming_network | default('192.168.1.0/24') }}"
+    gaming_base_path: "{{ gaming_zfs_pool }}/gaming"
+
+- name: Install NFS server
+  ansible.builtin.apt:
+    name:
+      - nfs-kernel-server
+      - nfs-common
+    state: present
+    update_cache: true
+
+# =============================================================================
+# Create ZFS Datasets
+# =============================================================================
+- name: Create base gaming dataset
+  community.general.zfs:
+    name: "{{ gaming_base_path }}"
+    state: present
+    extra_zfs_properties:
+      compression: lz4
+      atime: off
+
+- name: Create emulation datasets
+  community.general.zfs:
+    name: "{{ item }}"
+    state: present
+    extra_zfs_properties:
+      compression: lz4
+      atime: off
+  loop:
+    - "{{ gaming_base_path }}/emulation"
+    - "{{ gaming_base_path }}/emulation/roms"
+    - "{{ gaming_base_path }}/emulation/users"
+
+- name: Create cloud saves dataset
+  community.general.zfs:
+    name: "{{ gaming_base_path }}/cloud-saves"
+    state: present
+    extra_zfs_properties:
+      compression: lz4
+      atime: off
+
+- name: Create Sunshine credentials dataset
+  community.general.zfs:
+    name: "{{ gaming_base_path }}/sunshine-credentials"
+    state: present
+    extra_zfs_properties:
+      compression: lz4
+      atime: off
+
+- name: Create session state dataset for Sunshine hooks
+  community.general.zfs:
+    name: "{{ gaming_base_path }}/session-state"
+    state: present
+    extra_zfs_properties:
+      compression: lz4
+      sync: disabled  # Performance - session state is transient
+
+- name: Create GPU drivers dataset
+  community.general.zfs:
+    name: "{{ gaming_base_path }}/drivers"
+    state: present
+    extra_zfs_properties:
+      compression: lz4
+
+- name: Create games storage datasets
+  community.general.zfs:
+    name: "{{ item }}"
+    state: present
+    extra_zfs_properties:
+      compression: lz4
+      atime: off
+      recordsize: 1M  # Larger recordsize for game files
+  loop:
+    - "{{ gaming_base_path }}/games"
+    - "{{ gaming_base_path }}/games/steam"
+    - "{{ gaming_base_path }}/games/gog"
+
+# =============================================================================
+# Set Permissions
+# =============================================================================
+- name: Get ZFS mount points
+  ansible.builtin.command: zfs get -H -o value mountpoint {{ gaming_base_path }}
+  register: gaming_mountpoint
+  changed_when: false
+
+- name: Set base path fact
+  ansible.builtin.set_fact:
+    gaming_mount: "{{ gaming_mountpoint.stdout }}"
+
+- name: Set directory permissions
+  ansible.builtin.file:
+    path: "{{ gaming_mount }}/{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('nobody') }}"
+    group: "{{ item.group | default('nogroup') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "emulation/roms", mode: "0755" }
+    - { path: "emulation/users", mode: "0777" }  # Users create their own subdirs
+    - { path: "cloud-saves", mode: "0777" }
+    - { path: "sunshine-credentials", mode: "0755" }
+    - { path: "session-state", mode: "0777" }  # VMs write session state here
+    - { path: "drivers", mode: "0755" }  # GPU guest drivers (synced from host)
+    - { path: "drivers/nvidia", mode: "0755" }
+    - { path: "drivers/nvidia/linux", mode: "0755" }
+    - { path: "drivers/nvidia/windows", mode: "0755" }
+    - { path: "games/steam", mode: "0777" }
+    - { path: "games/gog", mode: "0777" }
+
+# =============================================================================
+# Configure NFS Exports
+# =============================================================================
+- name: Configure NFS exports for gaming
+  ansible.builtin.template:
+    src: exports.j2
+    dest: /etc/exports.d/gaming.exports
+    mode: '0644'
+  notify: Reload NFS exports
+
+- name: Ensure exports.d is included
+  ansible.builtin.lineinfile:
+    path: /etc/exports
+    line: "# Include exports.d directory"
+    state: present
+
+# =============================================================================
+# Create ZFS Clone Helper Script
+# =============================================================================
+- name: Deploy ZFS clone helper script
+  ansible.builtin.template:
+    src: zfs-game-clone.sh.j2
+    dest: /usr/local/bin/zfs-game-clone.sh
+    mode: '0755'
+
+- name: Deploy user game management script
+  ansible.builtin.template:
+    src: manage-user-games.sh.j2
+    dest: /usr/local/bin/manage-user-games.sh
+    mode: '0755'
+
+# =============================================================================
+# Enable and Start NFS
+# =============================================================================
+- name: Enable NFS server
+  ansible.builtin.systemd:
+    name: nfs-kernel-server
+    enabled: true
+    state: started
+
+- name: Display setup summary
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Gaming Storage Setup Complete!
+
+      ZFS Datasets:
+        {{ gaming_base_path }}/emulation/roms     - Master ROMs (read-only export)
+        {{ gaming_base_path }}/emulation/users    - Per-user saves (ZFS clones)
+        {{ gaming_base_path }}/games/steam        - Shared Steam library
+        {{ gaming_base_path }}/games/gog          - Shared GOG library
+        {{ gaming_base_path }}/cloud-saves        - Cloud save backup
+        {{ gaming_base_path }}/sunshine-credentials - Shared Moonlight creds
+
+      NFS Exports:
+        /etc/exports.d/gaming.exports
+
+      Helper Scripts:
+        /usr/local/bin/zfs-game-clone.sh      - Create per-user game clones
+        /usr/local/bin/manage-user-games.sh   - Manage user game directories
+
+      Mount from gaming VMs:
+        mount -t nfs {{ ansible_default_ipv4.address }}:{{ gaming_mount }}/games /mnt/games
+      ========================================

@@ -1,0 +1,186 @@
+---
+# Wayland Virtual Display Setup
+#
+# Configures a Wayland compositor for headless gaming streaming.
+# Options: gamescope (recommended), cage, or sway
+#
+# Variables:
+#   wayland_compositor: gamescope|cage|sway (default: gamescope)
+#   virtual_display_width: Display width (default: 1920)
+#   virtual_display_height: Display height (default: 1080)
+#   virtual_display_refresh: Refresh rate (default: 60)
+
+- name: Set Wayland compositor default
+  ansible.builtin.set_fact:
+    wayland_compositor: "{{ wayland_compositor | default('gamescope') }}"
+
+# =============================================================================
+# Create required directories
+# =============================================================================
+- name: Create /opt/gaming directory
+  ansible.builtin.file:
+    path: /opt/gaming
+    state: directory
+    mode: '0755'
+
+# =============================================================================
+# Install Wayland components
+# =============================================================================
+- name: Install common Wayland packages
+  ansible.builtin.apt:
+    name:
+      - pipewire
+      - pipewire-pulse
+      - wireplumber
+      - libdrm2
+      - libegl1
+      - libgbm1
+      - xwayland  # For X11 game compatibility
+    state: present
+
+# Gamescope - Valve's gaming compositor (recommended)
+- name: Install gamescope
+  when: wayland_compositor == 'gamescope'
+  block:
+    - name: Check if gamescope is available in repos
+      ansible.builtin.command: apt-cache show gamescope
+      register: gamescope_available
+      changed_when: false
+      failed_when: false
+
+    - name: Install gamescope from repos
+      ansible.builtin.apt:
+        name: gamescope
+        state: present
+      when: gamescope_available.rc == 0
+
+    - name: Install gamescope from Flatpak (fallback)
+      community.general.flatpak:
+        name: org.freedesktop.Platform.VulkanLayer.gamescope
+        state: present
+      when: gamescope_available.rc != 0
+      failed_when: false
+
+    - name: Deploy gamescope session script
+      ansible.builtin.template:
+        src: gamescope-session.sh.j2
+        dest: /opt/gaming/gamescope-session.sh
+        mode: '0755'
+
+    - name: Deploy gamescope systemd service
+      ansible.builtin.template:
+        src: gamescope-gaming.service.j2
+        dest: /etc/systemd/system/gamescope-gaming.service
+        mode: '0644'
+      notify: Reload systemd
+
+# Cage - Minimal kiosk compositor
+- name: Install cage compositor
+  when: wayland_compositor == 'cage'
+  block:
+    - name: Install cage
+      ansible.builtin.apt:
+        name: cage
+        state: present
+
+    - name: Deploy cage systemd service
+      ansible.builtin.template:
+        src: cage-gaming.service.j2
+        dest: /etc/systemd/system/cage-gaming.service
+        mode: '0644'
+      notify: Reload systemd
+
+# Sway - Full-featured tiling compositor
+- name: Install sway compositor
+  when: wayland_compositor == 'sway'
+  block:
+    - name: Install sway and tools
+      ansible.builtin.apt:
+        name:
+          - sway
+          - swaybg
+          - swayidle
+          - wlr-randr
+          - foot  # Terminal
+        state: present
+
+    - name: Create sway config directory
+      ansible.builtin.file:
+        path: "/home/{{ gaming_user }}/.config/sway"
+        state: directory
+        owner: "{{ gaming_user }}"
+        group: "{{ gaming_user }}"
+        mode: '0755'
+
+    - name: Deploy sway configuration
+      ansible.builtin.template:
+        src: sway-headless.conf.j2
+        dest: "/home/{{ gaming_user }}/.config/sway/config"
+        owner: "{{ gaming_user }}"
+        group: "{{ gaming_user }}"
+        mode: '0644'
+
+# =============================================================================
+# Configure display manager to use Wayland session
+# =============================================================================
+- name: Create gaming Wayland session desktop entry
+  ansible.builtin.copy:
+    content: |
+      [Desktop Entry]
+      Name=Gaming Session ({{ wayland_compositor | title }})
+      Comment=Wayland gaming session with Sunshine streaming
+      Exec=/opt/gaming/{{ wayland_compositor }}-session.sh
+      Type=Application
+      DesktopNames={{ wayland_compositor | upper }}
+    dest: /usr/share/wayland-sessions/gaming-{{ wayland_compositor }}.desktop
+    mode: '0644'
+
+- name: Configure auto-login to Wayland session
+  ansible.builtin.copy:
+    content: |
+      [Seat:*]
+      autologin-user={{ gaming_user }}
+      autologin-session=gaming-{{ wayland_compositor }}
+    dest: /etc/lightdm/lightdm.conf.d/50-gaming-wayland.conf
+    mode: '0644'
+  when: ansible_facts.services['lightdm.service'] is defined
+
+# GDM configuration for GNOME-based systems
+- name: Configure GDM for Wayland (if present)
+  ansible.builtin.lineinfile:
+    path: /etc/gdm3/custom.conf
+    regexp: '^#?WaylandEnable='
+    line: 'WaylandEnable=true'
+  when: ansible_facts.services['gdm.service'] is defined
+  failed_when: false
+
+# =============================================================================
+# Enable and start the gaming session
+# =============================================================================
+- name: Enable gaming Wayland service
+  ansible.builtin.systemd:
+    name: "{{ wayland_compositor }}-gaming"
+    enabled: true
+    daemon_reload: true
+  when: wayland_compositor in ['gamescope', 'cage']
+
+- name: Display Wayland setup info
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Wayland Gaming Session Configured!
+
+      Compositor: {{ wayland_compositor }}
+      Resolution: {{ virtual_display_width | default(1920) }}x{{ virtual_display_height | default(1080) }}@{{ virtual_display_refresh | default(60) }}Hz
+
+      The compositor creates a virtual display automatically.
+      Sunshine captures via KMS for low-latency streaming.
+
+      To change resolution dynamically:
+      {% if wayland_compositor == 'gamescope' %}
+        Reconnect with different resolution in Moonlight
+        (gamescope can rescale on the fly)
+      {% elif wayland_compositor == 'sway' %}
+        wlr-randr --output HEADLESS-1 --mode 2560x1440
+      {% endif %}
+      ========================================

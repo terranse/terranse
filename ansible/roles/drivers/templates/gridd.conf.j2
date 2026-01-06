@@ -1,0 +1,32 @@
+# NVIDIA vGPU Licensing Configuration
+# Managed by Ansible - do not edit manually
+#
+# This configuration points to FastAPI-DLS for vGPU licensing
+# See: https://github.com/oscar-cluster/oscar/blob/master/packages/nvidia-vgpu/files/gridd.conf
+
+# Enable vGPU licensing
+FeatureType=1
+
+# FastAPI-DLS server configuration
+ServerAddress={{ dls_server_ip }}
+ServerPort=443
+EnableMultiServer=false
+
+# License server type (1 = DLS, 2 = traditional)
+LicenseServerType=1
+
+# Client configuration
+ClientConfigTokenPath=/etc/nvidia/ClientConfigToken
+
+# Backup license server (optional)
+# BackupServerAddress=
+# BackupServerPort=443
+
+# Logging (0=disabled, 1=enabled)
+EnableLog=1
+LogFilePath=/var/log/nvidia/gridd.log
+LogLevel=3
+
+# Heartbeat and lease configuration
+LicenseInterval=600
+BackupInterval=3600
