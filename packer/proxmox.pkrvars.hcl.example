@@ -1,0 +1,4 @@
+proxmox_url      = "https://192.168.40.2:8006/api2/json"
+proxmox_username = "root@pam!packer"
+proxmox_token    = "your-token-here"
+proxmox_node     = "jupiter"
