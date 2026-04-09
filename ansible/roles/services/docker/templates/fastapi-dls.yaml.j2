@@ -1,0 +1,19 @@
+services:
+  fastapi-dls:
+    image: collinwebdesigns/fastapi-dls:latest
+    container_name: fastapi-dls
+    restart: always
+    environment:
+      - TZ=Europe/Stockholm
+      - DLS_URL=192.168.0.108
+      - DLS_PORT=443
+      - LEASE_EXPIRE_DAYS=90
+    ports:
+      - "443:443"
+    volumes:
+      - /opt/docker/fastapi-dls/cert:/app/cert
+      - dls-db:/app/database
+
+volumes:
+  dls-db:
+    external: true
