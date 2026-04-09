@@ -1,0 +1,207 @@
+---
+
+- name: Pre-deployment tasks for nextcloud
+  when: task_phase == "pre"
+  vars:
+    additional_tasks_pre: true
+  block:
+    - name: Deploy fix for redis-file
+      copy:
+        src: redis-session.ini
+        dest: "{{ service_mounts.configs }}/nextcloud/redis-session.ini"
+        owner: "{{ docker_user }}"
+        group: "{{ docker_group }}"
+        mode: '0644'
+
+- name: Post-deployment tasks for nextcloud
+  when: task_phase == "post"
+  vars:
+    additional_tasks_post: true
+    nextcloud_container_name: nextcloud
+    nextcloud_family_user: Family
+    # Use OnePassword lookup instead of random generation
+    nextcloud_family_password: "{{ lookup('community.general.onepassword', 'Nextcloud Family Account', field='password', vault='Personal') }}"
+    nextcloud_data_path: "{{ service_mounts.configs }}/nextcloud/data/Family/files"
+    # User that has access to /storage/* and docker
+    service_user: "{{ docker_user }}"
+    # Rate limiting: wait X seconds after changes before scanning
+    trigger_delay_seconds: 5
+    trigger_burst: 1
+    # Watch subdirectories at this level under these top-level folders
+    watched_top_folders:
+      - Bilder
+      - Videor
+      - Dokument
+    # Subdirectory depth to watch (1 = immediate children, 2 = grandchildren, etc.)
+    watch_depth: 1
+    inotify_max_watches: 1048576
+  handlers:
+    - name: reload_user_systemd
+      become_user: "{{ service_user }}"
+      systemd:
+        daemon_reload: true
+        scope: user
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ lookup('pipe', 'id -u ' + service_user) }}"
+  block:
+    - name: Increase inotify watch limits
+      sysctl:
+        name: fs.inotify.max_user_watches
+        value: "{{ inotify_max_watches }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-nextcloud-inotify.conf
+        reload: true
+
+    - name: Ensure Nextcloud data directory exists
+      file:
+        path: "{{ nextcloud_data_path }}"
+        state: directory
+        owner: 1000
+        group: 1000
+        mode: '0755'
+
+    - name: Ensure top-level folders exist
+      file:
+        path: "{{ nextcloud_data_path }}/{{ item }}"
+        state: directory
+        owner: 1000
+        group: 1000
+        mode: '0755'
+      loop: "{{ watched_top_folders }}"
+
+    - name: Check if Family user already exists
+      shell: |
+        set -o pipefail
+        docker exec -u www-data {{ nextcloud_container_name }} \
+          php occ user:list | grep -q "{{ nextcloud_family_user }}"
+      args:
+        executable: /bin/bash
+      register: family_user_check
+      failed_when: false
+      changed_when: false
+
+    - name: Create Family user in Nextcloud
+      shell: |
+        set -o pipefail
+        docker exec -u www-data {{ nextcloud_container_name }} \
+          php occ user:add --password-from-env {{ nextcloud_family_user }}
+      args:
+        executable: /bin/bash
+      environment:
+        OC_PASS: "{{ nextcloud_family_password }}"
+      when: family_user_check.rc != 0
+      register: family_user_created
+      changed_when: family_user_created.rc == 0
+
+    - name: Set Family user display name
+      shell: |
+        set -o pipefail
+        docker exec -u www-data {{ nextcloud_container_name }} \
+          php occ user:setting {{ nextcloud_family_user }} settings displayname "Family Shared"
+      args:
+        executable: /bin/bash
+      when: family_user_created.changed
+      changed_when: true
+
+    - name: Perform initial scan of Family directory
+      shell: |
+        set -o pipefail
+        docker exec -u www-data {{ nextcloud_container_name }} \
+          php occ files:scan {{ nextcloud_family_user }}
+      args:
+        executable: /bin/bash
+      when: family_user_created.changed
+      changed_when: true
+      async: 600
+      poll: 0
+
+    - name: Discover subdirectories to watch
+      shell: |
+        set -o pipefail
+        find "{{ nextcloud_data_path }}/{{ item }}" -mindepth {{ watch_depth }} -maxdepth {{ watch_depth }} -type d -printf '%P\n'
+      args:
+        executable: /bin/bash
+      register: discovered_subdirs
+      loop: "{{ watched_top_folders }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Combine all subdirectories into flat list
+      set_fact:
+        all_watch_paths: "{{ discovered_subdirs.results | selectattr('stdout_lines', 'defined') | map(attribute='stdout_lines') | flatten }}"
+
+    - name: Ensure systemd user directory exists
+      file:
+        path: "/home/{{ service_user }}/.config/systemd/user"
+        state: directory
+        owner: "{{ service_user }}"
+        group: "{{ service_user }}"
+        mode: '0755'
+
+    - name: Create systemd service units for each subdirectory
+      template:
+        dest: "/home/{{ service_user }}/.config/systemd/user/nextcloud-scan-{{ item | replace('/', '-') }}.service"
+        owner: "{{ service_user }}"
+        group: "{{ service_user }}"
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Nextcloud Scan for {{ nextcloud_family_user }}/{{ item }}
+          After=docker.service
+          Requires=docker.service
+
+          [Service]
+          Type=oneshot
+          # Scan only the specific subdirectory
+          ExecStart=/usr/bin/docker exec -u www-data {{ nextcloud_container_name }} php occ files:scan {{ nextcloud_family_user }} --path="/files/{{ item }}"
+
+          # Logging
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=nextcloud-scan-{{ item | replace('/', '-') }}
+
+          # Prevent multiple simultaneous scans of the same path
+          RemainAfterExit=no
+
+          # Timeout after 30 minutes for very large scans
+          TimeoutStartSec=1800
+      loop: "{{ all_watch_paths }}"
+      notify: reload_user_systemd
+
+    - name: Create systemd path units for each subdirectory
+      template:
+        dest: "/home/{{ service_user }}/.config/systemd/user/nextcloud-scan-{{ item | replace('/', '-') }}.path"
+        owner: "{{ service_user }}"
+        group: "{{ service_user }}"
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Watch {{ nextcloud_family_user }}/{{ item }}
+          After=docker.service
+
+          [Path]
+          # Watch this specific subdirectory
+          PathModified={{ nextcloud_data_path }}/{{ item }}
+
+          # Rate limiting to handle batch operations
+          TriggerLimitIntervalSec={{ trigger_delay_seconds }}
+          TriggerLimitBurst={{ trigger_burst }}
+
+          [Install]
+          WantedBy=default.target
+      loop: "{{ all_watch_paths }}"
+      notify: reload_user_systemd
+
+    - name: Flush handlers to reload user systemd
+      meta: flush_handlers
+
+    - name: Enable and start path watchers for each subdirectory
+      systemd:
+        name: "nextcloud-scan-{{ item | replace('/', '-') }}.path"
+        enabled: true
+        state: started
+        scope: user
+        daemon_reload: true
+      loop: "{{ all_watch_paths }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ lookup('pipe', 'id -u ' + service_user) }}"

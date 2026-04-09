@@ -1,0 +1,32 @@
+---
+
+- name: Post-deployment tasks for gitlab-runner
+  when: task_phase == "post"
+  vars:
+    additional_tasks_post: true
+    gitlab_url: "{{ lookup('community.general.onepassword', 'GitLab Runner', vault='HomeNetwork', field='url') }}"
+    runner_token: "{{ lookup('community.general.onepassword', 'GitLab Runner', vault='HomeNetwork', field='token') }}"
+  block:
+    - name: Check if runner is already registered
+      shell: |
+        set -o pipefail
+        docker exec gitlab-runner gitlab-runner list 2>&1 | grep -q 'workstation-runner'
+      args:
+        executable: /bin/bash
+      register: runner_registered
+      failed_when: false
+      changed_when: false
+
+    - name: Register gitlab-runner
+      shell: |
+        set -o pipefail
+        docker exec gitlab-runner gitlab-runner register \
+          --non-interactive \
+          --url "{{ gitlab_url }}" \
+          --token "{{ runner_token }}" \
+          --executor shell \
+          --description "workstation-runner"
+      args:
+        executable: /bin/bash
+      when: runner_registered.rc != 0
+      changed_when: true

@@ -1,0 +1,13 @@
+---
+# Jobs run via shell executor inside this container — no Docker socket is mounted.
+# The LXC is unprivileged on Proxmox (user namespace remapping), so even a full
+# LXC escape only lands an attacker as an unprivileged user on the workstation.
+services:
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    restart: always
+    volumes:
+      - runner-config:/etc/gitlab-runner
+
+volumes:
+  runner-config:

@@ -1,0 +1,115 @@
+# Service test definitions
+# Each service defines its containers, ports, and health checks
+# This allows dynamic testing of any service configuration
+
+service_tests:
+  jellyfin:
+    containers:
+      - jellyfin
+      - jellyseerr
+    health_checks:
+      - name: jellyfin
+        port: 8096
+        path: /
+        expected_status: [200, 302, 401]
+      - name: jellyseerr
+        port: 5055
+        path: /
+        expected_status: [200, 302]
+
+  authentik:
+    containers:
+      - postgresql
+      - redis
+      - server
+      - worker
+    health_checks:
+      - name: authentik
+        port: 9000
+        path: /-/health/live/
+        expected_status: [200, 204]
+    # Secrets provided via variables (not 1password)
+    required_vars:
+      - AUTHENTIK_DB_PASSWORD
+      - AUTHENTIK_SECRET_KEY
+
+  vikunja:
+    containers:
+      - vikunja
+      - db
+    health_checks:
+      - name: vikunja
+        port: 3456
+        path: /api/v1/info
+        expected_status: [200]
+    # Secrets need mocking via lookup plugin
+    uses_onepassword: true
+
+  serverarr:
+    containers:
+      - prowlarr
+      - qbittorrent
+      - radarr
+      - sonarr
+      - lidarr
+      - lazylibrarian
+      - unpackerr
+    health_checks:
+      - name: prowlarr
+        port: 9696
+        path: /
+        expected_status: [200, 302]
+      - name: radarr
+        port: 7878
+        path: /
+        expected_status: [200, 302]
+      - name: sonarr
+        port: 8989
+        path: /
+        expected_status: [200, 302]
+      - name: qbittorrent
+        port: 8080
+        path: /
+        expected_status: [200, 302, 401]
+    # unpackerr uses 1password for API keys
+    uses_onepassword: true
+
+  nextcloud:
+    containers:
+      - nextcloud
+      - redis
+      - db
+      - onlyoffice-document-server
+    health_checks:
+      - name: nextcloud
+        port: 8080
+        path: /status.php
+        expected_status: [200]
+    required_vars:
+      - MYSQL_PASSWORD
+      - MYSQL_ROOT_PASSWORD
+      - NEXTCLOUD_ADMIN_PASSWORD
+      - REDIS_PASSWORD
+      - JWT_SECRET
+
+  gluetun:
+    containers:
+      - gluetun
+    health_checks: []
+    # VPN service - no HTTP health check
+
+  gitlab-runner:
+    containers:
+      - gitlab-runner
+    health_checks: []
+    uses_onepassword: true
+
+  fastapi-dls:
+    containers:
+      - fastapi-dls
+    health_checks:
+      - name: fastapi-dls
+        port: 443
+        path: /-/health
+        expected_status: [200]
+        use_https: true

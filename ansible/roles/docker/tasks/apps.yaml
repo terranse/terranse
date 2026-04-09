@@ -2,11 +2,44 @@
   notify: Restart docker apps
   when: docker_services is defined and docker_services != ''
   block:
+    # Normalize docker_services to always be a list (supports both JSON string and native list)
+    - name: Normalize docker_services
+      set_fact:
+        _docker_services: "{{ docker_services | from_json if docker_services is string else docker_services }}"
+
+    # Parse mounts list into a dictionary for easier access in templates
+    # resulting format looks like this:
+    #    service_mounts:
+    #      configs: "/appdata"
+    #      cloud: "/storage/cloud"
+    # Meaning that, e.g., configs can be accessed as `service_mounts.configs`
+    # Only mounts with a 'name' attribute are included in the dictionary
+    # Supports both JSON string and native list formats
+    - name: Parse and flatten mounts
+      set_fact:
+        service_mounts: >-
+          {%- if mounts is defined and mounts != '' -%}
+            {%- set result = {} -%}
+            {%- if mounts is string -%}
+              {%- set mounts_list = mounts | from_json -%}
+            {%- else -%}
+              {%- set mounts_list = mounts -%}
+            {%- endif -%}
+            {%- for mount in mounts_list -%}
+              {%- if mount.name is defined -%}
+                {%- set _ = result.update({mount.name: mount.path}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ result }}
+          {%- else -%}
+            {}
+          {%- endif -%}
+
     - name: Check for additional tasks file
       stat:
         path: "{{ role_path }}/tasks/additional/{{ item }}.yaml"
       register: additional_tasks_check
-      loop: "{{ docker_services | default('[]') | from_json }}"
+      loop: "{{ _docker_services }}"
 
     - name: Execute pre-deployment tasks
       include_tasks: "{{ role_path }}/tasks/additional/{{ item.item }}.yaml"
@@ -18,29 +51,6 @@
       loop: "{{ additional_tasks_check.results }}"
       loop_control:
         loop_var: item
-
-    # Parse mounts list into a dictionary for easier access in templates
-    # resulting format looks like this:
-    #    service_mounts:
-    #      configs: "/appdata"
-    #      cloud: "/storage/cloud"
-    # Meaning that, e.g., configs can be accessed as `service_mounts.configs`
-    # Only mounts with a 'name' attribute are included in the dictionary
-    - name: Parse and flatten mounts
-      set_fact:
-        service_mounts: >-
-          {%- if mounts is defined and mounts != '' -%}
-            {%- set result = {} -%}
-            {%- set mounts_list = mounts | from_json -%}
-            {%- for mount in mounts_list -%}
-              {%- if mount.name is defined -%}
-                {%- set _ = result.update({mount.name: mount.path}) -%}
-              {%- endif -%}
-            {%- endfor -%}
-            {{ result }}
-          {%- else -%}
-            {}
-          {%- endif -%}
 
     - name: Ensure /opt/docker dir
       become: true
@@ -56,7 +66,7 @@
         src: "{{ item.name }}.yaml.j2"
         dest: "/opt/docker/{{ item.name }}.yaml"
         mode: "0600"
-      loop: "{{ docker_services | default('[]') | from_json }}"
+      loop: "{{ _docker_services }}"
       loop_control:
         label: "{{ item.name }}"
 

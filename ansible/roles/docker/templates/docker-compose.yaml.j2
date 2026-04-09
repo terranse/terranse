@@ -1,5 +1,5 @@
 include:
-{% for app in (docker_services | from_json) %}
+{% for app in _docker_services %}
   - {{ app.name }}.yaml
 {% endfor %}
 
