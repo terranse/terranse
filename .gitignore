@@ -1,5 +1,18 @@
 .terraform*
-# terraform.tfstate
+# Terraform/OpenTofu state — never commit, can contain secrets even when
+# sensitive attributes are used (e.g. data source flattening).
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/terraform.tfstate.*.backup
+**/tfplan
+**/tfplan-*
 */inventory.yaml
 ansible/playbook.yaml
-tofu/tfplan
+/ansible/roles/geerlingguy.docker
+packer/proxmox.pkrvars.hcl
+packer/*/downloaded_iso_path/
+
+# Python build artifacts
+*.egg-info/
+__pycache__/
+*.pyc
