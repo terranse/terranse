@@ -7,7 +7,7 @@ variable "ssh_key" {
 }
 
 variable "image_name" {
-  type = string
+  type    = string
   default = "debian-13-standard_13.1-1_amd64.tar.zst"
 }
 
@@ -17,6 +17,23 @@ variable "host" {
 
 variable "domain" {
   type = string
+}
+
+variable "storage_pool" {
+  description = "Proxmox storage pool for container rootfs"
+  type        = string
+  default     = "FastStorage"
+}
+
+variable "network_bridge" {
+  description = "Proxmox network bridge"
+  type        = string
+  default     = "vmbr0"
+}
+
+variable "gateway" {
+  description = "Network gateway IP"
+  type        = string
 }
 
 variable "configuration" {

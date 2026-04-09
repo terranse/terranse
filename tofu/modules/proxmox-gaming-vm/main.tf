@@ -1,9 +1,8 @@
 terraform {
   required_providers {
     proxmox = {
-      source                = "telmate/proxmox"
-      version               = ">= 2.9.14"
-      configuration_aliases = [proxmox.vm]
+      source  = "registry.terraform.io/telmate/proxmox"
+      version = "3.0.2-rc07"
     }
   }
 }
@@ -22,7 +21,6 @@ locals {
 resource "proxmox_vm_qemu" "gaming_vms" {
   for_each = var.configuration
 
-  provider    = proxmox.vm
   target_node = var.host
   vmid        = local.vmid_map[each.key]
   name        = each.key

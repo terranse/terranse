@@ -1,8 +1,8 @@
 terraform {
   required_providers {
     proxmox = {
-      source = "telmate/proxmox"
-      version = ">= 2.9.14"
+      source  = "registry.terraform.io/telmate/proxmox"
+      version = "3.0.2-rc07"
     }
     ansible = {
       source  = "ansible/ansible"
@@ -50,14 +50,14 @@ resource "proxmox_lxc" "lxcs" {
 
   // Terraform will crash without rootfs defined
   rootfs {
-    storage = "FastStorage"
+    storage = var.storage_pool
     size    = each.value.disk_size
   }
 
   network {
     name   = "eth0"
-    bridge = "vmbr0"
-    gw     = "192.168.1.1"
+    bridge = var.network_bridge
+    gw     = var.gateway
     ip     = "dhcp"
     ip6    = "auto"
   }

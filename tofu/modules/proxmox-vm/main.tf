@@ -1,74 +1,186 @@
 terraform {
   required_providers {
     proxmox = {
-      source = "telmate/proxmox"
-      version = ">= 2.9.14"
-      configuration_aliases = [ proxmox.vm ]
+      source  = "registry.terraform.io/telmate/proxmox"
+      version = "3.0.2-rc07"
     }
   }
 }
 
 locals {
-  module_ip = "192.168.1.${var.vmid}"
+  vm_list = keys(var.configuration)
+  vmid_map = {
+    for idx, name in local.vm_list : name => 300 + idx
+  }
+
+  # Per-VM family flag: Windows templates still use SATA/e1000 (built-in
+  # Windows drivers, no VirtIO injection needed during install), but now
+  # boot via OVMF/UEFI — required for modern NVIDIA GPU passthrough with
+  # Resizable BAR. Linux cloud images use OVMF + virtio-scsi + virtio-net.
+  is_windows = {
+    for name, vm in var.configuration :
+    name => startswith(vm.clone, "windows-")
+  }
+
+  os_type = {
+    for name, vm in var.configuration : name => coalesce(
+      vm.os_type,
+      local.is_windows[name] ? "win11" : "cloud-init"
+    )
+  }
+
+  bios = {
+    for name, vm in var.configuration : name => coalesce(
+      vm.bios,
+      "ovmf"
+    )
+  }
+
+  disk_slot = {
+    for name, vm in var.configuration : name => coalesce(
+      vm.disk_slot,
+      local.is_windows[name] ? "sata0" : "scsi0"
+    )
+  }
+
+  network_model = {
+    for name, vm in var.configuration : name => coalesce(
+      vm.network_model,
+      local.is_windows[name] ? "e1000" : "virtio"
+    )
+  }
+
+  # Derive a stable MAC from the VM name when not explicitly set, so that
+  # applies don't churn net0 and DHCP leases stay pinned.
+  mac_address = {
+    for name, vm in var.configuration : name => coalesce(
+      vm.mac_address,
+      format(
+        "BC:24:11:%s:%s:%s",
+        upper(substr(md5(name), 0, 2)),
+        upper(substr(md5(name), 2, 2)),
+        upper(substr(md5(name), 4, 2)),
+      )
+    )
+  }
 }
-# Below is taken from a guide at https://austinsnerdythings.com/2021/09/01/how-to-deploy-vms-in-proxmox-with-terraform/
 
-resource "proxmox_vm_qemu" "test_vm" {
-  #count = var.count # just want 1 for now, set to 0 and apply to destroy VM
-  # name = "test-vm-${count.index + 1}" #count.index starts at 0, so + 1 means this VM will be named test-vm-1 in proxmox
-  # this now reaches out to the vars file. I could've also used this var above in the pm_api_url setting but wanted to spell it out up there.
-  # target_node is different than api_url. target_node is which node hosts the template and thus also which node will host the new VM.
-  # It can be different than the host you use to communicate with the API. the variable contains the contents "prox-1u"
-  target_node = "proxmox"
-  vmid        = var.vmid
-  name        = var.hostname
+resource "proxmox_vm_qemu" "vms" {
+  for_each = var.configuration
 
-  # another variable with contents "ubuntu-2004-cloudinit-template"
-  # clone = var.template_name
-  # basic VM settings here. agent refers to guest agent
-  agent     = 1
-  os_type   = "cloud-init"
-  clone     = var.clone
-  cores     = var.cores
-  sockets   = 1
-  cpu       = "host"
-  memory    = var.memory
-  scsihw    = "virtio-scsi-pci"
-  bootdisk  = "scsi0"
+  target_node = var.proxmox_node != "" ? var.proxmox_node : var.host
+  vmid        = try(each.value.vmid, local.vmid_map[each.key])
+  name        = each.key
+
+  agent      = 1
+  os_type    = local.os_type[each.key]
+  clone      = each.value.clone
+  full_clone = each.value.full_clone
+  memory     = each.value.memory
+  bios       = local.bios[each.key]
+  boot       = "order=${local.disk_slot[each.key]}"
+
+  # Cloud-init networking only. Admin credentials are baked into the
+  # Packer template itself (see winrm_password / preseed user) and
+  # deliberately NOT set here — Telmate's provider does not yet support
+  # write-only attributes for cipassword, so any value passed through the
+  # module would get persisted in the tfstate. The template's default
+  # user/password is the source of truth for first-login access.
+  ipconfig0 = "ip=dhcp"
+
+  cpu {
+    cores   = each.value.cores
+    sockets = 1
+    type    = "host"
+  }
+  scsihw = "virtio-scsi-single"
+
   disk {
-    slot     = 0
-    # set disk size here. leave it small for testing because expanding the disk takes time.
-    size     = var.disk_size
-    type     = "scsi"
-    storage  = "FastStorage"
-    iothread = 1
+    slot    = local.disk_slot[each.key]
+    size    = each.value.disk_size
+    type    = "disk"
+    storage = var.storage_pool
+    # iothread only valid with virtio or virtio-scsi-single — disable for SATA
+    iothread = !startswith(local.disk_slot[each.key], "sata")
   }
-  
-  # if you want two NICs, just copy this whole network section and duplicate it
+
+  # Cloud-init drive on ide2. Telmate's linked clone does NOT inherit
+  # the template's ide2 cloudinit drive, so we declare it explicitly
+  # here so every clone gets a fresh one. Both Linux cloud images and
+  # Windows (via Cloudbase-Init) consume the NoCloud datasource from
+  # this drive.
+  disk {
+    slot    = "ide2"
+    type    = "cloudinit"
+    storage = var.storage_pool
+  }
+
   network {
-    model  = "virtio"
-    bridge = "vmbr0"
+    id      = 0
+    model   = local.network_model[each.key]
+    bridge  = var.network_bridge
+    macaddr = local.mac_address[each.key]
   }
-  # not sure exactly what this is for. presumably something about MAC addresses and ignore network changes during the life of the VM
+
+  # PCI passthrough via Proxmox resource mappings (provider >= 3.0)
+  dynamic "pcis" {
+    for_each = length(each.value.pci_devices) > 0 ? [1] : []
+    content {
+      dynamic "pci0" {
+        for_each = length(each.value.pci_devices) > 0 ? [each.value.pci_devices[0]] : []
+        content {
+          mapping {
+            mapping_id  = pci0.value.mapping_id
+            pcie        = pci0.value.pcie
+            primary_gpu = pci0.value.primary_gpu
+          }
+        }
+      }
+      dynamic "pci1" {
+        for_each = length(each.value.pci_devices) > 1 ? [each.value.pci_devices[1]] : []
+        content {
+          mapping {
+            mapping_id  = pci1.value.mapping_id
+            pcie        = pci1.value.pcie
+            primary_gpu = pci1.value.primary_gpu
+          }
+        }
+      }
+      dynamic "pci2" {
+        for_each = length(each.value.pci_devices) > 2 ? [each.value.pci_devices[2]] : []
+        content {
+          mapping {
+            mapping_id  = pci2.value.mapping_id
+            pcie        = pci2.value.pcie
+            primary_gpu = pci2.value.primary_gpu
+          }
+        }
+      }
+      dynamic "pci3" {
+        for_each = length(each.value.pci_devices) > 3 ? [each.value.pci_devices[3]] : []
+        content {
+          mapping {
+            mapping_id  = pci3.value.mapping_id
+            pcie        = pci3.value.pcie
+            primary_gpu = pci3.value.primary_gpu
+          }
+        }
+      }
+    }
+  }
+
   lifecycle {
     ignore_changes = [
       network,
     ]
   }
-  
-  # the ${count.index + 1} thing appends text to the end of the ip address
-  # in this case, since we are only adding a single VM, the IP will
-  # be 10.98.1.91 since count.index starts at 0. this is how you can create
-  # multiple VMs and have an IP assigned to each (.91, .92, .93, etc.)
-  #ipconfig0 = "ip=10.98.1.9${count.index + 1}/24,gw=10.98.1.1"
-  
-  # sshkeys set using variables. the variable contains the text of the key.
+
   sshkeys = <<EOF
   ${var.ssh_key}
   EOF
 }
 
-// This is needed for a module to make values available to the calling root module
-output "module_ip" {
-  value = local.module_ip
+output "vm_ids" {
+  value       = { for name, vm in proxmox_vm_qemu.vms : name => vm.vmid }
+  description = "Map of VM names to VMIDs"
 }

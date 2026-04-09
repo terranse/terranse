@@ -1,14 +1,11 @@
 terraform {
   required_providers {
     onepassword = {
-      source  = "1Password/onepassword"
-      version = ">= 2.0.0"
+      source                = "1Password/onepassword"
+      version               = ">= 2.0.0"
+      configuration_aliases = [onepassword]
     }
   }
-}
-
-provider "onepassword" {
-  account = var.account
 }
 
 data onepassword_vault ops {
