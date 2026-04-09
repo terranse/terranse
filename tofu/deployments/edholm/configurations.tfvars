@@ -16,7 +16,7 @@ hosts = {
           {name = "util", dataset = "Tank/windows_smb_util", path = "/storage/media"},
         ]
 
-        roles = [ 
+        roles = [
           { name = "docker" }
         ]
         docker_services = [
@@ -105,15 +105,26 @@ hosts = {
     }
   },
 
-  # workstation = {
-  #   ansible_host = "192.168.1.200"
-  #   ansible_user = "root"
+  workstation = {
+    # TODO: Uncomment once DNS is configured, or set ansible_host to the workstation IP
+    # ansible_host = "192.168.1.200"
+    ansible_user = "root"
 
-  #   vms = {
-  #     windows_main = {
-  #       memory = "48G"
-  #       image = var.latest_windows
-  #     }
-  #   }
-  # }
+    lxcs = {
+      # GitLab runner isolated in its own LXC — never touches existing workstation setup.
+      # TODO: Verify that the Proxmox storage pool "FastStorage" exists on the workstation node,
+      #       or update tofu/modules/proxmox-container/main.tf to accept a configurable pool.
+      gitlab-runner = {
+        memory    = 2048
+        disk_size = "16G"
+
+        roles = [
+          { name = "docker" }
+        ]
+        docker_services = [
+          { name = "gitlab-runner" }
+        ]
+      }
+    }
+  }
 }

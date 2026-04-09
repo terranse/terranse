@@ -1,5 +1,5 @@
 locals {
-  ansible_root = abspath("${path.module}/../ansible")
+  ansible_root = abspath("${path.module}/../../../ansible")
 }
 
 variable "ssh_key" {
@@ -9,9 +9,15 @@ variable "ssh_key" {
 }
 
 variable "domain" {
-  type = string
-  default = "edholm.cc"
+  type        = string
+  default     = "edholm.cc"
   description = "The top domain where all your services will live"
+}
+
+variable "gateway" {
+  type        = string
+  default     = "192.168.1.1"
+  description = "Network gateway IP for this deployment"
 }
 
 variable "user" {

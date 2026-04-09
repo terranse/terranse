@@ -121,7 +121,7 @@ hosts = {
         memory    = 8192
         cores     = 4
         disk_size = "32G"
-        clone     = "debian-12-gaming"
+        clone     = "debian-13-gaming"
 
         gpu_type         = "intel_sriov"
         sriov_vf_index   = 0  # VF0 for physical display
