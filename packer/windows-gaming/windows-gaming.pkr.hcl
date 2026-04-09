@@ -43,28 +43,59 @@ variable "proxmox_node" {
   description = "Proxmox node name"
 }
 
+# OS catalog
+variable "os_catalog" {
+  type = map(object({
+    iso_url            = string
+    iso_checksum       = string
+    iso_file           = string
+    os_type            = string
+    cloud_img_url      = string
+    cloud_img_checksum = string
+  }))
+  description = "OS catalog mapping family-version to ISO details"
+}
+
+variable "os_family" {
+  type        = string
+  default     = "windows"
+  description = "OS family"
+}
+
+variable "os_version" {
+  type        = string
+  default     = "11"
+  description = "OS version"
+}
+
+variable "virtio_iso_url" {
+  type        = string
+  default     = ""
+  description = "URL for VirtIO drivers ISO (auto-download)"
+}
+
+variable "virtio_iso_checksum" {
+  type        = string
+  default     = ""
+  description = "Checksum for VirtIO drivers ISO"
+}
+
 variable "vm_id" {
   type        = number
   default     = 9001
   description = "VM ID for the template"
 }
 
+variable "storage_pool" {
+  type        = string
+  default     = "local-lvm"
+  description = "Proxmox storage pool for VM disks and EFI"
+}
+
 variable "vm_name" {
   type        = string
-  default     = "windows-11-gaming"
-  description = "Name of the VM template"
-}
-
-variable "iso_file" {
-  type        = string
-  default     = "local:iso/Win11_23H2_English_x64.iso"
-  description = "Path to Windows ISO"
-}
-
-variable "virtio_iso" {
-  type        = string
-  default     = "local:iso/virtio-win.iso"
-  description = "Path to VirtIO drivers ISO"
+  default     = ""
+  description = "Override VM template name (defaults to {os_family}-{os_version}-gaming)"
 }
 
 variable "winrm_username" {
@@ -80,6 +111,14 @@ variable "winrm_password" {
   description = "WinRM password for provisioning"
 }
 
+# Resolve ISO from catalog
+locals {
+  os_key         = "${var.os_family}-${var.os_version}"
+  os             = var.os_catalog[local.os_key]
+  use_virtio_url = var.virtio_iso_url != ""
+  vm_name        = var.vm_name != "" ? var.vm_name : "${var.os_family}-${var.os_version}-gaming"
+}
+
 # Source configuration
 source "proxmox-iso" "windows-gaming" {
   # Proxmox connection
@@ -91,37 +130,31 @@ source "proxmox-iso" "windows-gaming" {
 
   # VM settings
   vm_id                = var.vm_id
-  vm_name              = var.vm_name
-  template_description = "Windows 11 Gaming VM Template - Built by Packer"
+  vm_name              = local.vm_name
+  template_description = "Windows ${var.os_version} Gaming VM Template - Built by Packer"
 
   # Hardware
   cores    = 4
-  memory   = 8192
+  memory   = 16384
   cpu_type = "host"
-  os       = "win11"
+  os       = local.os.os_type
   bios     = "ovmf"
   machine  = "q35"
+  boot     = "order=ide2;scsi0"
 
-  # TPM for Windows 11
-  tpm_state {
-    tpm_storage_pool = "local-lvm"
-    version          = "v2.0"
-  }
-
-  # EFI disk for UEFI boot
+  # EFI disk for UEFI boot (TPM bypassed via autounattend LabConfig registry keys)
   efi_config {
-    efi_storage_pool  = "local-lvm"
+    efi_storage_pool  = var.storage_pool
     efi_type          = "4m"
     pre_enrolled_keys = true
   }
 
   # Primary disk (VirtIO for performance)
   disks {
-    type              = "scsi"
-    disk_size         = "100G"
-    storage_pool      = "local-lvm"
-    storage_pool_type = "lvm"
-    format            = "raw"
+    type         = "scsi"
+    disk_size    = "100G"
+    storage_pool = var.storage_pool
+    format       = "raw"
   }
 
   # Network (VirtIO)
@@ -130,23 +163,30 @@ source "proxmox-iso" "windows-gaming" {
     bridge = "vmbr0"
   }
 
-  # ISO files
-  iso_file = var.iso_file
+  # Windows ISO — resolved from catalog (pre-uploaded, uses iso_file)
+  boot_iso {
+    iso_file = local.os.iso_file
+    unmount  = true
+  }
+
+  # VirtIO drivers — auto-downloaded or pre-uploaded
   additional_iso_files {
-    device           = "sata1"
-    iso_file         = var.virtio_iso
-    iso_storage_pool = "local"
-    unmount          = true
+    type         = "sata"
+    index        = 1
+    iso_url      = local.use_virtio_url ? var.virtio_iso_url : null
+    iso_checksum = local.use_virtio_url ? var.virtio_iso_checksum : null
+    iso_file     = local.use_virtio_url ? null : "local:iso/virtio-win.iso"
+    unmount      = true
   }
 
   # Floppy with autounattend.xml
   additional_iso_files {
-    device   = "sata2"
-    cd_files = ["./autounattend.xml", "./scripts/*"]
-    cd_label = "OEMDRV"
+    type             = "sata"
+    index            = 2
+    cd_files         = ["./autounattend.xml", "./scripts/*"]
+    cd_label         = "OEMDRV"
+    iso_storage_pool = "local"
   }
-
-  unmount_iso = true
 
   # Boot settings
   boot_command = ["<spacebar>"]
@@ -162,7 +202,7 @@ source "proxmox-iso" "windows-gaming" {
 
   # Cloud-init via Cloudbase-Init
   cloud_init              = true
-  cloud_init_storage_pool = "local-lvm"
+  cloud_init_storage_pool = var.storage_pool
 
   # QEMU guest agent
   qemu_agent = true
@@ -280,7 +320,7 @@ build {
   # Sysprep for generalization
   provisioner "powershell" {
     inline = [
-      "& C:\\Windows\\System32\\Sysprep\\Sysprep.exe /oobe /generalize /shutdown /quiet"
+      "& C:\\Windows\\System32\\Sysprep\\Sysprep.exe /oobe /generalize /shutdown /quiet /unattend:'C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init\\conf\\Unattend.xml'"
     ]
   }
 }

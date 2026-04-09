@@ -14,23 +14,41 @@
 
         <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
             <DriverPaths>
-                <!-- VirtIO drivers from mounted ISO -->
+                <!-- VirtIO drivers from mounted ISO (search D:\ and E:\ since drive letter depends on controller order) -->
                 <PathAndCredentials wcm:action="add" wcm:keyValue="1">
-                    <Path>D:\vioscsi\w11\amd64</Path>
+                    <Path>E:\vioscsi\w11\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="2">
-                    <Path>D:\NetKVM\w11\amd64</Path>
+                    <Path>E:\NetKVM\w11\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="3">
-                    <Path>D:\Balloon\w11\amd64</Path>
+                    <Path>E:\Balloon\w11\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="4">
-                    <Path>D:\qemufwcfg\w11\amd64</Path>
+                    <Path>E:\qemufwcfg\w11\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="5">
-                    <Path>D:\vioserial\w11\amd64</Path>
+                    <Path>E:\vioserial\w11\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="6">
+                    <Path>E:\qxldod\w11\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="7">
+                    <Path>D:\vioscsi\w11\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="8">
+                    <Path>D:\NetKVM\w11\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="9">
+                    <Path>D:\Balloon\w11\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="10">
+                    <Path>D:\qemufwcfg\w11\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="11">
+                    <Path>D:\vioserial\w11\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="12">
                     <Path>D:\qxldod\w11\amd64</Path>
                 </PathAndCredentials>
             </DriverPaths>
@@ -177,35 +195,45 @@
                 <LogonCount>5</LogonCount>
             </AutoLogon>
 
-            <!-- First boot commands - enable WinRM for Packer -->
+            <!-- First boot commands - install QEMU guest agent (for Packer IP discovery) then enable WinRM -->
             <FirstLogonCommands>
                 <SynchronousCommand wcm:action="add">
                     <Order>1</Order>
+                    <CommandLine>cmd /c powershell -Command "$msi = Get-ChildItem -Path D:\,E:\ -Recurse -Filter 'qemu-ga-x86_64.msi' -ErrorAction SilentlyContinue | Select-Object -First 1; if ($msi) { Start-Process msiexec.exe -ArgumentList '/i', $msi.FullName, '/qn', '/norestart' -Wait }"</CommandLine>
+                    <Description>Install QEMU guest agent from VirtIO ISO</Description>
+                </SynchronousCommand>
+                <SynchronousCommand wcm:action="add">
+                    <Order>2</Order>
+                    <CommandLine>cmd /c net start QEMU-GA</CommandLine>
+                    <Description>Start QEMU guest agent service</Description>
+                </SynchronousCommand>
+                <SynchronousCommand wcm:action="add">
+                    <Order>3</Order>
                     <CommandLine>cmd /c powershell -Command "Set-ExecutionPolicy RemoteSigned -Force"</CommandLine>
                     <Description>Set PowerShell execution policy</Description>
                 </SynchronousCommand>
                 <SynchronousCommand wcm:action="add">
-                    <Order>2</Order>
+                    <Order>4</Order>
                     <CommandLine>cmd /c powershell -Command "Enable-PSRemoting -Force"</CommandLine>
                     <Description>Enable PowerShell remoting</Description>
                 </SynchronousCommand>
                 <SynchronousCommand wcm:action="add">
-                    <Order>3</Order>
+                    <Order>5</Order>
                     <CommandLine>cmd /c powershell -Command "Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value true"</CommandLine>
                     <Description>Allow unencrypted WinRM</Description>
                 </SynchronousCommand>
                 <SynchronousCommand wcm:action="add">
-                    <Order>4</Order>
+                    <Order>6</Order>
                     <CommandLine>cmd /c powershell -Command "Set-Item WSMan:\localhost\Service\Auth\Basic -Value true"</CommandLine>
                     <Description>Enable basic auth for WinRM</Description>
                 </SynchronousCommand>
                 <SynchronousCommand wcm:action="add">
-                    <Order>5</Order>
+                    <Order>7</Order>
                     <CommandLine>cmd /c netsh advfirewall firewall add rule name="WinRM HTTP" dir=in localport=5985 protocol=tcp action=allow</CommandLine>
                     <Description>Open WinRM port</Description>
                 </SynchronousCommand>
                 <SynchronousCommand wcm:action="add">
-                    <Order>6</Order>
+                    <Order>8</Order>
                     <CommandLine>cmd /c powershell -Command "Restart-Service WinRM"</CommandLine>
                     <Description>Restart WinRM service</Description>
                 </SynchronousCommand>

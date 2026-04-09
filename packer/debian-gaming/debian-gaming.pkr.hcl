@@ -40,22 +40,59 @@ variable "proxmox_node" {
   description = "Proxmox node name"
 }
 
+# OS catalog
+variable "os_catalog" {
+  type = map(object({
+    iso_url            = string
+    iso_checksum       = string
+    iso_file           = string
+    os_type            = string
+    cloud_img_url      = string
+    cloud_img_checksum = string
+  }))
+  description = "OS catalog mapping family-version to ISO details"
+}
+
+variable "os_family" {
+  type        = string
+  default     = "debian"
+  description = "OS family"
+}
+
+variable "os_version" {
+  type        = string
+  default     = "12"
+  description = "OS version"
+}
+
+variable "virtio_iso_url" {
+  type        = string
+  default     = ""
+  description = "Unused in Linux templates — declared so the shared catalog var-file does not error"
+}
+
+variable "virtio_iso_checksum" {
+  type        = string
+  default     = ""
+  description = "Unused in Linux templates — declared so the shared catalog var-file does not error"
+}
+
 variable "vm_id" {
   type        = number
   default     = 9000
   description = "VM ID for the template"
 }
 
-variable "vm_name" {
+variable "storage_pool" {
   type        = string
-  default     = "debian-12-gaming"
-  description = "Name of the VM template"
+  default     = "local-lvm"
+  description = "Proxmox storage pool for VM disks and EFI"
 }
 
-variable "iso_file" {
+variable "vm_name" {
   type        = string
-  default     = "local:iso/debian-12-amd64-netinst.iso"
-  description = "Path to Debian ISO"
+  default     = ""
+  description = "Override VM template name (defaults to {os_family}-{os_version}-gaming)"
 }
 
 variable "ssh_username" {
@@ -71,6 +108,14 @@ variable "ssh_password" {
   description = "SSH password for provisioning"
 }
 
+# Resolve ISO from catalog
+locals {
+  os_key  = "${var.os_family}-${var.os_version}"
+  os      = var.os_catalog[local.os_key]
+  use_url = local.os.iso_url != ""
+  vm_name = var.vm_name != "" ? var.vm_name : "${var.os_family}-${var.os_version}-gaming"
+}
+
 # Source configuration
 source "proxmox-iso" "debian-gaming" {
   # Proxmox connection
@@ -82,31 +127,30 @@ source "proxmox-iso" "debian-gaming" {
 
   # VM settings
   vm_id                = var.vm_id
-  vm_name              = var.vm_name
-  template_description = "Debian 12 Gaming VM Template - Built by Packer"
+  vm_name              = local.vm_name
+  template_description = "Debian ${var.os_version} Gaming VM Template - Built by Packer"
 
   # Hardware
   cores    = 4
   memory   = 8192
   cpu_type = "host"
-  os       = "l26"
+  os       = local.os.os_type
   bios     = "ovmf"
   machine  = "q35"
 
   # EFI disk for UEFI boot
   efi_config {
-    efi_storage_pool  = "local-lvm"
+    efi_storage_pool  = var.storage_pool
     efi_type          = "4m"
     pre_enrolled_keys = false
   }
 
   # Primary disk
   disks {
-    type              = "scsi"
-    disk_size         = "32G"
-    storage_pool      = "local-lvm"
-    storage_pool_type = "lvm"
-    format            = "raw"
+    type         = "scsi"
+    disk_size    = "32G"
+    storage_pool = var.storage_pool
+    format       = "raw"
   }
 
   # Network
@@ -115,19 +159,24 @@ source "proxmox-iso" "debian-gaming" {
     bridge = "vmbr0"
   }
 
-  # ISO and boot
-  iso_file         = var.iso_file
-  iso_storage_pool = "local"
-  unmount_iso      = true
+  # ISO — resolved from catalog (downloaded directly by Proxmox node)
+  boot_iso {
+    iso_url          = local.use_url ? local.os.iso_url : null
+    iso_checksum     = local.use_url ? local.os.iso_checksum : null
+    iso_file         = local.use_url ? null : local.os.iso_file
+    iso_storage_pool = "local"
 
-  # Boot command for automated install
+    unmount          = true
+  }
+
+  # Boot command — enter GRUB CLI (UEFI) and boot with preseed
   boot_command = [
-    "<esc><wait>",
-    "auto url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg ",
-    "hostname=debian-gaming ",
-    "domain=local ",
-    "interface=auto ",
-    "priority=critical ",
+    "c<wait5>",
+    "linux /install.amd/vmlinuz auto=true priority=critical preseed/url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/preseed.cfg hostname=debian-gaming domain=local interface=auto --- quiet",
+    "<enter><wait5>",
+    "initrd /install.amd/initrd.gz",
+    "<enter><wait5>",
+    "boot",
     "<enter>"
   ]
   boot_wait = "10s"
@@ -138,14 +187,14 @@ source "proxmox-iso" "debian-gaming" {
   http_port_max  = 8200
 
   # SSH connection
-  ssh_username         = var.ssh_username
-  ssh_password         = var.ssh_password
-  ssh_timeout          = "30m"
+  ssh_username           = var.ssh_username
+  ssh_password           = var.ssh_password
+  ssh_timeout            = "30m"
   ssh_handshake_attempts = 100
 
   # Cloud-init
   cloud_init              = true
-  cloud_init_storage_pool = "local-lvm"
+  cloud_init_storage_pool = var.storage_pool
 
   # QEMU guest agent
   qemu_agent = true

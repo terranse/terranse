@@ -1,6 +1,20 @@
-# Packer Gaming VM Templates
+# Packer VM Templates
 
-Automated VM template builds for the cloud gaming infrastructure.
+Automated VM template builds for Proxmox. Supports base (general-purpose) and gaming templates for Debian, Ubuntu, and Windows.
+
+## Quick Start
+
+```bash
+# 1. Copy and fill in Proxmox credentials
+cp packer/proxmox.pkrvars.hcl.example packer/proxmox.pkrvars.hcl
+vi packer/proxmox.pkrvars.hcl
+
+# 2. Update checksums in the OS catalog
+vi packer/os-catalog.pkrvars.hcl
+
+# 3. Build a template
+just build-template debian 13 base
+```
 
 ## Prerequisites
 
@@ -12,168 +26,160 @@ Automated VM template builds for the cloud gaming infrastructure.
    sudo apt-get update && sudo apt-get install packer
    ```
 
-2. **Debian ISO** uploaded to Proxmox:
+2. **Proxmox API token**:
    ```bash
-   # Download latest Debian 12 netinst
-   wget https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.8.0-amd64-netinst.iso
-
-   # Upload to Proxmox (adjust node name as needed)
-   scp debian-12.8.0-amd64-netinst.iso root@proxmox:/var/lib/vz/template/iso/
-   ```
-
-3. **Proxmox API token**:
-   ```bash
-   # On Proxmox, create API token
    pveum user token add root@pam packer --privsep=0
    ```
 
+3. **For Windows templates** — upload the Windows 11 ISO manually (cannot be auto-downloaded):
+   ```bash
+   just upload-iso ~/Downloads/Win11_24H2_English_x64.iso
+   ```
+
+## Architecture
+
+```
+packer/
+  os-catalog.pkrvars.hcl        # OS lookup table (family/version → URL + checksum)
+  proxmox.pkrvars.hcl           # Proxmox connection credentials (gitignored)
+  proxmox.pkrvars.hcl.example   # Template for credentials
+  http/
+    preseed.cfg                 # Debian preseed (gaming)
+    preseed-base.cfg            # Debian preseed (base)
+    autoinstall/                # Ubuntu autoinstall
+      user-data
+      meta-data
+  scripts/
+    setup-cloud-init.sh         # Cloud-init Proxmox datasource setup
+    install-gaming-base.sh      # Gaming: desktop + drivers
+    install-steam.sh            # Gaming: Steam + Proton
+    install-sunshine.sh         # Gaming: Sunshine streaming
+    install-nvidia-prereqs.sh   # Gaming: NVIDIA prerequisites
+  debian-base/                  # Debian base template
+  ubuntu-base/                  # Ubuntu base template
+  windows-base/                 # Windows base template
+  debian-gaming/                # Debian gaming template
+  windows-gaming/               # Windows gaming template
+```
+
+## OS Catalog
+
+The catalog (`os-catalog.pkrvars.hcl`) maps OS family + version to ISO details. Linux ISOs are auto-downloaded by Packer; Windows ISOs must be pre-uploaded.
+
+Adding a new OS version is just a URL + checksum:
+```hcl
+"debian-14" = {
+  iso_url      = "https://cdimage.debian.org/debian-cd/..."
+  iso_checksum = "sha256:abc123..."
+  iso_file     = ""
+  os_type      = "l26"
+}
+```
+
 ## Building Templates
 
-### Debian Gaming Template
+### Using justfile (recommended)
 
 ```bash
-cd packer/debian-gaming
+# Base templates (auto-downloads ISO)
+just build-template debian 13 base
+just build-template ubuntu 2510 base
+just build-template windows 11 base    # requires pre-uploaded ISO
 
-# Initialize Packer plugins
+# Gaming templates
+just build-template debian 12 gaming
+just build-template windows 11 gaming  # requires pre-uploaded ISO
+```
+
+### Manual build
+
+```bash
+cd packer/debian-base
 packer init .
-
-# Build the template
 packer build \
-  -var "proxmox_url=https://proxmox.local:8006/api2/json" \
-  -var "proxmox_username=root@pam!packer" \
-  -var "proxmox_token=your-token-here" \
-  -var "proxmox_node=workstation" \
-  -var "vm_id=9000" \
-  -var "iso_file=local:iso/debian-12.8.0-amd64-netinst.iso" \
-  debian-gaming.pkr.hcl
+  -var-file=../os-catalog.pkrvars.hcl \
+  -var-file=../proxmox.pkrvars.hcl \
+  -var "os_family=debian" \
+  -var "os_version=13" \
+  .
 ```
 
-### Using a Variables File
+## Template Naming
 
-Create `variables.pkrvars.hcl`:
-```hcl
-proxmox_url      = "https://192.168.1.100:8006/api2/json"
-proxmox_username = "root@pam!packer"
-proxmox_token    = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-proxmox_node     = "workstation"
-vm_id            = 9000
-iso_file         = "local:iso/debian-12.8.0-amd64-netinst.iso"
-```
+Templates are identified by **name** — no fixed VM IDs for base templates (Proxmox auto-assigns). Gaming templates keep their legacy IDs (9000/9001) for backward compatibility.
 
-Then build:
+| Template Name       | Purpose                     |
+|---------------------|-----------------------------|
+| debian-13-base      | General-purpose Debian 13   |
+| ubuntu-2510-base    | General-purpose Ubuntu 25.10|
+| windows-11-base     | General-purpose Windows 11  |
+| debian-12-gaming    | Gaming Debian 12            |
+| windows-11-gaming   | Gaming Windows 11           |
+
+## Quick VM Testing (no tofu)
+
 ```bash
-packer build -var-file=variables.pkrvars.hcl debian-gaming.pkr.hcl
+# Create a VM from a template
+just create-vm test-loki debian-13-base
+
+# SSH in (auto-injects local ed25519 key)
+ssh packer@<vm-ip>
+
+# List templates on Proxmox
+just list-templates
+
+# Clean up
+just destroy-vm <vmid>
 ```
 
 ## What's Installed
 
-The Debian gaming template includes:
+### Base Templates
 
-| Component | Details |
-|-----------|---------|
-| Desktop | Xfce4 + LightDM |
-| Audio | PulseAudio |
-| Graphics | Mesa, VA-API drivers |
-| Gaming | Steam (Flatpak), Proton-GE, GameMode, MangoHud |
-| Streaming | Sunshine (latest release) |
-| NVIDIA | Build prerequisites (DKMS, headers) - driver installed by Ansible |
-| User | `gamer` with auto-login configured |
+| Component       | Debian/Ubuntu             | Windows                 |
+|-----------------|---------------------------|-------------------------|
+| Cloud-init      | cloud-init (NoCloud)      | Cloudbase-Init          |
+| Guest agent     | qemu-guest-agent          | QEMU guest agent        |
+| Remote access   | SSH                       | RDP + WinRM             |
+| Boot            | UEFI (OVMF/q35)          | UEFI (OVMF/q35) + TPM  |
+| Packages        | curl, wget, git, vim, htop| -                       |
 
-## Post-Build Configuration
+### Gaming Templates (extends base)
 
-After building, the template is ready for cloning. When you create VMs from this template:
+| Component | Debian                        | Windows                          |
+|-----------|-------------------------------|----------------------------------|
+| Desktop   | Xfce4 + LightDM              | -                                |
+| Audio     | PulseAudio                    | -                                |
+| Graphics  | Mesa, VA-API drivers          | -                                |
+| Gaming    | Steam (Flatpak), Proton-GE, GameMode, MangoHud | Steam, Sunshine, DirectX, VCRedist |
+| Streaming | Sunshine                      | Sunshine                         |
+| NVIDIA    | Build prerequisites (driver via Ansible) | -                       |
 
-1. **Cloud-init** configures networking and SSH keys
-2. **Ansible gaming role** installs:
-   - Actual NVIDIA vGPU guest driver (matches host version)
-   - NFS mounts for game storage
-   - Sunshine configuration with GPU hooks
-   - ZFS snapshot integration
+## Post-Build
 
-### Windows Gaming Template
+After building, templates are ready for cloning via `just create-vm` or via tofu.
 
-Windows requires additional ISOs:
-
-1. **Windows 11 ISO** - Download from Microsoft
-2. **VirtIO drivers ISO** - Download from [Fedora](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso)
-
-```bash
-# Upload ISOs to Proxmox
-scp Win11_23H2_English_x64.iso root@proxmox:/var/lib/vz/template/iso/
-scp virtio-win.iso root@proxmox:/var/lib/vz/template/iso/
-
-# Build Windows template
-cd packer/windows-gaming
-packer init ../debian-gaming  # Uses same plugin
-packer build \
-  -var "proxmox_url=https://proxmox.local:8006/api2/json" \
-  -var "proxmox_username=root@pam!packer" \
-  -var "proxmox_token=your-token-here" \
-  -var "proxmox_node=workstation" \
-  -var "vm_id=9001" \
-  -var "iso_file=local:iso/Win11_23H2_English_x64.iso" \
-  -var "virtio_iso=local:iso/virtio-win.iso" \
-  windows-gaming.pkr.hcl
-```
-
-**Note:** Windows builds take 30-60 minutes due to Windows Update and sysprep.
-
-### Post-Build: NVIDIA Guest Drivers
-
-NVIDIA vGPU guest drivers must be installed manually after cloning:
-1. Copy guest driver to VM
-2. Run installer
-3. Configure licensing in NVIDIA Control Panel
-
-See [GPU Drivers Guide](../docs/gpu-drivers.md) for details.
-
-## Template IDs
-
-Suggested template ID scheme:
-- `9000` - Debian 12 Gaming (Linux)
-- `9001` - Windows 11 Gaming
-- `9002` - Debian 12 Emulation (lightweight)
+Cloud-init handles networking and SSH keys on first boot. For gaming VMs, the Ansible gaming role handles NVIDIA driver installation, NFS mounts, and Sunshine configuration.
 
 ## Troubleshooting
 
 ### Build hangs at "Waiting for SSH"
-
 1. Check Proxmox console for installer errors
-2. Verify preseed.cfg is being served (check Packer logs for HTTP server)
+2. Verify preseed/autoinstall is being served (check Packer HTTP server logs)
 3. Ensure VM can reach the HTTP server on the Packer host
 
 ### ISO not found
-
-Verify the ISO path format:
 ```bash
 # List available ISOs on Proxmox
-pvesm list local --content iso
+just list-templates
+ssh root@jupiter "pvesm list local --content iso"
 ```
 
-### Template creation fails
+### Checksum mismatch
+Update the checksums in `os-catalog.pkrvars.hcl` — download the SHA256SUMS file from the distro's release page.
 
+### Template creation fails
 Ensure the API token has sufficient permissions:
 ```bash
 pveum aclmod / -user root@pam -role Administrator
-```
-
-## Customization
-
-### Different Desktop Environment
-
-Edit `scripts/install-gaming-base.sh` to replace Xfce with your preferred DE:
-```bash
-# KDE Plasma
-sudo apt-get install -y kde-plasma-desktop sddm
-
-# GNOME
-sudo apt-get install -y gnome-core gdm3
-```
-
-### Smaller Template (Emulation Only)
-
-For Intel Box emulation VMs, create a lighter template:
-```bash
-# Skip Steam in preseed, just install RetroArch
-sudo flatpak install -y flathub org.libretro.RetroArch
 ```
