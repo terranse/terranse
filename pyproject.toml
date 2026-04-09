@@ -5,6 +5,7 @@ requires-python = ">=3.13"
 dependencies = [
     "ansible>=12.0.0",
     "passlib>=1.7.4",
+    "python-hcl2>=7.3.1",
     "rust-just>=1.43.0",
     "sh>=2.2.2",
 ]
