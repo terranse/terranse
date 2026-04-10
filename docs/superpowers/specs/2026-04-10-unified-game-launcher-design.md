@@ -164,12 +164,23 @@ Extend the existing GPU manager on the workstation for dynamic vGPU slice reconf
 | 2               | 2x Q-12C   | 12 GB       |
 | 3               | 3x Q-8C    | 8 GB        |
 
-**New behavior:**
-- When a game launch is requested, evaluate: current active sessions, the new game's GPU requirements (from `gpu_profile_recommended` in game metadata), and the homogeneous constraint.
-- Determine optimal slice configuration.
-- If reconfiguration is needed (e.g., going from 1x Q-24C to 2x Q-12C): gracefully suspend the current session's VM, reconfigure all slices, resume VMs.
-- Expose this as an API endpoint the client launcher calls before initiating a Moonlight session.
-- The existing game profiles (`game-profiles.json.j2`) already map games to recommended GPU profiles; extend this to be consumed by the sync service.
+**New behavior (shutdown-based reconfig with safety gate):**
+
+Reconfig is risky: NVIDIA vGPU mdev devices can enter a half-locked state if the guest GPU driver doesn't cleanly unload. The strategy is conservative:
+
+1. When a game launch is requested, evaluate: current active sessions, the new game's GPU requirements (from `gpu_profile_recommended` in game metadata), and the homogeneous constraint.
+2. Determine optimal slice configuration.
+3. If reconfiguration is needed (e.g., going from 1x Q-24C to 2x Q-12C):
+   a. **Clean shutdown** all gaming VMs using that GPU (not suspend — full shutdown so guest GPU drivers unload).
+   b. **Destroy** all mdev instances.
+   c. **Verify** mdev release by checking `/sys/bus/mdev/devices/`. If any mdev is still present after a timeout (e.g., 30 seconds), **abort the reconfig** and keep the current slice configuration. Notify the client: "Couldn't reallocate GPU, launching with current profile."
+   d. Create new mdev instances with the new type.
+   e. Reconfigure VMs to use new mdev devices (`qm set`).
+   f. Start VMs.
+4. Expose this as an API endpoint the client launcher calls before initiating a Moonlight session.
+5. The existing game profiles (`game-profiles.json.j2`) already map games to recommended GPU profiles; extend this to be consumed by the sync service.
+
+**GPU profile database:** Start with a community database (PCGamingWiki or similar) for `gpu_profile_recommended` values. Maintain an internal override/preference profile for games where performance issues are observed. The sync service includes both the community default and any local override.
 
 ### 4. Client Launcher (new repo #2)
 
@@ -187,8 +198,14 @@ Separate design session. Key interface requirements defined here for contract cl
 **Multi-VM awareness:**
 - Queries all gaming VMs' sync services
 - Deduplicates games installed on multiple VMs
-- Picks which VM to stream from: prefer already-running VM, then least-loaded
+- Picks which VM to stream from: prefer least-loaded, even if it means waiting to resume an unused VM over using a busy one
 - If no VM is running, requests the workstation to start one with the right GPU slice
+- Core game data and saves live on NFS (centrally located); VMs are treated as ephemeral (except Windows due to registry). Mods also stored on NFS but may be loaded differently per VM — mod management deferred to future work.
+
+**Local retro execution:**
+- Platforms up to and including Wii/PS2/GameCube can be emulated locally (baseline: 14th gen i3 lowest-tier desktop)
+- Switch and newer: stream from VM
+- Threshold configurable per console in client settings
 
 **What the client does NOT do:**
 - Manage GPU slicing directly (delegates to GPU manager)
@@ -207,7 +224,4 @@ Separate design session. Key interface requirements defined here for contract cl
 
 ## Open Questions
 
-1. **Steam Family Sharing discovery**: Verify that Lutris (or Steam's local library data) includes shared-but-uninstalled games from family members. If not, the sync service may need to query Steam's Web API directly.
-2. **GPU profile database**: How to populate `gpu_profile_recommended` for games — manual curation, community database (PCGamingWiki?), or learned from usage patterns?
-3. **Multi-VM game deduplication strategy**: If the same game is installed on multiple VMs, does the client always prefer a running VM, or should it consider other factors (save data location, installed mods)?
-4. **Retro local-play threshold**: Which console generations are "safe" to run locally on typical client hardware? Propose: everything up to and including PS2/GameCube/Wii. Switch emulation streams from VM.
+1. **Steam Family Sharing discovery**: Verify that Lutris (or Steam's local library data) includes shared-but-uninstalled games from family members. If not, the sync service needs to query Steam's Web API directly. (Confirmed: this needs investigation during implementation.)
