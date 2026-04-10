@@ -33,20 +33,11 @@
       - gpu_type in ['nvidia_vgpu', 'intel_sriov', 'none']
     fail_msg: "gpu_type must be defined and be one of: nvidia_vgpu, intel_sriov, none"
 
-- name: Set default variables
-  ansible.builtin.set_fact:
-    gaming_user: "{{ gaming_user | default('gamer') }}"
-    wayland_compositor: "{{ wayland_compositor | default('gamescope') }}"
-    virtual_display_width: "{{ virtual_display_width | default(1920) }}"
-    virtual_display_height: "{{ virtual_display_height | default(1080) }}"
-    virtual_display_refresh: "{{ virtual_display_refresh | default(60) }}"
-    sunshine_enabled: "{{ sunshine_enabled | default(true) }}"
-    steam_enabled: "{{ steam_enabled | default(true) }}"
-    retroarch_enabled: "{{ retroarch_enabled | default(false) }}"
-    game_storage_mount: "{{ game_storage_mount | default(true) }}"
-    snapshot_on_boot: "{{ snapshot_on_boot | default(true) }}"
-    # Wayland only - no X11 fallback
-    display_server: "wayland"
+- name: Validate wayland compositor
+  ansible.builtin.assert:
+    that:
+      - wayland_compositor in ['gamescope', 'cage', 'sway']
+    fail_msg: "wayland_compositor must be one of: gamescope, cage, sway"
 
 # =============================================================================
 # Base system setup
@@ -60,22 +51,11 @@
       - wget
       - git
       - htop
+      - jq
       - qemu-guest-agent
       - flatpak
     state: present
     update_cache: true
-
-# Wayland display stack
-- name: Install Wayland packages
-  ansible.builtin.apt:
-    name:
-      - pipewire
-      - pipewire-pulse
-      - pipewire-alsa
-      - wireplumber
-      - libdrm2
-      - xwayland  # For X11 game compatibility only
-    state: present
 
 - name: Ensure gaming user exists
   ansible.builtin.user:
@@ -130,6 +110,16 @@
   ansible.builtin.include_tasks: retroarch.yaml
   when: retroarch_enabled | bool
 
+- name: Install Lutris game manager
+  ansible.builtin.include_tasks: lutris.yaml
+  when: lutris_enabled | bool
+
+- name: Deploy game sync service
+  ansible.builtin.include_tasks: game-sync.yaml
+  when:
+    - game_sync_enabled | bool
+    - lutris_enabled | bool
+
 # =============================================================================
 # Snapshot hooks for instant resume
 # =============================================================================
@@ -140,13 +130,6 @@
 # =============================================================================
 # Final setup
 # =============================================================================
-- name: Enable auto-login for gaming user
-  ansible.builtin.template:
-    src: lightdm-autologin.conf.j2
-    dest: /etc/lightdm/lightdm.conf.d/50-autologin.conf
-    mode: '0644'
-  notify: Restart lightdm
-
 - name: Display setup completion message
   ansible.builtin.debug:
     msg: |

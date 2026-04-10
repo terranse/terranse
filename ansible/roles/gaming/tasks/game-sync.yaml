@@ -1,0 +1,49 @@
+---
+# Game Sync Service Deployment
+#
+# Installs and configures the game-sync-service that bridges
+# Lutris's game database with Sunshine's app list.
+
+- name: Create game-sync directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+  loop:
+    - /etc/game-sync
+    - /var/lib/game-sync
+    - /var/lib/game-sync/covers
+
+# Install from pip/uv (configurable source)
+- name: Install game-sync-service package
+  ansible.builtin.pip:
+    name: "{{ game_sync_package_url | default(game_sync_package) }}"
+    state: present
+    executable: pip3
+
+- name: Deploy game-sync configuration
+  ansible.builtin.template:
+    src: game-sync.conf.j2
+    dest: /etc/game-sync/game-sync.conf
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
+  notify: Restart game-sync
+
+- name: Deploy game-sync systemd service
+  ansible.builtin.template:
+    src: game-sync.service.j2
+    dest: /etc/systemd/system/game-sync.service
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart game-sync
+
+- name: Enable and start game-sync service
+  ansible.builtin.systemd:
+    name: game-sync
+    enabled: true
+    state: started
+    daemon_reload: true

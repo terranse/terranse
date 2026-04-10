@@ -21,6 +21,13 @@ class GPUHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "text/plain")
             self.end_headers()
             self.wfile.write(result.stdout.encode())
+        elif self.path == "/gpu/slices":
+            result = subprocess.run(["/usr/local/bin/gpu-reconfig.sh", "current"],
+                                  capture_output=True, text=True)
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(result.stdout.encode())
         else:
             self.send_response(404)
             self.end_headers()
@@ -34,6 +41,36 @@ class GPUHandler(http.server.BaseHTTPRequestHandler):
             profile = data.get("profile", "Q-8C")
             result = subprocess.run(
                 ["/usr/local/bin/gpu-allocate.sh", "request", str(vmid), profile],
+                capture_output=True, text=True
+            )
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(result.stdout.encode())
+        elif self.path.startswith("/gpu/reconfigure"):
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode()
+            data = json.loads(body) if body else {}
+            profile = data.get("profile", "")
+            num_slices = str(data.get("num_slices", 0))
+            result = subprocess.run(
+                ["/usr/local/bin/gpu-reconfig.sh", "reconfigure", profile, num_slices],
+                capture_output=True, text=True, timeout=300
+            )
+            status_code = 200 if result.returncode == 0 else 500
+            self.send_response(status_code)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            output = result.stdout or result.stderr
+            self.wfile.write(output.encode())
+        elif self.path.startswith("/gpu/can-reconfigure"):
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode()
+            data = json.loads(body) if body else {}
+            profile = data.get("profile", "")
+            num_slices = str(data.get("num_slices", 0))
+            result = subprocess.run(
+                ["/usr/local/bin/gpu-reconfig.sh", "can-reconfigure", profile, num_slices],
                 capture_output=True, text=True
             )
             self.send_response(200)

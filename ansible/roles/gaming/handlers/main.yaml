@@ -33,3 +33,9 @@
     name: nvidia-gridd
     state: restarted
   failed_when: false
+
+- name: Restart game-sync
+  ansible.builtin.systemd:
+    name: game-sync
+    state: restarted
+  failed_when: false

@@ -1,0 +1,32 @@
+# Game Sync Service Configuration
+# Bridges Lutris game database with Sunshine app list
+# Managed by Ansible - do not edit manually
+
+[general]
+# Port for metadata API (queried by client launcher)
+port = {{ game_sync_port }}
+# Hostname advertised in metadata responses
+hostname = {{ ansible_hostname }}
+
+[lutris]
+# Path to Lutris SQLite database
+db_path = {{ _lutris_data_dir }}/pga.db
+# Lutris binary for triggering resyncs
+lutris_cmd = {{ 'flatpak run net.lutris.Lutris' if lutris_install_method == 'flatpak' else 'lutris' }}
+
+[sunshine]
+# Path to Sunshine apps.json (sync service manages this file)
+apps_path = /home/{{ gaming_user }}/.config/sunshine/apps.json
+
+[storage]
+# Cover art cache directory
+cover_cache_dir = /var/lib/game-sync/covers
+# Game profiles for GPU recommendations
+game_profiles_path = /etc/gpu-manager/game-profiles.json
+
+[stores]
+epic_enabled = {{ epic_enabled | lower }}
+gog_enabled = {{ gog_enabled | lower }}
+steam_enabled = {{ steam_enabled | lower }}
+retroarch_enabled = {{ retroarch_enabled | lower }}
+retroarch_rom_path = /mnt/games/emulation/roms

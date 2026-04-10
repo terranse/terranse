@@ -1,0 +1,187 @@
+---
+# Lutris Game Manager Setup
+#
+# Installs Lutris and configures store integrations for unified game management.
+# Lutris handles Steam, Epic (legendary), GOG (gogdl), and RetroArch.
+#
+# Store credentials are fetched from 1Password via the `op` CLI.
+
+# =============================================================================
+# Install 1Password CLI (needed for credential fetch)
+# =============================================================================
+- name: Check if 1Password CLI is installed
+  ansible.builtin.command: op --version
+  register: op_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install 1Password CLI
+  when: op_installed.rc != 0
+  block:
+    - name: Add 1Password apt key
+      ansible.builtin.get_url:
+        url: https://downloads.1password.com/linux/keys/1password.asc
+        dest: /usr/share/keyrings/1password-archive-keyring.asc
+        mode: '0644'
+
+    - name: Add 1Password apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch=amd64
+          signed-by=/usr/share/keyrings/1password-archive-keyring.asc]
+          https://downloads.1password.com/linux/debian/amd64 stable main
+        filename: 1password
+        mode: '0644'
+
+    - name: Install 1Password CLI package
+      ansible.builtin.apt:
+        name: 1password-cli
+        state: present
+        update_cache: true
+
+# =============================================================================
+# Install Lutris
+# =============================================================================
+- name: Add Flathub repository
+  community.general.flatpak_remote:
+    name: flathub
+    flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
+    state: present
+
+- name: Install Lutris via Flatpak
+  community.general.flatpak:
+    name: net.lutris.Lutris
+    state: present
+  when: lutris_install_method == 'flatpak'
+
+- name: Install Lutris via apt
+  ansible.builtin.apt:
+    name: lutris
+    state: present
+  when: lutris_install_method == 'apt'
+
+# =============================================================================
+# Configure store integrations
+# =============================================================================
+
+# Determine Lutris data paths based on install method
+- name: Set Lutris paths
+  ansible.builtin.set_fact:
+    _lutris_config_dir: >-
+      {{ '/home/' + gaming_user + '/.var/app/net.lutris.Lutris/config/lutris'
+         if lutris_install_method == 'flatpak'
+         else '/home/' + gaming_user + '/.config/lutris' }}
+    _lutris_data_dir: >-
+      {{ '/home/' + gaming_user + '/.var/app/net.lutris.Lutris/data/lutris'
+         if lutris_install_method == 'flatpak'
+         else '/home/' + gaming_user + '/.local/share/lutris' }}
+    _legendary_config_dir: >-
+      {{ '/home/' + gaming_user + '/.var/app/net.lutris.Lutris/config/legendary'
+         if lutris_install_method == 'flatpak'
+         else '/home/' + gaming_user + '/.config/legendary' }}
+
+- name: Create Lutris config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+  loop:
+    - "{{ _lutris_config_dir }}"
+    - "{{ _lutris_data_dir }}"
+    - "{{ _legendary_config_dir }}"
+
+# --- Epic Games (via legendary) ---
+- name: Fetch Epic Games auth token from 1Password
+  ansible.builtin.command:
+    cmd: "op read 'op://Private/{{ op_epic_item }}/auth_token' --no-newline"
+  register: _epic_auth_token
+  changed_when: false
+  no_log: true
+  when: epic_enabled | bool
+  failed_when: false
+
+- name: Deploy Epic Games (legendary) credentials
+  ansible.builtin.copy:
+    content: "{{ _epic_auth_token.stdout }}"
+    dest: "{{ _legendary_config_dir }}/user.json"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0600'
+  when:
+    - epic_enabled | bool
+    - _epic_auth_token.rc == 0
+    - _epic_auth_token.stdout | length > 0
+  no_log: true
+
+# --- GOG (via Lutris integration) ---
+- name: Fetch GOG auth token from 1Password
+  ansible.builtin.command:
+    cmd: "op read 'op://Private/{{ op_gog_item }}/auth_token' --no-newline"
+  register: _gog_auth_token
+  changed_when: false
+  no_log: true
+  when: gog_enabled | bool
+  failed_when: false
+
+- name: Deploy GOG credentials to Lutris config
+  ansible.builtin.copy:
+    content: "{{ _gog_auth_token.stdout }}"
+    dest: "{{ _lutris_config_dir }}/gog-credentials.json"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0600'
+  when:
+    - gog_enabled | bool
+    - _gog_auth_token.rc == 0
+    - _gog_auth_token.stdout | length > 0
+  no_log: true
+
+# --- RetroArch runner registration ---
+- name: Register RetroArch as Lutris runner
+  ansible.builtin.copy:
+    content: |
+      name: RetroArch
+      slug: retroarch
+      runner: linux
+      game:
+        exe: flatpak run org.libretro.RetroArch
+      system:
+        disable_runtime: true
+    dest: "{{ _lutris_config_dir }}/runners/retroarch.yaml"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
+  when: retroarch_enabled | bool
+
+# =============================================================================
+# Initial library sync
+# =============================================================================
+- name: Trigger initial Lutris library sync
+  ansible.builtin.command:
+    cmd: >-
+      {{ 'flatpak run net.lutris.Lutris --sync'
+         if lutris_install_method == 'flatpak'
+         else 'lutris --sync' }}
+  become: true
+  become_user: "{{ gaming_user }}"
+  changed_when: false
+  failed_when: false
+
+- name: Display Lutris setup info
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Lutris Setup Complete!
+
+      Install method: {{ lutris_install_method }}
+      Epic Games: {{ 'configured'
+        if (epic_enabled | bool and
+        _epic_auth_token.rc | default(1) == 0)
+        else 'not configured' }}
+      GOG: {{ 'configured' if (gog_enabled | bool and _gog_auth_token.rc | default(1) == 0) else 'not configured' }}
+      RetroArch runner: {{ 'registered' if retroarch_enabled | bool else 'disabled' }}
+
+      Lutris DB: {{ _lutris_data_dir }}/pga.db
+      ========================================

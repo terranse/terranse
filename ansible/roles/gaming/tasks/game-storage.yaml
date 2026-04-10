@@ -21,6 +21,7 @@
     - /mnt/games/emulation
     - /mnt/sunshine-creds
     - /mnt/gaming/session-state
+    - /mnt/games/covers
 
 # Mount game storage from NAS
 - name: Mount shared game storage (Steam/GOG)
@@ -72,6 +73,16 @@
     state: mounted
   when: nfs_server is defined
 
+# Mount shared cover art cache (populated by game-sync service)
+- name: Mount shared cover art cache
+  ansible.posix.mount:
+    path: /mnt/games/covers
+    src: "{{ nfs_server }}:/tank/gaming/covers"
+    fstype: nfs
+    opts: "rw,noatime,nfsvers=4.2"
+    state: mounted
+  when: nfs_server is defined
+
 # Create user-specific game directory for ZFS clones
 - name: Create user game directory
   ansible.builtin.file:
@@ -93,6 +104,7 @@
       User saves:      /mnt/games/emulation/users/{{ gaming_user }}
       Sunshine creds:  /mnt/sunshine-creds
       Session state:   /mnt/gaming/session-state (GPU manager)
+      Cover art:       /mnt/games/covers
 
       NFS Server: {{ nfs_server | default('Not configured') }}
       ========================================
