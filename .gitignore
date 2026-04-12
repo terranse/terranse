@@ -12,6 +12,9 @@ ansible/playbook.yaml
 packer/proxmox.pkrvars.hcl
 packer/*/downloaded_iso_path/
 
+# Worktrees
+.worktrees/
+
 # Python build artifacts
 *.egg-info/
 __pycache__/
