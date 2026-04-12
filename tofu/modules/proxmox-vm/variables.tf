@@ -24,6 +24,10 @@ variable "network_bridge" {
   default     = "vmbr0"
 }
 
+variable "domain" {
+  type = string
+}
+
 variable "configuration" {
   description = <<-EOT
     Map of VM configurations. Most hardware knobs (bios, disk_slot,
@@ -51,5 +55,6 @@ variable "configuration" {
       pcie        = optional(bool, true)
       primary_gpu = optional(bool, false)
     })), [])
+    roles = optional(list(object({ name = string, vars = optional(map(string), {}) })), [])
   }))
 }

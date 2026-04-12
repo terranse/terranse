@@ -67,7 +67,10 @@
 - name: Setup necessary container features to allow docker
   include_tasks: "{{ item }}"
   when:
-    - (services | from_json | selectattr('name', 'equalto', 'docker') | list | length > 0)
+    - >-
+      ('docker' in (roles | default('[]') | from_json | map(attribute='name') | list))
+      or
+      (docker_services | default('[]') | from_json | length > 0)
     - not (skip_proxmox_delegation | default(false))
   loop:
     - setup/enable-virt-features.yaml

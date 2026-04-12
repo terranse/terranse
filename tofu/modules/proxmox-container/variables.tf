@@ -50,6 +50,12 @@ variable "configuration" {
   }))
 }
 
+variable "host_ssh_address" {
+  description = "SSH-reachable address for the target Proxmox node (defaults to var.host)"
+  type        = string
+  default     = null
+}
+
 variable "services" {
   type = list(string)
   default = []

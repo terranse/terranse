@@ -44,8 +44,20 @@ To add a new module:
    Match the variable interface and output format to ensure compatibility with
    other modules.
 
-3. **Add an entry to the `all_plays` and `all_ansible_inventory` locals in
-`tofu/ansible.tf`**  
+3. **Wire the module into the deployment's `ansible-wiring` call**
 
-   There is currently no way just collect all modules from a certain directory,
-   and as such they will need to added explicitly for each output produced.
+   Each deployment (e.g. `tofu/deployments/edholm/main.tf`) uses the shared
+   `ansible-wiring` module to generate playbooks and inventory. Add your new
+   module's `ansible_plays` output to the `ansible_plays` input of
+   `module "ansible-wiring"`:
+
+   ```hcl
+   module "ansible-wiring" {
+     ...
+     ansible_plays = flatten(concat(
+       [for instance in module.proxmox-lxc : instance.ansible_plays],
+       [for instance in module.proxmox-vm  : instance.ansible_plays],
+       [for instance in module.your-module : instance.ansible_plays],
+     ))
+   }
+   ```

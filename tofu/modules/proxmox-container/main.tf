@@ -11,8 +11,21 @@ terraform {
   }
 }
 
+resource "terraform_data" "ensure_lxc_template" {
+  input = var.image_name
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      ssh root@${coalesce(var.host_ssh_address, var.host)} \
+        "pveam list local | grep -q '${var.image_name}' \
+         || (pveam update && pveam download local ${var.image_name})"
+    EOT
+  }
+}
+
 resource "proxmox_lxc" "lxcs" {
-  for_each = var.configuration
+  for_each   = var.configuration
+  depends_on = [terraform_data.ensure_lxc_template]
 
   vmid        = try(each.value.vmid, 0)
   target_node = var.host

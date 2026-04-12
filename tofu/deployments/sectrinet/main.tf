@@ -25,6 +25,7 @@ module "proxmox-vm" {
   storage_pool  = try(each.value.storage_pool, "local-lvm")
   configuration = each.value.vms
   ssh_key       = var.ssh_key
+  domain        = var.domain
 }
 
 # TODO: Uncomment and configure when OPNSense and Caddy providers are set up
