@@ -112,8 +112,9 @@ hosts = {
 
     lxcs = {
       gitlab-runner = {
-        memory    = 2048
-        disk_size = "16G"
+        memory    = 32768
+        cores     = 12
+        disk_size = "128G"
 
         roles = [
           { name = "docker" }

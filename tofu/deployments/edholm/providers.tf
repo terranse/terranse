@@ -24,5 +24,5 @@ provider "proxmox" {
 }
 
 provider "onepassword" {
-  account = "NYDLBZ4TCZARLJQURRIVNK3RZM"
+  account = "my.1password.com"
 }

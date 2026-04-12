@@ -62,7 +62,7 @@ resource "proxmox_lxc" "lxcs" {
   # Because keyctl cannot be changed by Terraform, but it would try to update this value to false (default), this would break tf runtime
   lifecycle {
     prevent_destroy = false
-    ignore_changes  = [features, ]
+    ignore_changes  = [features, ostemplate]
     # TODO: Never got this to work.
     # replace_triggered_by = [
     #   # This will come from the root module
