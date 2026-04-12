@@ -3,7 +3,7 @@ locals {
 }
 
 variable "hosts" {
-  type = map(any)
+  type = any
 }
 
 variable "ssh_key" {

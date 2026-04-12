@@ -1,5 +1,5 @@
 variable "hosts" {
-  type = map(any)
+  type = any
 }
 
 variable "ansible_plays" {

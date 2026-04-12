@@ -1,8 +1,8 @@
 hosts = {
   "proxmox" = {
-    #TODO Only necessary to specify IP until DNS is in place
-    # ansible_host = "192.168.1.100"
+    ansible_host = "proxmox"
     ansible_user = "root"
+    storage_pool = "FastStorage"
 
     lxcs = {
       media = {

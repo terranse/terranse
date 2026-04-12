@@ -43,7 +43,7 @@ variable "configuration" {
     cores           = optional(number, 2)
     disk_size       = optional(string, "8G")
     vmid            = optional(number)
-    mounts          = optional(map(map(string)), {})
+    mounts          = optional(list(map(string)), [])
     roles           = optional(list(object({ name = string })), [])
     services        = optional(list(object({ name = string })), [])
     docker_services = optional(list(object({ name = string })), [])
