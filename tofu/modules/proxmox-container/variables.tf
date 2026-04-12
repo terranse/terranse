@@ -6,9 +6,10 @@ variable "ssh_key" {
   type = string
 }
 
-variable "image_name" {
-  type    = string
-  default = "debian-13-standard_13.1-1_amd64.tar.zst"
+variable "image_prefix" {
+  description = "Distro prefix to resolve latest LXC template (e.g. 'debian-13', 'ubuntu-24.04')"
+  type        = string
+  default     = "debian-13"
 }
 
 variable "host" {

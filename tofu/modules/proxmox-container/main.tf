@@ -11,14 +11,23 @@ terraform {
   }
 }
 
+data "external" "resolve_lxc_template" {
+  program = ["${path.module}/resolve-template.sh"]
+  query   = { prefix = var.image_prefix }
+}
+
+locals {
+  image_name = data.external.resolve_lxc_template.result.name
+}
+
 resource "terraform_data" "ensure_lxc_template" {
-  input = var.image_name
+  input = local.image_name
 
   provisioner "local-exec" {
     command = <<-EOT
       ssh root@${coalesce(var.host_ssh_address, var.host)} \
-        "pveam list local | grep -q '${var.image_name}' \
-         || (pveam update && pveam download local ${var.image_name})"
+        "pveam list local | grep -q '${local.image_name}' \
+         || (pveam update && pveam download local ${local.image_name})"
     EOT
   }
 }
@@ -30,7 +39,7 @@ resource "proxmox_lxc" "lxcs" {
   vmid        = try(each.value.vmid, 0)
   target_node = var.host
   hostname    = each.key
-  ostemplate  = "local:vztmpl/${var.image_name}"
+  ostemplate  = "local:vztmpl/${local.image_name}"
 
   cores  = each.value.cores
   memory = each.value.memory
