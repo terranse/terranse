@@ -78,7 +78,7 @@ hosts = {
           { name = "docker" }
         ]
         docker_services = [
-          { name = "dls-server" }
+          { name = "fastapi-dls" }
         ]
       }
 
@@ -110,6 +110,18 @@ hosts = {
     ansible_user = "root"
     storage_pool = "NVMePool"
 
+    host_roles = [
+      {
+        name = "drivers"
+        vars = {
+          gpu_type           = "nvidia_vgpu"
+          dls_server_ip      = "dls-server.edholm.cc"
+          game_storage_host  = "true"
+        }
+      },
+      { name = "gpu-manager" }
+    ]
+
     lxcs = {
       gitlab-runner = {
         memory    = 32768
@@ -122,6 +134,45 @@ hosts = {
         docker_services = [
           { name = "gitlab-runner" }
         ]
+      }
+
+      vagrant-runner = {
+        memory    = 16384
+        cores     = 8
+        disk_size = "64G"
+
+        roles = [
+          { name = "vagrant-runner" }
+        ]
+      }
+    }
+
+    vms = {
+      gaming = {
+        cores     = 8
+        memory    = 16384
+        disk_size = "64G"
+        clone     = "ubuntu-2604-base"
+        pci_devices = [{
+          raw_id        = "0000:41:00.0"
+          vgpu_slice_gb = 8
+          pcie          = true
+          primary_gpu   = true
+          rombar        = false
+        }]
+        roles = [{
+          name = "gaming"
+          vars = {
+            gpu_type           = "nvidia_vgpu"
+            dls_server_ip      = "dls-server.edholm.cc"
+            sunshine_enabled   = "true"
+            steam_enabled      = "true"
+            retroarch_enabled  = "true"
+            lutris_enabled     = "true"
+            game_storage_mount = "true"
+            snapshot_on_boot   = "true"
+          }
+        }]
       }
     }
   }

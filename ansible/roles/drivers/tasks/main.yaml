@@ -24,3 +24,10 @@
   ansible.builtin.debug:
     msg: "gpu_type is 'none', skipping GPU driver setup"
   when: gpu_type == "none"
+
+# =============================================================================
+# Game storage ZFS datasets + Proxmox directory mappings (virtiofs)
+# =============================================================================
+- name: Include game storage host setup
+  ansible.builtin.include_tasks: game-storage-host.yaml
+  when: game_storage_host | default(false) | bool

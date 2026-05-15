@@ -134,6 +134,18 @@
   ansible.builtin.include_tasks: monitoring.yaml
   when: enable_monitoring | default(true)
 
+# =============================================================================
+# Attach virtiofs game storage mappings to gaming VMs
+# =============================================================================
+- name: Attach game storage virtiofs to gaming VMs
+  ansible.builtin.command: >-
+    qm set {{ item.vmid }}
+    --mapping-dir0 gaming-pc-games
+    --mapping-dir1 gaming-emulation
+  loop: "{{ gaming_vms | default([]) }}"
+  when: gaming_vms is defined and gaming_vms | length > 0
+  failed_when: false
+
 - name: Display GPU Manager setup info
   ansible.builtin.debug:
     msg: |

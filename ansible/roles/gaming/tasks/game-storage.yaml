@@ -1,7 +1,9 @@
 ---
 # Game Storage Mount Configuration
 #
-# Mounts shared game storage from NAS via NFS
+# Mounts shared game storage via virtiofs (preferred, from host ZFS pools)
+# or NFS (fallback, from NAS). Virtiofs is tried first; NFS is used only
+# when virtiofs is not available and nfs_server is defined.
 
 - name: Install NFS client
   ansible.builtin.apt:
@@ -17,23 +19,59 @@
     mode: '0755'
   loop:
     - /mnt/games
-    - /mnt/games/steam
+    - /mnt/games/pc
     - /mnt/games/emulation
     - /mnt/sunshine-creds
     - /mnt/gaming/session-state
     - /mnt/games/covers
 
-# Mount game storage from NAS
-- name: Mount shared game storage (Steam/GOG)
+# =============================================================================
+# Virtiofs mounts (preferred — shared from host ZFS pools)
+# =============================================================================
+- name: Mount PC games from virtiofs
   ansible.posix.mount:
-    path: /mnt/games/steam
+    path: /mnt/games/pc
+    src: gaming-pc-games
+    fstype: virtiofs
+    state: mounted
+  failed_when: false
+  register: virtiofs_pc_games
+
+- name: Mount emulation from virtiofs
+  ansible.posix.mount:
+    path: /mnt/games/emulation
+    src: gaming-emulation
+    fstype: virtiofs
+    state: mounted
+  failed_when: false
+  register: virtiofs_emulation
+
+# =============================================================================
+# NFS fallback (from NAS, when virtiofs is not available)
+# =============================================================================
+- name: Mount shared game storage from NFS (Steam/GOG)
+  ansible.posix.mount:
+    path: /mnt/games/pc
     src: "{{ nfs_server }}:/tank/gaming/games/steam"
     fstype: nfs
     opts: "rw,noatime,nfsvers=4.2,soft,timeo=150,retrans=3"
     state: mounted
-  when: nfs_server is defined
+  when:
+    - nfs_server is defined
+    - virtiofs_pc_games is failed
 
-# Mount emulation ROMs (read-only master)
+- name: Mount emulation from NFS
+  ansible.posix.mount:
+    path: /mnt/games/emulation
+    src: "{{ nfs_server }}:/tank/gaming/emulation"
+    fstype: nfs
+    opts: "rw,noatime,nfsvers=4.2"
+    state: mounted
+  when:
+    - nfs_server is defined
+    - virtiofs_emulation is failed
+
+# Mount emulation ROMs (read-only, NFS only)
 - name: Mount emulation ROMs (read-only)
   ansible.posix.mount:
     path: /mnt/games/emulation/roms
@@ -41,9 +79,11 @@
     fstype: nfs
     opts: "ro,noatime,nfsvers=4.2"
     state: mounted
-  when: nfs_server is defined
+  when:
+    - nfs_server is defined
+    - virtiofs_emulation is failed
 
-# Mount user-specific emulation saves (read-write)
+# Mount user-specific emulation saves (read-write, NFS only)
 - name: Mount user emulation saves
   ansible.posix.mount:
     path: /mnt/games/emulation/users
@@ -51,9 +91,13 @@
     fstype: nfs
     opts: "rw,noatime,nfsvers=4.2"
     state: mounted
-  when: nfs_server is defined
+  when:
+    - nfs_server is defined
+    - virtiofs_emulation is failed
 
-# Mount Sunshine credentials (read-only)
+# =============================================================================
+# Shared credentials and session state (NFS only — these don't need virtiofs)
+# =============================================================================
 - name: Mount Sunshine credentials
   ansible.posix.mount:
     path: /mnt/sunshine-creds
@@ -63,7 +107,6 @@
     state: mounted
   when: nfs_server is defined
 
-# Mount session state for Sunshine hooks (GPU manager reads this)
 - name: Mount session state directory
   ansible.posix.mount:
     path: /mnt/gaming/session-state
@@ -73,7 +116,6 @@
     state: mounted
   when: nfs_server is defined
 
-# Mount shared cover art cache (populated by game-sync service)
 - name: Mount shared cover art cache
   ansible.posix.mount:
     path: /mnt/games/covers
@@ -99,12 +141,11 @@
       ========================================
       Game Storage Configuration:
 
-      Steam/GOG games: /mnt/games/steam
-      Emulation ROMs:  /mnt/games/emulation/roms (read-only)
-      User saves:      /mnt/games/emulation/users/{{ gaming_user }}
+      PC games:        /mnt/games/pc ({{ 'virtiofs' if virtiofs_pc_games is not failed else 'NFS' if nfs_server is defined else 'not mounted' }})
+      Emulation:       /mnt/games/emulation ({{ 'virtiofs' if virtiofs_emulation is not failed else 'NFS' if nfs_server is defined else 'not mounted' }})
       Sunshine creds:  /mnt/sunshine-creds
       Session state:   /mnt/gaming/session-state (GPU manager)
       Cover art:       /mnt/games/covers
 
-      NFS Server: {{ nfs_server | default('Not configured') }}
+      NFS Server: {{ nfs_server | default('Not configured — using virtiofs') }}
       ========================================

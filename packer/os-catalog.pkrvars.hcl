@@ -32,6 +32,14 @@ os_catalog = {
     cloud_img_url      = "https://cloud-images.ubuntu.com/releases/25.10/release/ubuntu-25.10-server-cloudimg-amd64.img"
     cloud_img_checksum = "sha256:1fe3479463842ea8166762d0aac910aa55137a6a46b9d98bce4b681921eb5af0"
   }
+  "ubuntu-2604" = {
+    iso_url            = ""
+    iso_checksum       = ""
+    iso_file           = ""
+    os_type            = "l26"
+    cloud_img_url      = "https://cloud-images.ubuntu.com/releases/26.04/release/ubuntu-26.04-server-cloudimg-amd64.img"
+    cloud_img_checksum = "sha256:8ed228c9f08a50122fa72307623d9f88d9209ba26e7e849edd584fa675e34863"
+  }
   "windows-11" = {
     iso_url            = ""
     iso_checksum       = ""

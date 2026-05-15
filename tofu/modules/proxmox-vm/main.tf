@@ -54,6 +54,15 @@ locals {
     )
   }
 
+  # Resolve vgpu_slice_gb to mdev type using vgpu_profiles lookup.
+  resolved_pci_devices = {
+    for name, vm in var.configuration : name => [
+      for dev in vm.pci_devices : merge(dev, {
+        mdev = coalesce(dev.mdev, try(var.vgpu_profiles[tostring(dev.vgpu_slice_gb)], null))
+      })
+    ]
+  }
+
   # Derive a stable MAC from the VM name when not explicitly set, so that
   # applies don't churn net0 and DHCP leases stay pinned.
   mac_address = {
@@ -126,47 +135,107 @@ resource "proxmox_vm_qemu" "vms" {
     macaddr = local.mac_address[each.key]
   }
 
-  # PCI passthrough via Proxmox resource mappings (provider >= 3.0)
+  # PCI passthrough via Proxmox resource mappings or raw PCI addresses (provider >= 3.0)
   dynamic "pcis" {
-    for_each = length(each.value.pci_devices) > 0 ? [1] : []
+    for_each = length(local.resolved_pci_devices[each.key]) > 0 ? [1] : []
     content {
       dynamic "pci0" {
-        for_each = length(each.value.pci_devices) > 0 ? [each.value.pci_devices[0]] : []
+        for_each = length(local.resolved_pci_devices[each.key]) > 0 ? [local.resolved_pci_devices[each.key][0]] : []
         content {
-          mapping {
-            mapping_id  = pci0.value.mapping_id
-            pcie        = pci0.value.pcie
-            primary_gpu = pci0.value.primary_gpu
+          dynamic "mapping" {
+            for_each = pci0.value.mapping_id != null ? [1] : []
+            content {
+              mapping_id  = pci0.value.mapping_id
+              mdev        = pci0.value.mdev
+              pcie        = pci0.value.pcie
+              primary_gpu = pci0.value.primary_gpu
+              rombar      = pci0.value.rombar
+            }
+          }
+          dynamic "raw" {
+            for_each = pci0.value.raw_id != null ? [1] : []
+            content {
+              raw_id      = pci0.value.raw_id
+              mdev        = pci0.value.mdev
+              pcie        = pci0.value.pcie
+              primary_gpu = pci0.value.primary_gpu
+              rombar      = pci0.value.rombar
+            }
           }
         }
       }
       dynamic "pci1" {
-        for_each = length(each.value.pci_devices) > 1 ? [each.value.pci_devices[1]] : []
+        for_each = length(local.resolved_pci_devices[each.key]) > 1 ? [local.resolved_pci_devices[each.key][1]] : []
         content {
-          mapping {
-            mapping_id  = pci1.value.mapping_id
-            pcie        = pci1.value.pcie
-            primary_gpu = pci1.value.primary_gpu
+          dynamic "mapping" {
+            for_each = pci1.value.mapping_id != null ? [1] : []
+            content {
+              mapping_id  = pci1.value.mapping_id
+              mdev        = pci1.value.mdev
+              pcie        = pci1.value.pcie
+              primary_gpu = pci1.value.primary_gpu
+              rombar      = pci1.value.rombar
+            }
+          }
+          dynamic "raw" {
+            for_each = pci1.value.raw_id != null ? [1] : []
+            content {
+              raw_id      = pci1.value.raw_id
+              mdev        = pci1.value.mdev
+              pcie        = pci1.value.pcie
+              primary_gpu = pci1.value.primary_gpu
+              rombar      = pci1.value.rombar
+            }
           }
         }
       }
       dynamic "pci2" {
-        for_each = length(each.value.pci_devices) > 2 ? [each.value.pci_devices[2]] : []
+        for_each = length(local.resolved_pci_devices[each.key]) > 2 ? [local.resolved_pci_devices[each.key][2]] : []
         content {
-          mapping {
-            mapping_id  = pci2.value.mapping_id
-            pcie        = pci2.value.pcie
-            primary_gpu = pci2.value.primary_gpu
+          dynamic "mapping" {
+            for_each = pci2.value.mapping_id != null ? [1] : []
+            content {
+              mapping_id  = pci2.value.mapping_id
+              mdev        = pci2.value.mdev
+              pcie        = pci2.value.pcie
+              primary_gpu = pci2.value.primary_gpu
+              rombar      = pci2.value.rombar
+            }
+          }
+          dynamic "raw" {
+            for_each = pci2.value.raw_id != null ? [1] : []
+            content {
+              raw_id      = pci2.value.raw_id
+              mdev        = pci2.value.mdev
+              pcie        = pci2.value.pcie
+              primary_gpu = pci2.value.primary_gpu
+              rombar      = pci2.value.rombar
+            }
           }
         }
       }
       dynamic "pci3" {
-        for_each = length(each.value.pci_devices) > 3 ? [each.value.pci_devices[3]] : []
+        for_each = length(local.resolved_pci_devices[each.key]) > 3 ? [local.resolved_pci_devices[each.key][3]] : []
         content {
-          mapping {
-            mapping_id  = pci3.value.mapping_id
-            pcie        = pci3.value.pcie
-            primary_gpu = pci3.value.primary_gpu
+          dynamic "mapping" {
+            for_each = pci3.value.mapping_id != null ? [1] : []
+            content {
+              mapping_id  = pci3.value.mapping_id
+              mdev        = pci3.value.mdev
+              pcie        = pci3.value.pcie
+              primary_gpu = pci3.value.primary_gpu
+              rombar      = pci3.value.rombar
+            }
+          }
+          dynamic "raw" {
+            for_each = pci3.value.raw_id != null ? [1] : []
+            content {
+              raw_id      = pci3.value.raw_id
+              mdev        = pci3.value.mdev
+              pcie        = pci3.value.pcie
+              primary_gpu = pci3.value.primary_gpu
+              rombar      = pci3.value.rombar
+            }
           }
         }
       }

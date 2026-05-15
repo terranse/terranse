@@ -7,7 +7,7 @@
 # - Sunshine streaming server
 # - Steam with Proton
 # - RetroArch emulators (optional)
-# - Shared game storage via NFS
+# - Shared game storage via virtiofs (preferred) or NFS (fallback)
 # - Boot snapshot hooks for instant resume
 #
 # Required variables:

@@ -1,0 +1,58 @@
+---
+# Game Storage Host Setup
+#
+# Creates ZFS datasets for game storage on the workstation and registers
+# Proxmox directory mappings so they can be shared to VMs via virtiofs.
+#
+# Variables:
+#   game_storage_pools: list of {pool, name} — ZFS pool + dataset name pairs
+#   game_storage_pools defaults to NVMePool for PC games, SATAPool for emulation
+
+- name: Set game storage pool defaults
+  ansible.builtin.set_fact:
+    game_storage_pools: "{{ game_storage_pools | default(_default_game_storage_pools) }}"
+  vars:
+    _default_game_storage_pools:
+      - { pool: NVMePool, name: pc-games }
+      - { pool: SATAPool, name: emulation }
+
+- name: Gather ZFS pools
+  ansible.builtin.command: zpool list -Ho name
+  register: zpool_list
+  changed_when: false
+  failed_when: false
+
+- name: Create game storage ZFS datasets
+  community.general.zfs:
+    name: "{{ item.pool }}/gaming/{{ item.name }}"
+    state: present
+  loop: "{{ game_storage_pools }}"
+  when: item.pool in (zpool_list.stdout_lines | default([]))
+
+- name: Check existing Proxmox directory mappings
+  ansible.builtin.command: pvesh get /cluster/mapping/dir --output-format json
+  register: existing_dir_mappings
+  changed_when: false
+  failed_when: false
+
+- name: Create gaming-pc-games directory mapping
+  ansible.builtin.command: >-
+    pvesh create /cluster/mapping/dir
+    --id gaming-pc-games
+    --map {{ ansible_hostname }}=/{{ game_storage_pools[0].pool }}/gaming/pc-games
+  when:
+    - game_storage_pools | length > 0
+    - game_storage_pools[0].pool in (zpool_list.stdout_lines | default([]))
+    - "'gaming-pc-games' not in (existing_dir_mappings.stdout | default(''))"
+  failed_when: false
+
+- name: Create gaming-emulation directory mapping
+  ansible.builtin.command: >-
+    pvesh create /cluster/mapping/dir
+    --id gaming-emulation
+    --map {{ ansible_hostname }}=/{{ game_storage_pools[1].pool }}/gaming/emulation
+  when:
+    - game_storage_pools | length > 1
+    - game_storage_pools[1].pool in (zpool_list.stdout_lines | default([]))
+    - "'gaming-emulation' not in (existing_dir_mappings.stdout | default(''))"
+  failed_when: false
