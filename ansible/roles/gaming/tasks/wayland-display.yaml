@@ -10,10 +10,6 @@
 #   virtual_display_height: Display height (default: 1080)
 #   virtual_display_refresh: Refresh rate (default: 60)
 
-- name: Set Wayland compositor default
-  ansible.builtin.set_fact:
-    wayland_compositor: "{{ wayland_compositor | default('gamescope') }}"
-
 # =============================================================================
 # Create required directories
 # =============================================================================
@@ -123,6 +119,14 @@
 # =============================================================================
 # Configure display manager to use Wayland session
 # =============================================================================
+- name: Ensure wayland-sessions directory exists
+  # Created by a display manager normally; on a headless streaming VM there may
+  # be none yet, so create it so the session entry can be placed.
+  ansible.builtin.file:
+    path: /usr/share/wayland-sessions
+    state: directory
+    mode: '0755'
+
 - name: Create gaming Wayland session desktop entry
   ansible.builtin.copy:
     content: |

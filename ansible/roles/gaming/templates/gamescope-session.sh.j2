@@ -25,6 +25,10 @@ export __GLX_VENDOR_LIBRARY_NAME=nvidia
 export WLR_NO_HARDWARE_CURSORS=1
 export LIBVA_DRIVER_NAME=nvidia
 
+# Ensure /usr/games is on PATH — Debian/Ubuntu install the gamescope binary
+# there, which is not in the default PATH of a systemd service.
+export PATH="/usr/games:${PATH}"
+
 # Wayland environment
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=gamescope
@@ -52,8 +56,10 @@ GAMESCOPE_OPTS=(
     # Expose Wayland for nested apps
     -e
 
-    # Use NVIDIA backend
-    --backend drm
+    # Headless backend: this VM has no physical display — the vGPU only exposes
+    # virtual connectors, so the DRM backend fails ("Failed to create backend").
+    # gamescope renders offscreen and Sunshine captures it for streaming.
+    --backend headless
 
     # Disable mouse hiding (Sunshine handles this)
     --hide-cursor-delay 0

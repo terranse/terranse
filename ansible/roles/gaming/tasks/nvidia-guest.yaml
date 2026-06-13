@@ -1,8 +1,15 @@
 ---
 # NVIDIA vGPU Guest Driver Installation
 #
-# Installs the NVIDIA vGPU guest driver inside the VM
-# and configures it to use FastAPI-DLS for licensing
+# Installs the NVIDIA vGPU guest driver inside the VM.
+# Drivers are shared from the Proxmox host via virtiofs.
+#
+# Required variables:
+#   dls_server_ip: IP of FastAPI-DLS server
+#
+# Optional variables:
+#   nvidia_guest_driver_url: Direct URL fallback if virtiofs not available
+#   nvidia_guest_install_deb: Use .deb package instead of .run (default: false)
 
 - name: Check if NVIDIA driver is already installed
   ansible.builtin.command: nvidia-smi
@@ -20,55 +27,102 @@
   when: nvidia_check.rc != 0
 
 # =============================================================================
-# Mount drivers NFS share and find guest driver
+# Find guest driver (virtiofs mount from host)
 # =============================================================================
-- name: Create drivers mount point
+- name: Check if virtiofs driver share is mounted
+  ansible.builtin.stat:
+    path: /mnt/drivers/linux
+  register: virtiofs_mount
+
+- name: Create virtiofs mount point
   ansible.builtin.file:
     path: /mnt/drivers
     state: directory
     mode: '0755'
+  when: not virtiofs_mount.stat.exists | default(true)
 
-- name: Mount drivers NFS share
-  ansible.posix.mount:
+- name: Mount virtiofs driver share
+  ansible.builtin.mount:
     path: /mnt/drivers
-    src: "{{ nfs_server }}:/tank/gaming/drivers"
-    fstype: nfs
-    opts: "ro,noatime,nfsvers=4.2"
+    src: nvidia-guest-drivers
+    fstype: virtiofs
+    opts: ro
     state: mounted
-  when: nfs_server is defined
+  when: not virtiofs_mount.stat.exists | default(true)
+  failed_when: false
+  register: virtiofs_mounted
 
-- name: Check for NVIDIA guest driver on NFS mount
+# =============================================================================
+# Install guest driver
+# =============================================================================
+- name: Find NVIDIA guest driver (.deb)
   ansible.builtin.find:
-    paths: /mnt/drivers/nvidia/linux
-    patterns: "NVIDIA-Linux-x86_64-*-grid*.run"
+    paths: /mnt/drivers/linux
+    patterns: "nvidia-linux-grid-*_amd64.deb"
     recurse: false
-  register: nfs_driver
-  when: nvidia_check.rc != 0
+  register: deb_driver
+  when:
+    - nvidia_check.rc != 0
+    - nvidia_guest_install_deb | default(false)
 
-- name: Download NVIDIA guest driver if not on NFS
+- name: Find NVIDIA guest driver (.run)
+  ansible.builtin.find:
+    paths: /mnt/drivers/linux
+    patterns: "NVIDIA-Linux-x86_64-*-grid.run"
+    recurse: false
+  register: run_driver
+  when:
+    - nvidia_check.rc != 0
+    - not (nvidia_guest_install_deb | default(false))
+
+- name: Install NVIDIA guest driver from .deb
+  ansible.builtin.apt:
+    deb: "{{ deb_driver.files[0].path }}"
+    state: present
+  when:
+    - nvidia_check.rc != 0
+    - nvidia_guest_install_deb | default(false)
+    - deb_driver.matched | default(0) > 0
+  notify: Reboot for NVIDIA driver
+
+- name: Install NVIDIA guest driver from .run
+  # Invoke via `sh` rather than executing directly: the driver lives on a
+  # read-only virtiofs share without the execute bit, so exec'ing the path
+  # fails with EACCES. The .run is a makeself shell archive, so `sh <file>`
+  # runs it without needing +x or an exec-capable mount.
+  ansible.builtin.command:
+    cmd: "sh {{ run_driver.files[0].path }} --dkms --silent"
+  when:
+    - nvidia_check.rc != 0
+    - not (nvidia_guest_install_deb | default(false))
+    - run_driver.matched | default(0) > 0
+  notify: Reboot for NVIDIA driver
+
+# =============================================================================
+# Fallback: download driver directly if virtiofs not available
+# =============================================================================
+- name: Download NVIDIA guest driver (fallback)
   ansible.builtin.get_url:
     url: "{{ nvidia_guest_driver_url }}"
     dest: /tmp/nvidia-driver.run
     mode: '0755'
   when:
     - nvidia_check.rc != 0
-    - nfs_driver.matched | default(0) == 0
+    - virtiofs_mounted is failed or (run_driver.matched | default(0) == 0 and deb_driver.matched | default(0) == 0)
     - nvidia_guest_driver_url is defined
 
-- name: Set driver path fact
-  ansible.builtin.set_fact:
-    nvidia_driver_path: "{{ nfs_driver.files[0].path if (nfs_driver.matched | default(0)) > 0 else '/tmp/nvidia-driver.run' }}"
-  when: nvidia_check.rc != 0
-
-- name: Install NVIDIA guest driver
+- name: Install NVIDIA guest driver (fallback)
   ansible.builtin.command:
-    cmd: "{{ nvidia_driver_path }} --dkms --silent"
+    cmd: /tmp/nvidia-driver.run --dkms --silent
   when:
     - nvidia_check.rc != 0
-    - nvidia_driver_path is defined
+    - virtiofs_mounted is failed or (run_driver.matched | default(0) == 0 and deb_driver.matched | default(0) == 0)
+    - nvidia_guest_driver_url is defined
   notify: Reboot for NVIDIA driver
 
+# =============================================================================
 # Configure licensing
+# =============================================================================
 - name: Ensure NVIDIA config directory exists
   ansible.builtin.file:
     path: /etc/nvidia
@@ -100,6 +154,4 @@
   ansible.builtin.debug:
     msg: |
       NVIDIA Driver Status:
-      {{ nvidia_verify.stdout | default('Not installed or not loaded') }}
-
-      Virtual display will be created by Wayland compositor ({{ wayland_compositor | default('gamescope') }})
+      {{ nvidia_verify.stdout | default('Not installed or not loaded - reboot may be required') }}

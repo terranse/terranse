@@ -16,6 +16,10 @@ virtual_display_refresh: 60
 
 # Application toggles
 sunshine_enabled: true
+# Pinned Sunshine release. The role downloads the .deb matching the guest's
+# Ubuntu version (sunshine-ubuntu-<ver>-amd64.deb) so dependencies resolve —
+# the old debian-bookworm build pulls libmfx1, which was removed in Ubuntu 26.04.
+sunshine_version: v2026.516.143833
 steam_enabled: true
 retroarch_enabled: false
 

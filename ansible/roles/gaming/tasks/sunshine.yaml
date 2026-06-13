@@ -36,11 +36,15 @@
     state: directory
     mode: '0755'
 
-- name: Download Sunshine AppImage
+- name: Download Sunshine package matching the guest OS
+  # Use the .deb built for this exact Ubuntu release so apt can resolve its
+  # dependencies (the generic debian-bookworm build depends on libmfx1, which
+  # no longer exists on Ubuntu 26.04).
   ansible.builtin.get_url:
-    url: "https://github.com/LizardByte/Sunshine/releases/download/v0.23.1/sunshine-debian-bookworm-amd64.deb"
+    url: "https://github.com/LizardByte/Sunshine/releases/download/{{ sunshine_version }}/sunshine-ubuntu-{{ ansible_distribution_version }}-amd64.deb"
     dest: /tmp/sunshine.deb
     mode: '0644'
+    force: true # always fetch the OS-matched build; never reuse a stale download
   when: sunshine_installed.rc != 0
 
 - name: Install Sunshine package
@@ -48,6 +52,11 @@
     deb: /tmp/sunshine.deb
     state: present
   when: sunshine_installed.rc != 0
+
+- name: Clean up Sunshine download
+  ansible.builtin.file:
+    path: /tmp/sunshine.deb
+    state: absent
 
 # Configure Sunshine
 - name: Create Sunshine config directory
