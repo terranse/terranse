@@ -26,12 +26,47 @@ drivers_reboot_timeout: 600
 # Directory to store downloaded NVIDIA drivers
 vgpu_driver_dir: /opt/nvidia-vgpu-drivers
 
+# vGPU version to install (leave unset for latest)
+# vgpu_version: "20.0"
+
 # FastAPI-DLS server IP for vGPU licensing
 # Required for vGPU to function - set this to your DLS server
 # dls_server_ip: 192.168.1.100
 
 # NVIDIA GPU PCI address (auto-detected if not specified)
 # nvidia_pci_address: "0000:41:00.0"
+
+# Proxmox virtiofs directory mapping name for guest drivers
+vgpu_virtiofs_mapping: nvidia-guest-drivers
+
+# Proxmox PCI resource mapping (re)created over the live SR-IOV VFs so a
+# non-root API token (terraform) can assign vGPU slices. Must match the
+# mapping_id referenced in the tofu vms.*.pci_devices config.
+vgpu_pci_mapping_name: RTX-A5000
+
+# NVIDIA Display Mode Selector Tool (switches the A5000 to compute mode, which
+# is what exposes the SR-IOV capability). Mirrored on the foxipan community alist.
+displaymodeselector_url: "https://alist.homelabproject.cc/d/foxipan/vGPU/tools/NVIDIA_Display_Mode_Selector_Tool-March-2022.zip"
+
+# vGPU profile drift guard.
+#
+# The terraform `vgpu_profiles` map resolves a human VRAM size (e.g. 8 GB) to a
+# Proxmox mdev type id (e.g. nvidia-664). Those numeric ids are assigned by the
+# NVIDIA driver and CAN be renumbered by a driver-branch bump — which would
+# silently hand VMs the wrong slice size. These checks assert each id still maps
+# to the expected profile name on the live driver, failing loudly if it drifts.
+# Keys are mdev type ids; values are a substring expected in the profile name.
+# Must stay in sync with tofu/modules/proxmox-vm/variables.tf:vgpu_profiles.
+# Set to {} to skip the check.
+vgpu_profile_checks:
+  nvidia-659: RTXA5000-1Q
+  nvidia-660: RTXA5000-2Q
+  nvidia-661: RTXA5000-3Q
+  nvidia-662: RTXA5000-4Q
+  nvidia-663: RTXA5000-6Q
+  nvidia-664: RTXA5000-8Q
+  nvidia-665: RTXA5000-12Q
+  nvidia-666: RTXA5000-24Q
 
 # =============================================================================
 # Intel SR-IOV Configuration

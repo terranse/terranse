@@ -3,25 +3,19 @@
 #
 # This task file sets up NVIDIA vGPU on a Proxmox host:
 # 1. Blacklists nouveau driver
-# 2. Installs prerequisites (kernel headers, build tools)
-# 3. Downloads vGPU drivers from AWS S3 bucket
-# 4. Installs the vGPU host driver with DKMS
-# 5. Configures mdev types for GPU slicing
-# 6. Configures FastAPI-DLS licensing
+# 2. Installs prerequisites
+# 3. Downloads vGPU drivers from foxipan community alist
+# 4. Installs the vGPU-KVM host driver with DKMS
+# 5. Configures FastAPI-DLS licensing
+# 6. Exposes guest drivers to VMs via virtiofs directory mapping
 #
 # Required variables:
 #   dls_server_ip: IP address of FastAPI-DLS server
 #
 # Optional variables:
 #   vgpu_driver_dir: Directory to store drivers (default: /opt/nvidia-vgpu-drivers)
+#   vgpu_version: Specific vGPU version to install (default: latest)
 #   nvidia_pci_address: PCI address of GPU (default: auto-detected)
-
-- name: Set default variables
-  ansible.builtin.set_fact:
-    vgpu_driver_dir: "{{ vgpu_driver_dir | default('/opt/nvidia-vgpu-drivers') }}"
-    drivers_auto_reboot: "{{ drivers_auto_reboot | default(false) }}"
-    drivers_reboot_confirm: "{{ drivers_reboot_confirm | default(true) }}"
-    drivers_reboot_timeout: "{{ drivers_reboot_timeout | default(600) }}"
 
 # =============================================================================
 # Step 1: Blacklist nouveau driver
@@ -37,6 +31,7 @@
     content: |
       # Blacklist nouveau - required for NVIDIA vGPU
       blacklist nouveau
+      blacklist nvidiafb
       options nouveau modeset=0
     dest: /etc/modprobe.d/blacklist-nouveau.conf
     mode: '0644'
@@ -119,41 +114,81 @@
     - not (drivers_auto_reboot | bool)
 
 # =============================================================================
-# Step 2: Install prerequisites
+# Step 2: Unbind GPU from vfio-pci if needed
+# =============================================================================
+- name: Detect NVIDIA GPU PCI address
+  ansible.builtin.shell: |
+    lspci -nn | grep -i nvidia | grep -i 'vga\|3d' | head -1 | cut -d' ' -f1
+  register: nvidia_pci_detect
+  changed_when: false
+  when: nvidia_pci_address is not defined
+
+- name: Set NVIDIA PCI address fact
+  ansible.builtin.set_fact:
+    nvidia_pci_address: "{{ nvidia_pci_address | default(nvidia_pci_detect.stdout) }}"
+
+- name: Check current GPU driver binding
+  ansible.builtin.shell: |
+    lspci -nnk -s {{ nvidia_pci_address }} | grep 'Kernel driver' | awk '{print $NF}'
+  register: gpu_current_driver
+  changed_when: false
+
+- name: Remove GPU from vfio-pci IDs if bound
+  when: gpu_current_driver.stdout == 'vfio-pci'
+  block:
+    - name: Get NVIDIA GPU device IDs
+      ansible.builtin.shell: |
+        lspci -n -s {{ nvidia_pci_address }} | awk '{print $3}'
+      register: nvidia_device_id
+      changed_when: false
+
+    - name: Remove NVIDIA device IDs from vfio-pci modprobe config
+      ansible.builtin.lineinfile:
+        path: /etc/modprobe.d/vfio.conf
+        regexp: '.*{{ nvidia_device_id.stdout }}.*'
+        state: absent
+      register: vfio_config_changed
+      failed_when: false
+
+    - name: Update initramfs after vfio-pci changes
+      ansible.builtin.command: update-initramfs -u
+      when: vfio_config_changed.changed | default(false)
+
+    - name: Set reboot required for vfio unbind
+      ansible.builtin.set_fact:
+        _drivers_reboot_required_vfio: true
+      when: vfio_config_changed.changed | default(false)
+
+    - name: Reboot to release GPU from vfio-pci
+      ansible.builtin.reboot:
+        msg: "Rebooting to release GPU from vfio-pci for vGPU driver"
+        reboot_timeout: "{{ drivers_reboot_timeout }}"
+        post_reboot_delay: 30
+      when:
+        - _drivers_reboot_required_vfio | default(false)
+        - drivers_auto_reboot | bool
+
+# =============================================================================
+# Step 3: Install prerequisites
 # =============================================================================
 - name: Install build prerequisites for NVIDIA driver
   ansible.builtin.apt:
     name:
       - build-essential
       - dkms
-      - linux-headers-{{ ansible_kernel }}
-      - pve-headers-{{ ansible_kernel }}
-      - rclone
+      - "proxmox-headers-{{ ansible_kernel }}"
       - python3
-      - jq
     state: present
     update_cache: true
 
 # =============================================================================
-# Step 3: Download vGPU drivers
+# Step 4: Download vGPU drivers from foxipan
 # =============================================================================
 - name: Create vGPU driver directory
   ansible.builtin.file:
     path: "{{ vgpu_driver_dir }}"
     state: directory
     mode: '0755'
-
-- name: Copy rclone configuration for NVIDIA S3 bucket
-  ansible.builtin.copy:
-    src: rclone.conf
-    dest: /root/.config/rclone/rclone.conf
-    mode: '0600'
-
-- name: Ensure rclone config directory exists
-  ansible.builtin.file:
-    path: /root/.config/rclone
-    state: directory
-    mode: '0700'
 
 - name: Copy vGPU driver download script
   ansible.builtin.copy:
@@ -162,81 +197,26 @@
     mode: '0755'
 
 - name: Check if vGPU drivers already downloaded
-  ansible.builtin.find:
-    paths: "{{ vgpu_driver_dir }}"
-    patterns: "NVIDIA-Linux-*.run"
+  ansible.builtin.stat:
+    path: "{{ vgpu_driver_dir }}/VERSION.json"
   register: existing_drivers
 
-- name: Download latest vGPU drivers
+- name: Download vGPU drivers
   ansible.builtin.command:
-    cmd: /usr/local/bin/get-vgpu-drivers.py -d "{{ vgpu_driver_dir }}"
-  environment:
-    RCLONE_CONFIG: /root/.config/rclone/rclone.conf
-  when: existing_drivers.matched == 0
+    cmd: >-
+      /usr/local/bin/get-vgpu-drivers.py
+      -d "{{ vgpu_driver_dir }}"
+      {{ ('-v ' + vgpu_version) if vgpu_version is defined else '' }}
+  when: not existing_drivers.stat.exists
   register: driver_download
 
 # =============================================================================
-# Step 3b: Sync guest drivers to NAS for VM access
-# =============================================================================
-- name: Find downloaded guest drivers
-  ansible.builtin.find:
-    paths: "{{ vgpu_driver_dir }}"
-    patterns:
-      - "NVIDIA-Linux-x86_64-*-grid-vgpu-kvm.run"  # Linux guest
-      - "*-grid-win*.exe"  # Windows guest
-  register: guest_driver_files
-
-- name: Mount NAS drivers share for syncing
-  ansible.posix.mount:
-    path: /mnt/gaming-drivers
-    src: "{{ nfs_server }}:/tank/gaming/drivers"
-    fstype: nfs
-    opts: "rw,noatime,nfsvers=4.2"
-    state: mounted
-  when:
-    - nfs_server is defined
-    - guest_driver_files.matched > 0
-
-- name: Sync Linux guest drivers to NAS
-  ansible.builtin.copy:
-    src: "{{ item.path }}"
-    dest: "/mnt/gaming-drivers/nvidia/linux/"
-    remote_src: true
-    mode: '0644'
-  loop: "{{ guest_driver_files.files | selectattr('path', 'search', 'Linux') | list }}"
-  when:
-    - nfs_server is defined
-    - guest_driver_files.matched > 0
-
-- name: Sync Windows guest drivers to NAS
-  ansible.builtin.copy:
-    src: "{{ item.path }}"
-    dest: "/mnt/gaming-drivers/nvidia/windows/"
-    remote_src: true
-    mode: '0644'
-  loop: "{{ guest_driver_files.files | selectattr('path', 'search', 'win') | list }}"
-  when:
-    - nfs_server is defined
-    - guest_driver_files.matched > 0
-
-- name: Create driver version marker file
-  ansible.builtin.copy:
-    content: |
-      # NVIDIA vGPU Driver Version
-      # This file is auto-generated by Ansible
-      HOST_DRIVER_VERSION={{ nvidia_driver_version | default('unknown') }}
-      LAST_UPDATED={{ ansible_date_time.iso8601 }}
-    dest: /mnt/gaming-drivers/nvidia/VERSION
-    mode: '0644'
-  when: nfs_server is defined
-
-# =============================================================================
-# Step 4: Install NVIDIA vGPU host driver
+# Step 5: Install NVIDIA vGPU host driver
 # =============================================================================
 - name: Find downloaded host driver
   ansible.builtin.find:
-    paths: "{{ vgpu_driver_dir }}"
-    patterns: "NVIDIA-Linux-x86_64-*-grid.run"
+    paths: "{{ vgpu_driver_dir }}/host"
+    patterns: "NVIDIA-Linux-x86_64-*-vgpu-kvm.run"
   register: host_driver_file
 
 - name: Check if NVIDIA driver is already installed
@@ -260,23 +240,15 @@
   register: driver_install
   notify: Reboot host for NVIDIA driver
 
-# =============================================================================
-# Step 5: Configure vGPU mdev types
-# =============================================================================
-- name: Detect NVIDIA GPU PCI address
-  ansible.builtin.shell: |
-    lspci -nn | grep -i nvidia | grep -i vga | head -1 | cut -d' ' -f1
-  register: nvidia_pci_detect
+- name: Verify NVIDIA driver loaded
+  ansible.builtin.command: nvidia-smi
+  register: nvidia_smi_verify
   changed_when: false
-  when: nvidia_pci_address is not defined
+  failed_when: false
 
-- name: Set NVIDIA PCI address fact
-  ansible.builtin.set_fact:
-    nvidia_pci_address: "{{ nvidia_pci_address | default(nvidia_pci_detect.stdout) }}"
-
-- name: Debug - Show detected GPU
+- name: Display NVIDIA driver status
   ansible.builtin.debug:
-    msg: "Detected NVIDIA GPU at PCI address: {{ nvidia_pci_address }}"
+    msg: "{{ nvidia_smi_verify.stdout | default('Driver not loaded - reboot required') }}"
 
 # =============================================================================
 # Step 6: Configure FastAPI-DLS licensing
@@ -303,18 +275,85 @@
   when: dls_server_ip is not defined
 
 # =============================================================================
-# Step 7: Setup systemd timer for driver updates (optional)
+# Step 7: Expose guest drivers via virtiofs directory mapping
+# =============================================================================
+- name: Create Proxmox directory mapping for guest drivers
+  ansible.builtin.command:
+    cmd: >-
+      pvesh create /cluster/mapping/dir
+      --id nvidia-guest-drivers
+      --map {{ ansible_hostname }}={{ vgpu_driver_dir }}/guest
+      --description "NVIDIA vGPU guest drivers (shared via virtiofs)"
+  register: dir_mapping_create
+  changed_when: dir_mapping_create.rc == 0
+  failed_when: false
+
+- name: Update Proxmox directory mapping if it already exists
+  ansible.builtin.command:
+    cmd: >-
+      pvesh set /cluster/mapping/dir/nvidia-guest-drivers
+      --map {{ ansible_hostname }}={{ vgpu_driver_dir }}/guest
+      --description "NVIDIA vGPU guest drivers (shared via virtiofs)"
+  when: dir_mapping_create.rc != 0
+  changed_when: true
+  failed_when: false
+
+# =============================================================================
+# Step 7a: Enable vGPU SR-IOV (compute display mode + VFs + PCI mapping)
+# =============================================================================
+- name: Enable NVIDIA vGPU SR-IOV on the host
+  ansible.builtin.include_tasks: nvidia-vgpu-sriov.yaml
+
+# =============================================================================
+# Step 7b: vGPU profile drift guard
+#
+# Assert the mdev type ids the terraform vgpu_profiles map relies on still
+# resolve to the expected profiles on this driver. Only runs when SR-IOV VFs
+# already exist (the guard is meaningless before they do), so it degrades to a
+# no-op on a host where vGPU isn't enabled yet rather than failing spuriously.
+# =============================================================================
+- name: Read available vGPU types from a virtual function
+  ansible.builtin.shell: |
+    set -o pipefail
+    f=$(ls /sys/bus/pci/devices/*/virtfn0/nvidia/creatable_vgpu_types 2>/dev/null | head -1)
+    if [ -n "$f" ]; then cat "$f"; fi
+  args:
+    executable: /bin/bash
+  register: vgpu_creatable_types
+  changed_when: false
+  when: vgpu_profile_checks | default({}) | length > 0
+
+- name: Assert vGPU profile ids still map to expected profiles
+  ansible.builtin.assert:
+    that:
+      - 'vgpu_creatable_types.stdout | regex_search("^\s*" ~ (item.key | regex_replace("^nvidia-", "")) ~ "\s*:.*" ~ item.value, multiline=True) is not none'
+    fail_msg: >-
+      vGPU profile drift detected: mdev type '{{ item.key }}' no longer maps to a
+      profile matching '{{ item.value }}' on this driver branch. The terraform
+      vgpu_profiles map (and vgpu_profile_checks) are stale. Re-derive the ids with:
+      cat /sys/bus/pci/devices/<vf>/nvidia/creatable_vgpu_types
+    success_msg: "vGPU profile {{ item.key }} -> {{ item.value }} OK"
+  loop: "{{ vgpu_profile_checks | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - vgpu_profile_checks | default({}) | length > 0
+    - vgpu_creatable_types.stdout | default('') | length > 0
+
+# =============================================================================
+# Step 8: Systemd timer for periodic driver updates
 # =============================================================================
 - name: Create systemd service for vGPU driver fetcher
   ansible.builtin.copy:
     content: |
       [Unit]
-      Description=Fetch newest NVIDIA vGPU drivers
+      Description=Fetch newest NVIDIA vGPU drivers from foxipan
+      After=network-online.target
+      Wants=network-online.target
 
       [Service]
       Type=oneshot
       ExecStart=/usr/local/bin/get-vgpu-drivers.py -d {{ vgpu_driver_dir }}
-      Environment=RCLONE_CONFIG=/root/.config/rclone/rclone.conf
     dest: /etc/systemd/system/vgpu-driver-fetch.service
     mode: '0644'
 
@@ -322,7 +361,7 @@
   ansible.builtin.copy:
     content: |
       [Unit]
-      Description=Run vGPU driver fetcher daily
+      Description=Check for vGPU driver updates daily
 
       [Timer]
       OnCalendar=03:00
@@ -339,46 +378,3 @@
     enabled: true
     state: started
     daemon_reload: true
-
-# =============================================================================
-# Step 8: Auto-sync drivers to NAS after fetch
-# =============================================================================
-- name: Create gpu-manager directory for sync script
-  ansible.builtin.file:
-    path: /opt/gpu-manager
-    state: directory
-    mode: '0755'
-
-- name: Deploy driver sync script
-  ansible.builtin.copy:
-    src: sync-drivers.sh
-    dest: /opt/gpu-manager/sync-drivers.sh
-    mode: '0755'
-
-- name: Deploy driver sync systemd service
-  ansible.builtin.template:
-    src: driver-sync.service.j2
-    dest: /etc/systemd/system/driver-sync.service
-    mode: '0644'
-
-- name: Deploy driver sync systemd path watcher
-  ansible.builtin.template:
-    src: driver-sync.path.j2
-    dest: /etc/systemd/system/driver-sync.path
-    mode: '0644'
-
-- name: Enable driver sync path watcher
-  ansible.builtin.systemd:
-    name: driver-sync.path
-    enabled: "{{ enable_driver_sync | default(true) }}"
-    state: "{{ 'started' if (enable_driver_sync | default(true)) else 'stopped' }}"
-    daemon_reload: true
-  when: nfs_server is defined
-
-- name: Run initial driver sync
-  ansible.builtin.command:
-    cmd: /opt/gpu-manager/sync-drivers.sh
-  changed_when: true
-  when:
-    - nfs_server is defined
-    - run_initial_driver_sync | default(true)

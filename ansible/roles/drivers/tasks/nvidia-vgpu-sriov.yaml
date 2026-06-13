@@ -1,0 +1,192 @@
+---
+# NVIDIA vGPU SR-IOV host enablement.
+#
+# Captures the one-time-but-must-be-reproducible bring-up that turns a stock
+# Ampere workstation GPU (e.g. RTX A5000) into a vGPU/SR-IOV provider:
+#
+#   1. Switch the GPU to "compute" display mode with the NVIDIA Display Mode
+#      Selector. Ampere workstation cards expose the SR-IOV PCIe capability
+#      (and therefore vGPU) ONLY in this mode; in the factory "graphics" mode
+#      the card enumerates as a VGA controller [0300] with no SR-IOV. After the
+#      flash it enumerates as a 3D controller [0302]. The flash is an EEPROM
+#      change requiring the nvidia driver unloaded and a host reboot/power-cycle.
+#   2. Enable SR-IOV virtual functions persistently (pve-nvidia-sriov@ALL).
+#   3. Register/refresh the Proxmox PCI resource mapping over the live VFs, so a
+#      non-root API token (terraform) can assign vGPU slices (it cannot set raw
+#      hostpci, only mappings).
+#
+# Idempotent: the display-mode flash is gated on the live PCI class, so on a
+# host already in compute mode it is skipped entirely (no driver unload, no
+# reboot). SR-IOV enable and the mapping refresh run every time and converge.
+#
+# Variables:
+#   vgpu_pci_mapping_name      Proxmox PCI mapping id to (re)create (default below)
+#   displaymodeselector_url    URL of the NVIDIA Display Mode Selector Tool zip
+#   drivers_auto_reboot        Reuse the drivers-role reboot gate for the flash
+
+- name: Determine GPU PCI address (full BDF)
+  ansible.builtin.shell: |
+    set -o pipefail
+    lspci -D -d 10de: | grep -iE 'vga|3d' | head -1 | awk '{print $1}'
+  args:
+    executable: /bin/bash
+  register: vgpu_pf_bdf
+  changed_when: false
+
+- name: Read GPU PCI class (0300=graphics/VGA, 0302=compute/3D)
+  ansible.builtin.command: "lspci -n -s {{ vgpu_pf_bdf.stdout }}"
+  register: vgpu_pf_class
+  changed_when: false
+
+- name: Set vGPU display-mode facts
+  ansible.builtin.set_fact:
+    vgpu_pf: "{{ vgpu_pf_bdf.stdout }}"
+    # The class is the 2nd whitespace field, "0302:" -> strip the trailing colon
+    vgpu_in_compute_mode: "{{ (vgpu_pf_class.stdout.split()[1] | regex_replace(':$','')) == '0302' }}"
+
+# =============================================================================
+# Step 1: switch to compute display mode (only when still in graphics mode)
+# =============================================================================
+- name: Enable compute display mode for vGPU
+  when: not (vgpu_in_compute_mode | bool)
+  block:
+    - name: Create display-mode-selector working directory
+      ansible.builtin.file:
+        path: "{{ vgpu_driver_dir }}/displaymodeselector"
+        state: directory
+        mode: '0755'
+
+    - name: Download NVIDIA Display Mode Selector Tool
+      ansible.builtin.unarchive:
+        src: "{{ displaymodeselector_url }}"
+        dest: "{{ vgpu_driver_dir }}/displaymodeselector"
+        remote_src: true
+        creates: "{{ vgpu_driver_dir }}/displaymodeselector/Mar 2022/displaymodeselector"
+
+    - name: Locate displaymodeselector binary
+      ansible.builtin.find:
+        paths: "{{ vgpu_driver_dir }}/displaymodeselector"
+        patterns: displaymodeselector
+        recurse: true
+        file_type: file
+      register: dms_bin
+
+    - name: Stop NVIDIA vGPU services before flashing
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - nvidia-vgpu-mgr
+        - nvidia-vgpud
+      failed_when: false
+
+    - name: Unload NVIDIA kernel modules before flashing
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - nvidia_vgpu_vfio
+        - nvidia_drm
+        - nvidia_modeset
+        - nvidia_uvm
+        - nvidia
+      failed_when: false
+
+    - name: Flash GPU to compute display mode
+      # --auto answers the firmware-update confirmation prompts non-interactively.
+      # The tool reads confirmations from the console, so piping stdin will not
+      # work; --auto is the supported unattended path.
+      ansible.builtin.command:
+        cmd: "{{ dms_bin.files[0].path }} --gpumode compute --auto"
+      register: dms_flash
+      changed_when: "'Successfully' in dms_flash.stdout"
+      failed_when: dms_flash.rc != 0 and 'already' not in (dms_flash.stdout | lower)
+
+    - name: Flag reboot required for display-mode change
+      ansible.builtin.set_fact:
+        _drivers_reboot_required: true
+
+    - name: Reboot host to apply compute display mode
+      ansible.builtin.reboot:
+        msg: "Rebooting to apply NVIDIA compute display mode (vGPU/SR-IOV)"
+        reboot_timeout: "{{ drivers_reboot_timeout }}"
+        post_reboot_delay: 30
+      when: drivers_auto_reboot | bool
+
+    - name: Fail if reboot needed but auto-reboot disabled
+      ansible.builtin.fail:
+        msg: |
+          The GPU was flashed to compute display mode but a host reboot is
+          required before SR-IOV/vGPU becomes available. Reboot {{ inventory_hostname }}
+          and re-run, or set drivers_auto_reboot=true to reboot automatically.
+      when: not (drivers_auto_reboot | bool)
+
+# =============================================================================
+# Step 2: enable SR-IOV virtual functions (persistent across reboots)
+# =============================================================================
+- name: Enable persistent SR-IOV VF creation (pve-nvidia-sriov@ALL)
+  ansible.builtin.systemd:
+    name: pve-nvidia-sriov@ALL.service
+    enabled: true
+    state: started
+  register: sriov_service
+  failed_when: false
+
+- name: Fallback — create VFs directly if the pve service is unavailable
+  ansible.builtin.command: "/usr/lib/nvidia/sriov-manage -e {{ vgpu_pf }}"
+  register: sriov_manage
+  changed_when: "'Enabling' in (sriov_manage.stdout | default(''))"
+  failed_when: false
+  when: sriov_service is failed or sriov_service.status is not defined
+
+- name: Read SR-IOV VF count
+  ansible.builtin.command: "cat /sys/bus/pci/devices/{{ vgpu_pf }}/sriov_numvfs"
+  register: sriov_numvfs
+  changed_when: false
+  failed_when: false
+
+- name: Assert SR-IOV VFs are present
+  ansible.builtin.assert:
+    that:
+      - sriov_numvfs.stdout | default('0') | int > 0
+    fail_msg: >-
+      No SR-IOV VFs on {{ vgpu_pf }} (sriov_numvfs={{ sriov_numvfs.stdout | default('n/a') }}).
+      The GPU must be in compute display mode (3D controller [0302]) and SR-IOV
+      enabled. If the display-mode flash just ran, a host reboot is required first.
+    success_msg: "SR-IOV active: {{ sriov_numvfs.stdout }} VFs on {{ vgpu_pf }}"
+
+# =============================================================================
+# Step 3: register/refresh the Proxmox PCI resource mapping over the live VFs
+# =============================================================================
+- name: Build PCI mapping entries from the live virtual functions
+  ansible.builtin.shell: |
+    set -o pipefail
+    pf="{{ vgpu_pf }}"
+    for d in $(lspci -D -d 10de: | awk '{print $1}' | grep -v "^${pf}$"); do
+      # only the VFs of this PF (same device id, subsystem 0000)
+      if [ -e "/sys/bus/pci/devices/$d/physfn" ]; then
+        grp=$(basename "$(readlink -f /sys/bus/pci/devices/$d/iommu_group)")
+        echo "id=10de:2231,iommugroup=${grp},node={{ ansible_hostname }},path=${d},subsystem-id=10de:0000"
+      fi
+    done
+  args:
+    executable: /bin/bash
+  register: vgpu_map_entries
+  changed_when: false
+
+- name: Check whether the PCI mapping already exists
+  ansible.builtin.command: "pvesh get /cluster/mapping/pci/{{ vgpu_pci_mapping_name }} --output-format json"
+  register: existing_pci_mapping
+  changed_when: false
+  failed_when: false
+
+- name: Create/refresh the vGPU PCI resource mapping over current VFs
+  ansible.builtin.command: >-
+    pvesh {{ 'set' if existing_pci_mapping.rc == 0 else 'create' }}
+    /cluster/mapping/pci/{{ vgpu_pci_mapping_name }}
+    {% if existing_pci_mapping.rc != 0 %}--id {{ vgpu_pci_mapping_name }}{% endif %}
+    --mdev 1
+    --description "{{ vgpu_pci_mapping_name }} vGPU (first free VF on VM start) — managed by ansible"
+    {% for e in vgpu_map_entries.stdout_lines %}--map "{{ e }}" {% endfor %}
+  when: vgpu_map_entries.stdout_lines | length > 0
+  changed_when: true
