@@ -46,6 +46,7 @@ variable "configuration" {
     vmid          = optional(number)
     clone         = optional(string, "ubuntu-2604-base")
     full_clone    = optional(bool, false) # false = fast ZFS linked clone; true = full copy
+    ci_user       = optional(string, "ubuntu") # cloud-init / ansible login user (cloud images refuse root)
     bios          = optional(string)      # "ovmf" or "seabios" — derived from clone when null
     os_type       = optional(string)      # proxmox os_type — derived from clone when null
     network_model = optional(string)      # virtio / e1000 / rtl8139 — derived from clone when null
@@ -64,14 +65,23 @@ variable "configuration" {
 }
 
 variable "vgpu_profiles" {
-  description = "Map of vGPU VRAM sizes (GB) to NVIDIA mdev type IDs"
+  description = <<-EOT
+    Map of vGPU VRAM sizes (GB) to NVIDIA mdev type IDs.
+
+    These IDs are driver- and GPU-specific. The values below are the RTX A5000
+    Q-series profiles (Virtual Workstation: full CUDA/OpenGL/Vulkan, best for
+    gaming) as enumerated by the vGPU 20.x host driver (595.x) on Proxmox 8.4.
+    Verify with: pvesh get /nodes/<node>/hardware/pci/<vf-addr>/mdev
+  EOT
   type        = map(string)
   default = {
-    "1"  = "nvidia-256"
-    "2"  = "nvidia-257"
-    "4"  = "nvidia-258"
-    "8"  = "nvidia-259"
-    "12" = "nvidia-260"
-    "24" = "nvidia-261"
+    "1"  = "nvidia-659" # RTXA5000-1Q
+    "2"  = "nvidia-660" # RTXA5000-2Q
+    "3"  = "nvidia-661" # RTXA5000-3Q
+    "4"  = "nvidia-662" # RTXA5000-4Q
+    "6"  = "nvidia-663" # RTXA5000-6Q
+    "8"  = "nvidia-664" # RTXA5000-8Q
+    "12" = "nvidia-665" # RTXA5000-12Q
+    "24" = "nvidia-666" # RTXA5000-24Q
   }
 }

@@ -114,9 +114,16 @@ hosts = {
       {
         name = "drivers"
         vars = {
-          gpu_type           = "nvidia_vgpu"
-          dls_server_ip      = "dls-server.edholm.cc"
-          game_storage_host  = "true"
+          gpu_type          = "nvidia_vgpu"
+          dls_server_ip     = "dls-server.edholm.cc"
+          game_storage_host = "true"
+          # ZFS pool names are case-sensitive and differ from the Proxmox
+          # storage IDs: nvmepool = 2x Samsung 990 Pro NVMe (fast, PC games),
+          # store = 2x Kingston SATA SSD mirror (emulation).
+          game_storage_pools = [
+            { pool = "nvmepool", name = "pc-games" },
+            { pool = "store", name = "emulation" },
+          ]
         }
       },
       { name = "gpu-manager" }
@@ -154,11 +161,15 @@ hosts = {
         disk_size = "64G"
         clone     = "ubuntu-2604-base"
         pci_devices = [{
-          raw_id        = "0000:41:00.0"
+          mapping_id    = "RTX-A5000"
           vgpu_slice_gb = 8
           pcie          = true
-          primary_gpu   = true
-          rombar        = false
+          # primary_gpu (x-vga) MUST stay false for a headless streaming VM:
+          # making the vGPU the primary display hangs boot once the gamescope
+          # session service is enabled. Sunshine/gamescope use the vGPU as a
+          # render node; an emulated VGA stays the console.
+          primary_gpu = false
+          rombar      = false
         }]
         roles = [{
           name = "gaming"
