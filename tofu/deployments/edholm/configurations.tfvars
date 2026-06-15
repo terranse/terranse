@@ -165,12 +165,16 @@ hosts = {
           vgpu_slice_gb = 8
           pcie          = true
           # primary_gpu (x-vga) MUST stay false for a headless streaming VM:
-          # making the vGPU the primary display hangs boot once the gamescope
-          # session service is enabled. Sunshine/gamescope use the vGPU as a
-          # render node; an emulated VGA stays the console.
+          # making the vGPU the primary display hangs boot once the gaming
+          # session service is enabled. Sunshine/Sway use the vGPU as a render
+          # node; an emulated VGA stays the console.
           primary_gpu = false
           rombar      = false
         }]
+        # Game storage is shared in via virtiofs (attached by the gpu-manager
+        # role). Proxmox auto-backs a virtiofs VM with a shareable memfd, which
+        # is incompatible with hugepages/ballooning — keep this VM on plain
+        # memory (no balloon/hugepages) so the virtiofs attach takes effect.
         roles = [{
           name = "gaming"
           vars = {

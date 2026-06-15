@@ -137,12 +137,17 @@
 # =============================================================================
 # Attach virtiofs game storage mappings to gaming VMs
 # =============================================================================
+# gaming_vms is a dict keyed by hostname ({ gaming: { vmid: 111 } }) — the same
+# shape vm-map.json.j2 consumes. Attach the directory mappings as virtiofs
+# devices. The change takes effect when the VM next (re)starts.
 - name: Attach game storage virtiofs to gaming VMs
   ansible.builtin.command: >-
-    qm set {{ item.vmid }}
-    --mapping-dir0 gaming-pc-games
-    --mapping-dir1 gaming-emulation
-  loop: "{{ gaming_vms | default([]) }}"
+    qm set {{ item.value.vmid }}
+    --virtiofs0 dirid=gaming-pc-games
+    --virtiofs1 dirid=gaming-emulation
+  loop: "{{ gaming_vms | dict2items }}"
+  loop_control:
+    label: "{{ item.key }} (vmid {{ item.value.vmid }})"
   when: gaming_vms is defined and gaming_vms | length > 0
   failed_when: false
 

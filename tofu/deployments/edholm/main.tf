@@ -30,15 +30,42 @@ module "proxmox-vm" {
   domain        = var.domain
 }
 
+# Inject the gaming VMs' live VMIDs (from the proxmox-vm module) into the
+# gpu-manager role's vars, so it never hardcodes a VMID. Shape matches what
+# vm-map.json.j2 and the virtiofs-attach task consume: { gaming = { vmid = N } }.
+locals {
+  gaming_vms_by_host = {
+    for host_key, mod in module.proxmox-vm : host_key => {
+      for name, id in mod.vm_ids : name => { vmid = id }
+    }
+  }
+
+  hosts_wired = {
+    for host_key, host in var.hosts : host_key => (
+      contains(keys(local.gaming_vms_by_host), host_key) && try(host.host_roles, null) != null
+      ? merge(host, {
+        host_roles = [
+          for r in host.host_roles : (
+            r.name == "gpu-manager"
+            ? merge(r, { vars = merge(try(r.vars, {}), { gaming_vms = local.gaming_vms_by_host[host_key] }) })
+            : r
+          )
+        ]
+      })
+      : host
+    )
+  }
+}
+
 module "ansible-wiring" {
   source          = "../../modules/ansible-wiring"
   ansible_root    = local.ansible_root
   deployment_name = "edholm"
   deployment_path = "../tofu/deployments/edholm"
-  hosts           = var.hosts
-  ansible_plays   = flatten(concat(
+  hosts           = local.hosts_wired
+  ansible_plays = flatten(concat(
     [for instance in module.proxmox-lxc : instance.ansible_plays],
-    [for instance in module.proxmox-vm  : instance.ansible_plays],
+    [for instance in module.proxmox-vm : instance.ansible_plays],
   ))
 }
 
