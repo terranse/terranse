@@ -3,8 +3,12 @@
 #
 # Points to FastAPI-DLS server for vGPU licensing
 
-# Enable vGPU licensing
-FeatureType=1
+# Enable vGPU licensing.
+# FeatureType selects the licensed product and MUST match the assigned vGPU
+# profile, or the guest stays Unlicensed even with a reachable DLS server:
+#   1 = vGPU / vPC, 2 = RTX Virtual Workstation (vWS), 4 = vCompute Server.
+# The A5000 Q-series profile (RTXA5000-8Q) is a vWS profile, so use 2.
+FeatureType={{ vgpu_feature_type | default(2) }}
 
 # FastAPI-DLS server configuration
 ServerAddress={{ dls_server_ip }}

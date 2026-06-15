@@ -122,7 +122,38 @@
 
 # =============================================================================
 # Configure licensing
+#
+# vGPU licensing is unforgiving: the guest must (1) point gridd at a reachable
+# DLS server with the right FeatureType, (2) have a clock within 10 minutes of
+# the DLS server (NVIDIA bug 3859889) on the same timezone, and (3) fetch a
+# fresh client token and restart nvidia-gridd within ~1 hour of generating it.
+# We therefore sync time first, then fetch the token and restart gridd as one
+# step so the registration window is never blown.
 # =============================================================================
+- name: Ensure time sync is installed and active (vGPU licensing prerequisite)
+  ansible.builtin.apt:
+    name: systemd-timesyncd
+    state: present
+
+- name: Enable and start systemd-timesyncd
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    enabled: true
+    state: started
+
+- name: Set guest timezone to match the DLS server
+  community.general.timezone:
+    name: "{{ dls_timezone | default('Europe/Stockholm') }}"
+
+- name: Verify the clock is synchronized (fail loudly if not)
+  ansible.builtin.command: timedatectl show -p NTPSynchronized --value
+  register: ntp_synced
+  changed_when: false
+  retries: 6
+  delay: 10
+  until: ntp_synced.stdout | trim == "yes"
+  failed_when: ntp_synced.stdout | trim != "yes"
+
 - name: Ensure NVIDIA config directory exists
   ansible.builtin.file:
     path: /etc/nvidia
@@ -135,7 +166,65 @@
     dest: /etc/nvidia/gridd.conf
     mode: '0644'
   when: dls_server_ip is defined
-  notify: Restart nvidia-gridd
+
+# =============================================================================
+# Fetch the client config token and (re)license
+#
+# Done in a block so a fresh token is fetched and nvidia-gridd restarted in the
+# same run. The token endpoint is /-/client-token (note the /-/). We keep exactly
+# ONE token in the dir (clear stale ones) and download straight to disk — the
+# token contains special characters and must never be copy/pasted. With the
+# publicly trusted wildcard cert there is no --insecure.
+# =============================================================================
+- name: Fetch vGPU client config token and license the guest
+  when: dls_server_ip is defined
+  block:
+    - name: Ensure ClientConfigToken directory exists
+      ansible.builtin.file:
+        path: /etc/nvidia/ClientConfigToken
+        state: directory
+        mode: '0755'
+
+    - name: Remove stale client config tokens
+      ansible.builtin.find:
+        paths: /etc/nvidia/ClientConfigToken
+        patterns: "*.tok"
+      register: stale_tokens
+
+    - name: Delete stale client config tokens
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ stale_tokens.files }}"
+
+    - name: Download client config token from FastAPI-DLS
+      ansible.builtin.get_url:
+        url: "https://{{ dls_server_ip }}/-/client-token"
+        dest: "/etc/nvidia/ClientConfigToken/client_configuration_token_{{ ansible_date_time.iso8601_basic_short }}.tok"
+        mode: '0644'
+        # Public wildcard cert is trusted — validate it (no insecure fallback).
+        validate_certs: true
+
+    - name: Restart nvidia-gridd to register the new token
+      ansible.builtin.systemd:
+        name: nvidia-gridd
+        state: restarted
+      failed_when: false
+
+    - name: Verify the guest is licensed
+      ansible.builtin.command: nvidia-smi -q
+      register: nvidia_license
+      changed_when: false
+      failed_when: false
+      retries: 6
+      delay: 10
+      until: "'Licensed' in (nvidia_license.stdout | default('')) and 'Unlicensed' not in (nvidia_license.stdout | default(''))"
+
+    - name: Report licensing status
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'vGPU Licensed' if ('Licensed' in (nvidia_license.stdout | default('')) and 'Unlicensed' not in (nvidia_license.stdout | default('')))
+             else 'vGPU still Unlicensed — check DLS reachability, FeatureType, clock skew and cert trust' }}
 
 - name: Enable nvidia-persistenced
   ansible.builtin.systemd:

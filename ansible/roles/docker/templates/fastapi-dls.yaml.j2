@@ -4,8 +4,13 @@ services:
     container_name: fastapi-dls
     restart: always
     environment:
-      - TZ=Europe/Stockholm
-      - DLS_URL=192.168.0.108
+      # TZ must match the guests' timezone — vGPU licensing rejects a client
+      # whose clock differs from the DLS server by more than 10 minutes.
+      - TZ={{ dls_timezone | default('Europe/Stockholm') }}
+      # DLS_URL is baked into every issued client token, so it must be an
+      # address the guest can resolve and reach, and it must match the TLS
+      # cert hostname (the *.edholm.cc wildcard covers dls-server.edholm.cc).
+      - DLS_URL={{ dls_url | default('dls-server.edholm.cc') }}
       - DLS_PORT=443
       - LEASE_EXPIRE_DAYS=90
     ports:
@@ -16,4 +21,3 @@ services:
 
 volumes:
   dls-db:
-    external: true
