@@ -4,7 +4,9 @@
 #
 # Managed by Ansible - do not edit manually
 
-set -e
+# Deliberately NOT `set -e`: this runs as a Sunshine global_prep_cmd, so a
+# non-zero exit aborts the stream/app launch. Session-state bookkeeping is
+# best-effort — never let it block streaming. The script always exits 0.
 
 SESSION_STATE_DIR="{{ sunshine_session_state_dir | default('/mnt/gaming/session-state') }}"
 VM_ID="{{ vm_id | default(ansible_hostname) }}"
@@ -13,15 +15,15 @@ SESSION_FILE="${SESSION_STATE_DIR}/${HOSTNAME}.session"
 
 # Log function
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sunshine-hook] $1" >> /var/log/sunshine-hooks.log
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sunshine-hook] $1" >> /var/log/sunshine-hooks.log 2>/dev/null || true
 }
 
 log "Session starting for VM: ${VM_ID}"
 
-# Create session state file
-mkdir -p "${SESSION_STATE_DIR}" 2>/dev/null || true
-
-cat > "${SESSION_FILE}" << EOF
+# Write the session state file only if the directory is writable (it may be an
+# NFS mount that isn't present on this VM). All failures are swallowed.
+if mkdir -p "${SESSION_STATE_DIR}" 2>/dev/null && [ -w "${SESSION_STATE_DIR}" ]; then
+    if cat > "${SESSION_FILE}.tmp" 2>/dev/null << EOF
 {
     "vm_id": "${VM_ID}",
     "hostname": "${HOSTNAME}",
@@ -31,8 +33,13 @@ cat > "${SESSION_FILE}" << EOF
     "status": "active"
 }
 EOF
-
-log "Session state written to ${SESSION_FILE}"
+    then
+        mv "${SESSION_FILE}.tmp" "${SESSION_FILE}" 2>/dev/null || true
+        log "Session state written to ${SESSION_FILE}"
+    fi
+else
+    log "Session-state dir ${SESSION_STATE_DIR} not writable — skipping (non-fatal)"
+fi
 
 {% if sunshine_session_start_extra is defined %}
 # Custom session start commands

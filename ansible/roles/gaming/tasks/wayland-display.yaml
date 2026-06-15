@@ -28,6 +28,7 @@
       - pipewire
       - pipewire-pulse
       - wireplumber
+      - pulseaudio-utils  # provides pactl for the virtual null audio sink
       - libdrm2
       - libegl1
       - libgbm1
@@ -116,57 +117,94 @@
         group: "{{ gaming_user }}"
         mode: '0644'
 
-# =============================================================================
-# Configure display manager to use Wayland session
-# =============================================================================
-- name: Ensure wayland-sessions directory exists
-  # Created by a display manager normally; on a headless streaming VM there may
-  # be none yet, so create it so the session entry can be placed.
-  ansible.builtin.file:
-    path: /usr/share/wayland-sessions
-    state: directory
-    mode: '0755'
+    - name: Create user systemd directory
+      ansible.builtin.file:
+        path: "/home/{{ gaming_user }}/.config/systemd/user"
+        state: directory
+        owner: "{{ gaming_user }}"
+        group: "{{ gaming_user }}"
+        mode: '0755'
 
-- name: Create gaming Wayland session desktop entry
-  ansible.builtin.copy:
-    content: |
-      [Desktop Entry]
-      Name=Gaming Session ({{ wayland_compositor | title }})
-      Comment=Wayland gaming session with Sunshine streaming
-      Exec=/opt/gaming/{{ wayland_compositor }}-session.sh
-      Type=Application
-      DesktopNames={{ wayland_compositor | upper }}
-    dest: /usr/share/wayland-sessions/gaming-{{ wayland_compositor }}.desktop
-    mode: '0644'
-
-- name: Configure auto-login to Wayland session
-  ansible.builtin.copy:
-    content: |
-      [Seat:*]
-      autologin-user={{ gaming_user }}
-      autologin-session=gaming-{{ wayland_compositor }}
-    dest: /etc/lightdm/lightdm.conf.d/50-gaming-wayland.conf
-    mode: '0644'
-  when: ansible_facts.services['lightdm.service'] is defined
-
-# GDM configuration for GNOME-based systems
-- name: Configure GDM for Wayland (if present)
-  ansible.builtin.lineinfile:
-    path: /etc/gdm3/custom.conf
-    regexp: '^#?WaylandEnable='
-    line: 'WaylandEnable=true'
-  when: ansible_facts.services['gdm.service'] is defined
-  failed_when: false
+    - name: Deploy sway-gaming user service
+      ansible.builtin.template:
+        src: sway-gaming.service.j2
+        dest: "/home/{{ gaming_user }}/.config/systemd/user/sway-gaming.service"
+        owner: "{{ gaming_user }}"
+        group: "{{ gaming_user }}"
+        mode: '0644'
 
 # =============================================================================
 # Enable and start the gaming session
+#
+# Sway runs as a user service in the gamer session (lingering, so it starts at
+# boot without an interactive login). This replaces the old lightdm autologin +
+# system-service path, which double-launched the compositor. The user-service
+# model also lets Sway import WAYLAND_DISPLAY into the user environment so the
+# Sunshine user service attaches reliably, and gives Sunshine access to the
+# user's PipeWire for audio capture.
 # =============================================================================
-- name: Enable gaming Wayland service
+- name: Enable lingering for the gaming user (start user services at boot)
+  ansible.builtin.command: "loginctl enable-linger {{ gaming_user }}"
+  changed_when: false
+  when: wayland_compositor == 'sway'
+
+- name: Look up the gaming user uid
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ gaming_user }}"
+  when: wayland_compositor == 'sway'
+
+- name: Enable and start the sway gaming user service
+  become: true
+  become_user: "{{ gaming_user }}"
   ansible.builtin.systemd:
-    name: "{{ wayland_compositor }}-gaming"
+    name: sway-gaming
+    scope: user
     enabled: true
+    state: started
     daemon_reload: true
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[gaming_user][1] }}"
+  when: wayland_compositor == 'sway'
+
+# Legacy display-manager path for gamescope/cage (not used for vGPU streaming —
+# headless gamescope cannot be captured on NVIDIA; Sway is the supported path).
+- name: Configure legacy gamescope/cage display-manager session
   when: wayland_compositor in ['gamescope', 'cage']
+  block:
+    - name: Ensure wayland-sessions directory exists
+      ansible.builtin.file:
+        path: /usr/share/wayland-sessions
+        state: directory
+        mode: '0755'
+
+    - name: Create gaming Wayland session desktop entry
+      ansible.builtin.copy:
+        content: |
+          [Desktop Entry]
+          Name=Gaming Session ({{ wayland_compositor | title }})
+          Comment=Wayland gaming session with Sunshine streaming
+          Exec=/opt/gaming/{{ wayland_compositor }}-session.sh
+          Type=Application
+          DesktopNames={{ wayland_compositor | upper }}
+        dest: /usr/share/wayland-sessions/gaming-{{ wayland_compositor }}.desktop
+        mode: '0644'
+
+    - name: Configure auto-login to Wayland session
+      ansible.builtin.copy:
+        content: |
+          [Seat:*]
+          autologin-user={{ gaming_user }}
+          autologin-session=gaming-{{ wayland_compositor }}
+        dest: /etc/lightdm/lightdm.conf.d/50-gaming-wayland.conf
+        mode: '0644'
+      when: ansible_facts.services['lightdm.service'] is defined
+
+    - name: Enable gaming Wayland service
+      ansible.builtin.systemd:
+        name: "{{ wayland_compositor }}-gaming"
+        enabled: true
+        daemon_reload: true
 
 - name: Display Wayland setup info
   ansible.builtin.debug:

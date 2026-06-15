@@ -119,7 +119,9 @@
     group: "{{ gaming_user }}"
   when: creds_mount.stat.exists | default(false)
 
-# Set capabilities for Sunshine
+# Set capabilities for Sunshine — cap_sys_admin is required for KMS capture and
+# lets Sunshine run as an unprivileged user service (no AmbientCapabilities in
+# the unit).
 - name: Set capabilities for Sunshine
   community.general.capabilities:
     path: /usr/bin/sunshine
@@ -127,22 +129,92 @@
     state: present
   failed_when: false
 
-# Create systemd service for Sunshine
-- name: Create Sunshine systemd service
+# -----------------------------------------------------------------------------
+# Input: Sunshine injects the Moonlight client's mouse/keyboard/gamepad via
+# /dev/uinput. Without this udev rule it fails with "Could not create Sunshine
+# Mouse/Gamepad: Permission denied".
+# -----------------------------------------------------------------------------
+- name: Ensure uinput module loads at boot
+  ansible.builtin.copy:
+    content: "uinput\n"
+    dest: /etc/modules-load.d/uinput.conf
+    mode: '0644'
+
+- name: Load uinput module now
+  community.general.modprobe:
+    name: uinput
+    state: present
+  failed_when: false
+
+- name: Install Sunshine uinput udev rule
+  ansible.builtin.copy:
+    content: |
+      KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"
+    dest: /etc/udev/rules.d/85-sunshine-input.rules
+    mode: '0644'
+  register: sunshine_udev
+
+- name: Reload udev rules
+  ansible.builtin.command: "{{ item }}"
+  loop:
+    - udevadm control --reload-rules
+    - udevadm trigger
+  changed_when: false
+  when: sunshine_udev is changed
+
+# -----------------------------------------------------------------------------
+# Sunshine runs as a user service in the gamer session (started by Sway). Modern
+# Sunshine forces interactive web-UI account creation before pairing, so we seed
+# credentials non-interactively here (the stdin `-0` flag is broken upstream).
+# -----------------------------------------------------------------------------
+- name: Create Sunshine user systemd directory
+  ansible.builtin.file:
+    path: "/home/{{ gaming_user }}/.config/systemd/user"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+
+- name: Create Sunshine user service
   ansible.builtin.template:
     src: sunshine.service.j2
-    dest: /etc/systemd/system/sunshine.service
+    dest: "/home/{{ gaming_user }}/.config/systemd/user/sunshine.service"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
     mode: '0644'
-  notify:
-    - Reload systemd
-    - Restart sunshine
 
-- name: Enable and start Sunshine
+- name: Seed Sunshine web-UI credentials (non-interactive)
+  become: true
+  become_user: "{{ gaming_user }}"
+  ansible.builtin.command:
+    cmd: "sunshine --creds {{ sunshine_admin_user | default('admin') }} {{ sunshine_admin_password }}"
+  when: sunshine_admin_password is defined
+  no_log: true
+  changed_when: true
+
+- name: Warn when Sunshine credentials are not seeded
+  ansible.builtin.debug:
+    msg: >-
+      sunshine_admin_password is not set — Sunshine will require interactive
+      account creation at https://{{ ansible_host | default(inventory_hostname) }}:47990
+      before any Moonlight client can pair.
+  when: sunshine_admin_password is not defined
+
+# Sway starts Sunshine on (re)launch, but on the first converge Sway is already
+# up (started earlier in wayland-display) before this unit existed — so start it
+# explicitly now. Sway has already imported WAYLAND_DISPLAY into the user env, so
+# the service attaches to the running session.
+- name: Reload and start the Sunshine user service
+  become: true
+  become_user: "{{ gaming_user }}"
   ansible.builtin.systemd:
     name: sunshine
-    enabled: true
+    scope: user
     state: started
     daemon_reload: true
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[gaming_user][1] | default(1000) }}"
+  failed_when: false
 
 - name: Display Sunshine setup info
   ansible.builtin.debug:

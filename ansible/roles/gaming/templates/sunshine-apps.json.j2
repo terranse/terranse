@@ -8,6 +8,14 @@
       "image-path": "",
       "cmd": "",
       "auto-detach": true
-    }
+    }{% if steam_enabled | default(true) %},
+    {
+      "name": "Steam Big Picture",
+      "image-path": "steam.png",
+      "cmd": "flatpak run com.valvesoftware.Steam -gamepadui -steamos",
+      "auto-detach": true,
+      "wait-all": true
+    }{% endif %}
+
   ]
 }

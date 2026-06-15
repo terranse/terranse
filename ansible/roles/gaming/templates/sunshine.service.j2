@@ -1,21 +1,17 @@
 [Unit]
 Description=Sunshine Game Streaming Server
-After=network.target display-manager.service
-Wants=display-manager.service
+# User service in the gamer session. Sway starts it (via `systemctl --user
+# start`) AFTER importing WAYLAND_DISPLAY into the user environment, so Sunshine
+# reliably attaches to the running Sway output and captures it via KMS. No
+# [Install]/WantedBy on purpose — Sway owns the lifecycle so the env is always
+# imported before Sunshine launches. XDG_RUNTIME_DIR is implicit in user scope.
+After=sway-gaming.service pipewire.service
+Wants=pipewire.service
 
 [Service]
 Type=simple
-User={{ gaming_user }}
-Group={{ gaming_user }}
+# /usr/bin/sunshine carries cap_sys_admin+ep (set in sunshine.yaml), which is
+# what KMS capture needs — so no AmbientCapabilities here.
 ExecStart=/usr/bin/sunshine
 Restart=on-failure
 RestartSec=5
-Environment=DISPLAY=:0
-Environment=HOME=/home/{{ gaming_user }}
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-
-# Capabilities for input device access
-AmbientCapabilities=CAP_SYS_ADMIN
-
-[Install]
-WantedBy=multi-user.target

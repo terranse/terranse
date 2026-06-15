@@ -4,8 +4,7 @@
 #
 # Managed by Ansible - do not edit manually
 
-set -e
-
+# Best-effort cleanup (the `undo` of a global_prep_cmd) — never abort.
 SESSION_STATE_DIR="{{ sunshine_session_state_dir | default('/mnt/gaming/session-state') }}"
 VM_ID="{{ vm_id | default(ansible_hostname) }}"
 HOSTNAME=$(hostname)
@@ -13,7 +12,7 @@ SESSION_FILE="${SESSION_STATE_DIR}/${HOSTNAME}.session"
 
 # Log function
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sunshine-hook] $1" >> /var/log/sunshine-hooks.log
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sunshine-hook] $1" >> /var/log/sunshine-hooks.log 2>/dev/null || true
 }
 
 log "Session ending for VM: ${VM_ID}"

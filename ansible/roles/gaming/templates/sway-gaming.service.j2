@@ -1,0 +1,26 @@
+[Unit]
+Description=Sway Headless Gaming Session (Wayland)
+Documentation=https://github.com/swaywm/sway
+# User service — runs in the gamer user session (linger enabled) so PipeWire and
+# the user dbus are available for Sunshine audio capture.
+After=pipewire.service wireplumber.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+# Headless wlroots backend (no physical display on the vGPU). gles renderer
+# avoids the NVIDIA Vulkan/wlroots dmabuf-modifier bug that makes Sunshine KMS
+# capture fail with "Frame capture failed". No input devices on a headless VM —
+# Sunshine injects input via uinput.
+Environment=WLR_BACKENDS=headless
+Environment=WLR_RENDERER=gles
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+Environment=XDG_CURRENT_DESKTOP=sway
+Environment=XDG_SESSION_TYPE=wayland
+ExecStart=/usr/bin/sway -c /home/{{ gaming_user }}/.config/sway/config
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=524288
+
+[Install]
+WantedBy=default.target

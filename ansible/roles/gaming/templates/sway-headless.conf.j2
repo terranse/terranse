@@ -1,7 +1,12 @@
 # Sway configuration for headless gaming
-# Creates a virtual display for Sunshine streaming
+# Creates a virtual display that Sunshine captures via KMS for streaming.
 #
 # Managed by Ansible - do not edit manually
+#
+# Sunshine is NOT launched from here — it runs as its own user service ordered
+# after sway, and captures this session. Likewise individual games/launchers are
+# started on demand as Sunshine app entries (Moonlight picks one), keeping this
+# session a neutral always-on surface.
 
 # Output configuration - create headless virtual display
 output HEADLESS-1 {
@@ -12,16 +17,16 @@ output HEADLESS-1 {
 # Disable hardware cursor (better for streaming)
 seat seat0 hide_cursor 5000
 
-# Start Sunshine when sway starts
-exec sunshine
+# Propagate the Wayland session to the user systemd/dbus environment so the
+# sunshine user service (and any launched app) inherits WAYLAND_DISPLAY without
+# us having to guess the auto-assigned socket name.
+exec systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec systemctl --user start sunshine.service
 
-# Auto-start apps
-exec {
-{% if steam_enabled | default(true) %}
-    # Start Steam in Big Picture mode after a delay
-    sleep 5 && flatpak run com.valvesoftware.Steam -bigpicture
-{% endif %}
-}
+# Virtual audio sink — the VM has no audio hardware, so create a null sink for
+# Sunshine to capture (otherwise audio capture fails / streams silence).
+exec pactl load-module module-null-sink sink_name=VirtualSink sink_properties=device.description=VirtualSink && pactl set-default-sink VirtualSink
 
 # Keybindings for gaming
 bindsym Mod4+Return exec xfce4-terminal

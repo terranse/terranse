@@ -8,7 +8,10 @@ gaming_user: gamer
 # gpu_type: nvidia_vgpu
 
 # Display configuration
-wayland_compositor: gamescope
+# Sway (headless wlroots output) is the supported streaming compositor: on
+# NVIDIA, headless gamescope produces no capturable output, whereas Sunshine
+# can KMS-capture a headless Sway session (with WLR_RENDERER=gles).
+wayland_compositor: sway
 display_server: wayland
 virtual_display_width: 1920
 virtual_display_height: 1080
@@ -52,4 +55,14 @@ game_sync_package: game-sync-service
 # gpu_manager_url: http://192.168.1.x:8080
 
 # FastAPI-DLS server for vGPU licensing
-# dls_server_ip: 192.168.1.x
+# dls_server_ip: dls-server.edholm.cc
+# Timezone must match the DLS server (vGPU licensing rejects >10 min clock skew).
+dls_timezone: Europe/Stockholm
+# vGPU FeatureType: 2 = RTX vWS (A5000 Q-series profile). 1 = vGPU/vPC, 4 = vCS.
+vgpu_feature_type: 2
+
+# Sunshine web-UI admin account, seeded non-interactively so Moonlight can pair.
+sunshine_admin_user: admin
+# Set sunshine_admin_password (e.g. from the 1Password vault) to enable pairing
+# without manual first-run account creation.
+# sunshine_admin_password: "{{ lookup('community.general.onepassword', 'Sunshine', field='password') }}"
