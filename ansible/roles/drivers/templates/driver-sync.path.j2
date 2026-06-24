@@ -2,9 +2,8 @@
 Description=Watch for NVIDIA driver updates
 
 [Path]
-# Watch the NVIDIA driver directory for changes
-PathChanged={{ nvidia_driver_dir | default('/opt/nvidia-vgpu') }}
-PathModified={{ nvidia_driver_dir | default('/opt/nvidia-vgpu') }}/guest
+PathChanged={{ vgpu_driver_dir | default('/opt/nvidia-vgpu-drivers') }}/VERSION.json
+PathModified={{ vgpu_driver_dir | default('/opt/nvidia-vgpu-drivers') }}/guest
 
 [Install]
 WantedBy=multi-user.target

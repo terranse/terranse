@@ -1,9 +1,8 @@
 [Unit]
-Description=GPU Driver Sync Service
-Documentation=https://github.com/your-repo/gaming-infra
+Description=GPU Driver Sync Service (NAS backup)
 After=network-online.target
 Wants=network-online.target
-ConditionPathExists=/opt/nvidia-vgpu
+ConditionPathExists={{ vgpu_driver_dir | default('/opt/nvidia-vgpu-drivers') }}
 
 [Service]
 Type=oneshot
@@ -12,7 +11,7 @@ RemainAfterExit=no
 
 # Environment
 Environment=DRIVERS_NFS_PATH={{ drivers_nfs_path | default('/mnt/gaming-drivers') }}
-Environment=NVIDIA_DRIVER_DIR={{ nvidia_driver_dir | default('/opt/nvidia-vgpu') }}
+Environment=NVIDIA_DRIVER_DIR={{ vgpu_driver_dir | default('/opt/nvidia-vgpu-drivers') }}
 
 # Security
 User=root

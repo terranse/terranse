@@ -12,13 +12,6 @@
 # Optional variables:
 #   intel_sriov_num_vfs: Number of VFs to create (default: 7)
 
-- name: Set default Intel SR-IOV variables
-  ansible.builtin.set_fact:
-    intel_sriov_num_vfs: "{{ intel_sriov_num_vfs | default(7) }}"
-    drivers_auto_reboot: "{{ drivers_auto_reboot | default(false) }}"
-    drivers_reboot_confirm: "{{ drivers_reboot_confirm | default(true) }}"
-    drivers_reboot_timeout: "{{ drivers_reboot_timeout | default(600) }}"
-
 # =============================================================================
 # Step 1: Verify Intel iGPU presence
 # =============================================================================
