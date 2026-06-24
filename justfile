@@ -76,7 +76,6 @@ init-machines: _python-venv
             except (sh.TimeoutException, sh.ErrorReturnCode) as e:
                 print(f"  ✗ Cannot connect with root either: {e}")
 
-
 # Setup a ansible-vault with become secrets
 [working-directory('ansible')]
 setup-secrets vault-item='infra_default_user': _python-venv
@@ -184,10 +183,10 @@ install-test: _python-venv
     uv pip install -e ".[test]"
 
 # ============== PACKER / VM TEMPLATES ==============
-
 # Build a VM template on a deployment's Proxmox node.
 # Linux: imports a cloud image directly (fast, no installer).
 # Windows: runs Packer with ISO + autounattend (via SSH on the node).
+
 # Target is "deployment" or "node.deployment" (defaults to first host in config).
 [script]
 build-template target os_family="ubuntu" os_version="2510" variant="base": _python-venv
@@ -445,8 +444,7 @@ build-template target os_family="ubuntu" os_version="2510" variant="base": _pyth
 
 # Upload an ISO to Proxmox (for Windows or other non-downloadable ISOs)
 upload-iso path node=default_node:
-    #!/usr/bin/env bash
-    set -euxo pipefail
+    #!{{ bash }}
     filename=$(basename "{{ path }}")
     echo "Uploading $filename to {{ node }}..."
     scp "{{ path }}" root@{{ node }}:/var/lib/vz/template/iso/
@@ -455,8 +453,7 @@ upload-iso path node=default_node:
 
 # Quick-create a VM from an existing template (no tofu)
 create-vm name template="debian-13-base" cores="2" memory="2048" disk="32G" node=default_node:
-    #!/usr/bin/env bash
-    set -euxo pipefail
+    #!{{ bash }}
     TEMPLATE_VMID=$(ssh root@{{ node }} "qm list" | grep -w "{{ template }}" | awk '{print $1}' | head -1)
     if [ -z "$TEMPLATE_VMID" ]; then
       echo "Template '{{ template }}' not found on {{ node }}. Run 'just build-template' first."
@@ -476,10 +473,15 @@ create-vm name template="debian-13-base" cores="2" memory="2048" disk="32G" node
 
 # Destroy a test VM
 destroy-vm vmid node=default_node:
-    #!/usr/bin/env bash
-    set -euo pipefail
+    #!{{ bash }}
     ssh root@{{ node }} "qm stop {{ vmid }} --skiplock 2>/dev/null || true; qm destroy {{ vmid }}"
 
 # List available templates on Proxmox
 list-templates node=default_node:
     ssh root@{{ node }} "qm list" | awk 'NR==1 || /template|base|gaming/i' || echo "No templates found"
+
+# Update all virtual machines, optionally docker services as well (not default)
+[working-directory('ansible')]
+update docker="false":
+    #!{{ bash }}
+    ansible-playbook playbooks/update.yaml {{ if docker == "true" { "" } else { "--skip-tags docker" } }}

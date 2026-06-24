@@ -16,7 +16,7 @@
           apt:
             upgrade: dist
           when: ansible_facts['os_family'] == "Debian"
-    - tags: always
+      tags: always
 
     # TODO: Add support for RedHat/CentOS/Fedora
     # - name: Update all packages (RedHat/CentOS/Fedora)
