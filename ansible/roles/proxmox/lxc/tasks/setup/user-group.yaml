@@ -12,7 +12,7 @@
 - name: Setup a corresponding group in LXC container
   group:
     name: "{{ groupname }}"
-    gid: 1000
+    gid: "{{ docker_user_uid }}"
     state: present
 
 - name: Create default user, add to correct groups
@@ -20,10 +20,10 @@
   user:
     name: "{{ docker_user }}"
     create_home: true
-    uid: 1000
+    uid: "{{ docker_user_uid }}"
     group: "{{ groupname }}"
     shell: /usr/bin/fish
-    password: "{{ lookup('onepassword', 'infra_default_user') | password_hash('sha512', 65534 | random(seed=inventory_hostname) | string)}}"
+    password: "{{ lookup('community.general.onepassword', 'infra_default_user') | password_hash('sha512', 65534 | random(seed=inventory_hostname) | string)}}"
     groups: sudo
     append: true
 
@@ -75,11 +75,7 @@
     group: "{{ groupname }}"
     mode: '0755'
 
-- name: Disable SSH root login
-  become: true
-  lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: '^PermitRootLogin'
-    line: 'PermitRootLogin no'
-    state: present
-  notify: Restart ssh
+# NOTE: Root SSH hardening deferred — runs as a separate final step after all
+# services are configured. Running it here would lock Ansible out after container
+# restart (fuse-overlayfs handler). See edholm.yaml hardening play.
+# - name: Disable SSH root login

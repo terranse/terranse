@@ -1,0 +1,39 @@
+---
+# Passthrough /dev/kvm into an unprivileged LXC container for nested KVM (libvirt/QEMU).
+# Pattern follows network/add-tun-tap-device.yaml.
+
+- name: Get current ct config
+  command: "cat /etc/pve/lxc/{{ current_vmid }}.conf"
+  register: ct_conf
+
+- name: Add /dev/kvm to container if not present
+  when: "'lxc.mount.entry: /dev/kvm dev/kvm none bind,optional,create=file' not in ct_conf.stdout"
+  block:
+    - name: Create temporary file
+      tempfile:
+        state: file
+        suffix: temp
+      register: tempfile_kvm
+
+    - name: Add KVM config lines to temp file
+      copy:
+        dest: "{{ tempfile_kvm.path }}"
+        content: |
+          lxc.cgroup2.devices.allow: c 10:232 rwm
+          lxc.mount.entry: /dev/kvm dev/kvm none bind,optional,create=file 0 0
+
+    - name: "Append KVM config lines to {{ current_vmid }}.conf"
+      shell: "cat {{ tempfile_kvm.path }} >> /etc/pve/lxc/{{ current_vmid }}.conf"
+      when: tempfile_kvm.path is defined
+
+    - name: Remove temp file
+      file:
+        path: "{{ tempfile_kvm.path }}"
+        state: absent
+      when: tempfile_kvm.path is defined
+
+- name: Set /dev/kvm permissions to 0666 on host
+  file:
+    path: /dev/kvm
+    mode: "0666"
+  notify: Restart container

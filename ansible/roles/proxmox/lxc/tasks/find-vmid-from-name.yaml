@@ -3,8 +3,8 @@
 - name: Find a VM/CT id from a given hostname/PVE name
   find:
     paths:
-      - /etc/pve/nodes/proxmox/lxc/
-      - /etc/pve/nodes/proxmox/qemu_server/
+      - /etc/pve/nodes/{{ host }}/lxc/
+      - /etc/pve/nodes/{{ host }}/qemu_server/
     patterns: '\d{3}\.conf'
     contains: ".*name: {{ inventory_hostname_short }}"
     use_regex: true

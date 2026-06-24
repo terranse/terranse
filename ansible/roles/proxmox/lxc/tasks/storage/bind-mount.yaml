@@ -3,14 +3,13 @@
 - name: Initialize desired mount entries
   set_fact:
     desired_mount_entries: []
-
-- name: Parse mounts from JSON string
-  set_fact:
-    mounts_list: "{{ mounts | from_json }}"
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
 
 - name: Gather ZFS mountpoint information
   include_tasks: gather-mount-entry.yaml
-  loop: "{{ mounts_list }}"
+  loop: "{{ mounts | from_json if mounts is string else mounts }}"
   loop_control:
     label: "{{ item.dataset }}"
 
@@ -18,18 +17,30 @@
   slurp:
     path: "/etc/pve/lxc/{{ current_vmid }}.conf"
   register: lxc_config
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
 
 - name: Parse current mount entries
   set_fact:
     current_mount_lines: "{{ lxc_config.content | b64decode | regex_findall('^lxc\\.mount\\.entry:.*$', multiline=True) }}"
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
 
 - name: Determine mount entries to add
   set_fact:
     mounts_to_add: "{{ desired_mount_entries | rejectattr('line', 'in', current_mount_lines) | list }}"
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
 
 - name: Determine mount entries to remove
   set_fact:
     mounts_to_remove: "{{ current_mount_lines | difference(desired_mount_entries | map(attribute='line') | list) }}"
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
 
 - name: Add missing mount entries
   lineinfile:
@@ -40,6 +51,9 @@
   loop_control:
     label: "{{ item.source }} -> {{ item.target }}"
   notify: Restart container
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
 
 - name: Remove obsolete mount entries
   lineinfile:
@@ -48,3 +62,6 @@
     state: absent
   loop: "{{ mounts_to_remove }}"
   notify: Restart container
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root

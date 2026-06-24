@@ -4,6 +4,9 @@
   zfs_facts:
     name: "{{ item.dataset }}"
   register: dataset_facts
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
 
 - name: Validate and add to mount entries
   set_fact:
@@ -13,6 +16,7 @@
     loop_var: dataset
     label: "{{ dataset.name }}"
   vars:
+    ansible_user: root
     mountpoint_in_container: "{{ item.path }}"
     entry:
       source: "{{ dataset.mountpoint }}"
@@ -21,3 +25,4 @@
   failed_when: >
     dataset.mountpoint is not regex('^/.*') or
     dataset.mounted != "yes"
+  delegate_to: "{{ host }}"

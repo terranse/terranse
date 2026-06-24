@@ -9,7 +9,7 @@
     ansible_user: root
 
 - name: "Set virt features if not already enabled"
-  command: "pct set {{ current_vmid }} -features keyctl=1,fuse=1"
+  command: "pct set {{ current_vmid }} -features keyctl=1,fuse=1,nesting=1"
   changed_when: true
   delegate_to: "{{ host }}"
   when: "'keyctl=1' not in lxc_features.stdout"
