@@ -7,7 +7,7 @@
     # Use test mode credentials when borgmatic_test_mode is true
     BACKUP_OP_SERVICE_ACCOUNT_TOKEN: >-
       {{ 'test_token_for_molecule' if borgmatic_test_mode | default(false)
-         else lookup('onepassword', '67z7ujj5gtk6lgnzrwn72xcsva', field='credential', vault='Infrastructure') }}
+         else lookup('community.general.onepassword', '67z7ujj5gtk6lgnzrwn72xcsva', field='credential', vault='Infrastructure') }}
     BACKUP_OP_SSH_KEY_REFERENCE: >-
       {{ 'op://Test/test-item/private key' if borgmatic_test_mode | default(false)
          else 'op://Infrastructure/wlt2nyygivk6bp7ar67zq4w6wq/private key' }}

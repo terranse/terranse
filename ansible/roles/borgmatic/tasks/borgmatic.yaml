@@ -27,19 +27,23 @@
     local_bin_in_path: "{{ ansible_env.HOME ~ '/.local/bin' in ansible_env.PATH.split(':') }}"
 
 - name: Ensure pipx installs are in path
-  command: pipx --ensurepath
+  command: pipx ensurepath
   changed_when: true
   when: not local_bin_in_path
 
-- name: Install Borgmatic
-  # become: true
+- name: Install borgmatic
   community.general.pipx:
-    name: "{{ item }}"
+    name: borgmatic
     state: latest
-  loop:
-    - borgmatic
-    # pyfuse3 needed to enable mounting of remote repo
-    - borgbackup[pyfuse3]
+
+# borgbackup[pyfuse3] extra syntax breaks community.general.pipx venv lookup, use shell
+- name: Install borgbackup with pyfuse3 support
+  shell: pipx install 'borgbackup[pyfuse3]'
+  register: borgbackup_install
+  changed_when: "'installed package' in borgbackup_install.stdout"
+  failed_when:
+    - borgbackup_install.rc != 0
+    - "'already installed' not in borgbackup_install.stderr"
 
 # If there is a system upgrade and `pyfuse3.so.4` is updated, the mounting
 # might break. See https://github.com/borgbackup/borg/issues/8657#issuecomment-3146805611

@@ -4,7 +4,7 @@
 # "myhostname", then the string "{hostname}" will be replaced with
 # "myhostname" in the configuration file.
 constants:
-  storage-box: u368673.your-storagebox.de
+  storage_box: u368673.your-storagebox.de
   username: u368673
   # TODO: Replace with templated input from role variables.
   # backup-source: cloud
@@ -24,7 +24,7 @@ source_directories:
 # ReadWritePaths list. Prior to borgmatic 1.7.10, repositories was a
 # list of plain path strings.
 repositories:
-  - path: ssh://{username}@{storage-box}:23/./cloud-backup.borg
+  - path: ssh://{username}@{storage_box}:23/./cloud-backup.borg
     label: hetzner-cloud-backup
 
 # Working directory for the "borg create" command. Tildes are
