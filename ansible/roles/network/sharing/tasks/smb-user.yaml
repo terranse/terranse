@@ -11,10 +11,8 @@
         create_home: true
       register: user_created
 
+    # TODO: Replace hardcoded password with 1Password lookup
+    # e.g. lookup('community.general.onepassword', 'SAMBA_' + (item | upper) + '_PASSWORD', vault='Infrastructure', field='password')
     - name: Set Samba password for user
-      expect:
-        command: "smbpasswd -s -a {{ item }}"
-        responses:
-          "New SMB password:": "mypassword"
-          "Retype new SMB password:": "mypassword"
+      shell: "printf '%s\n%s\n' 'mypassword' 'mypassword' | smbpasswd -a -s {{ item }}"
       when: user_created.changed

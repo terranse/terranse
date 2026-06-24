@@ -4,10 +4,10 @@
   tags:
     - smallstep
   vars:
-    ca_host: "{{ lookup('onepassword', 'Smallstep', field='ca_host', vault='HomeNetwork') }}"
+    ca_host: "{{ lookup('community.general.onepassword', 'Smallstep', field='ca_host', vault='HomeNetwork') }}"
     ca_fingerprint: "{{ SMALLSTEP_HOME_CA_FINGERPRINT }}"
-    ca_provisioner: "{{ lookup('onepassword', 'Smallstep', field='username', vault='HomeNetwork') }}"
-    ca_provisioner_password: "{{ lookup('onepassword', 'Smallstep', field='password', vault='HomeNetwork') }}"
+    ca_provisioner: "{{ lookup('community.general.onepassword', 'Smallstep', field='username', vault='HomeNetwork') }}"
+    ca_provisioner_password: "{{ lookup('community.general.onepassword', 'Smallstep', field='password', vault='HomeNetwork') }}"
     domain_name: edholm.cc
     cert_location: /etc/ssl/step/certs
   block:

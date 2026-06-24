@@ -16,22 +16,15 @@
     name: smbusers
     state: present
 
-# - name: Ensure shared directory
-#   file:
-#     path: /storage/cloud
-#     state: directory
-#     owner: "{{ share_user }}"
-#     group: smbusers
-#     mode: "2775"
-
-# - name: Set default ACL for shared directory
-#   acl:
-#     path: /storage/cloud
-#     default: true
-#     entity: smbusers
-#     etype: group
-#     permissions: rwx
-#     state: present
+- name: Ensure shared directories exist (bind mount targets)
+  become: true
+  file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ share_user }}"
+    group: smbusers
+    mode: "2775"
+  loop: "{{ mounts | default('[]') | from_json }}"
 
 - name: Add Samba configuration
   become: true
@@ -61,7 +54,7 @@
 
 - name: Add cockpit extensions
   ansible.builtin.include_tasks:
-    file: playbooks/github-download.yaml
+    file: "{{ playbook_dir }}/github-download.yaml"
   vars:
     release:
       name: cockpit-file-sharing

@@ -5,3 +5,5 @@ samba_users:
 share_user: default-user
 shares:
   - CloudShare: /storage/cloud
+# cockpit-file-sharing release format has changed; skip until download task is updated
+skip_cockpit_extensions: true

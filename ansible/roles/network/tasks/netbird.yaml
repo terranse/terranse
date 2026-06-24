@@ -22,12 +22,13 @@
 # - name: Add network key to sign in
 #   get_url: # Call Netbird API to get key?
 #   register: key
-- name: Call netbird api on localhost to create a setup key
-  uri:
-    url: https://api.netbird.io/api/setup-keys
-    method: POST
-    body_format: json
-    body:
+# TODO: Call netbird api on localhost to create a setup key
+# - name: Call netbird api on localhost to create a setup key
+#   uri:
+#     url: https://api.netbird.io/api/setup-keys
+#     method: POST
+#     body_format: json
+#     body: {}
 
 
 # TODO:
