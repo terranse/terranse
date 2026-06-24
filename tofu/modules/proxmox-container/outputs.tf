@@ -4,7 +4,10 @@ output "ansible_plays" {
     for host_name, host_config in var.configuration : {
       name  = "Configuration of ${host_name}"
       hosts = "${host_name}.${var.domain}"
-      roles = concat(["proxmox/lxc"], try([for r in host_config.roles : r.name], []))
+      roles = concat(
+        [{ role = "proxmox/lxc", vars = {} }],
+        try([for r in host_config.roles : { role = r.name, vars = try(r.vars, {}) }], [])
+      )
       vars  = try(host_config.ansible_vars, {})
     }
   ]
