@@ -7,8 +7,10 @@
   community.general.flatpak:
     name: org.libretro.RetroArch
     state: present
+  register: retroarch_flatpak_install
+  failed_when: false
 
-# Alternative: Install from apt
+# Fallback: Install from apt if Flatpak failed
 - name: Install RetroArch from apt
   ansible.builtin.apt:
     name:
@@ -17,6 +19,7 @@
       - libretro-core-info
     state: present
   failed_when: false
+  when: retroarch_flatpak_install is failed
 
 # Install common cores
 - name: Install common RetroArch cores

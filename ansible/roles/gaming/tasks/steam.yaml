@@ -21,23 +21,21 @@
       - libc6:i386
     state: present
   failed_when: false
+  register: steam_apt_install
 
-# Install Steam via Flatpak as fallback (more reliable)
-- name: Install Flatpak
-  ansible.builtin.apt:
-    name: flatpak
-    state: present
-
+# Install Steam via Flatpak as fallback if apt install failed
 - name: Add Flathub repository
   community.general.flatpak_remote:
     name: flathub
     flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
     state: present
+  when: steam_apt_install is failed
 
 - name: Install Steam via Flatpak
   community.general.flatpak:
     name: com.valvesoftware.Steam
     state: present
+  when: steam_apt_install is failed
 
 # Configure Steam library paths
 - name: Create Steam library directories
@@ -108,6 +106,11 @@
     owner: "{{ gaming_user }}"
     group: "{{ gaming_user }}"
   when: not proton_ge_installed.stat.exists | default(false)
+
+- name: Clean up Proton-GE download
+  ansible.builtin.file:
+    path: /tmp/proton-ge.tar.gz
+    state: absent
 
 - name: Display Steam setup info
   ansible.builtin.debug:
