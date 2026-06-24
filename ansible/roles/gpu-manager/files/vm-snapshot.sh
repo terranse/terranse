@@ -9,7 +9,7 @@
 #   vm-snapshot.sh <vmid> list             - List snapshots
 #   vm-snapshot.sh <vmid> delete <name>    - Delete snapshot
 
-set -e
+set -euo pipefail
 
 # Configuration
 ZFS_POOL="${ZFS_POOL:-games}"
@@ -59,12 +59,15 @@ create_snapshot() {
         # Freeze filesystem before snapshot (if guest agent available)
         qm guest exec "$vmid" -- sync 2>/dev/null || true
         qm guest exec "$vmid" -- fsfreeze --freeze / 2>/dev/null || true
+        # Ensure unfreeze on any error
+        trap 'qm guest exec "$vmid" -- fsfreeze --unfreeze / 2>/dev/null || true' ERR
     fi
 
     # Create ZFS snapshot
     zfs snapshot "${zvol}@${name}"
 
     if [[ "$status" == "running" ]]; then
+        trap - ERR
         # Unfreeze filesystem
         qm guest exec "$vmid" -- fsfreeze --unfreeze / 2>/dev/null || true
     fi
