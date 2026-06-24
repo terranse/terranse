@@ -1,0 +1,8 @@
+---
+gitlab_url: "https://gitlab.com"
+runner_description: "vagrant-runner"
+runner_tags: "vagrant"
+runner_executor: "shell"
+runner_user: "gitlab-runner"
+vagrant_default_box: "cloud-image/ubuntu-24.04"
+vagrant_default_provider: "libvirt"

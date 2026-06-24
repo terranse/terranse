@@ -1,0 +1,26 @@
+---
+- name: Look up runner token from 1Password
+  set_fact:
+    runner_token: "{{ lookup('community.general.onepassword', 'Vagrant Runner', vault='Private', field='token') }}"
+
+- name: Check if runner is already registered
+  become: true
+  shell: |
+    set -o pipefail
+    gitlab-runner list 2>&1 | grep -q '{{ runner_description }}'
+  args:
+    executable: /bin/bash
+  register: runner_registered
+  failed_when: false
+  changed_when: false
+
+- name: Register gitlab-runner
+  become: true
+  command: >
+    gitlab-runner register
+    --non-interactive
+    --url "{{ gitlab_url }}"
+    --token "{{ runner_token }}"
+    --executor "{{ runner_executor }}"
+  when: runner_registered.rc != 0
+  changed_when: true

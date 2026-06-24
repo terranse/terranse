@@ -1,0 +1,12 @@
+---
+- name: Restart gitlab-runner
+  become: true
+  ansible.builtin.service:
+    name: gitlab-runner
+    state: restarted
+
+- name: Restart libvirtd
+  become: true
+  ansible.builtin.service:
+    name: libvirtd
+    state: restarted

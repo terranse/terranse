@@ -1,0 +1,15 @@
+---
+- name: Install libvirt and QEMU
+  import_tasks: install-libvirt.yaml
+
+- name: Install GitLab Runner
+  import_tasks: install-gitlab-runner.yaml
+
+- name: Install Vagrant
+  import_tasks: install-vagrant.yaml
+
+- name: Register GitLab Runner
+  import_tasks: register-runner.yaml
+
+- name: Cache Vagrant boxes
+  import_tasks: cache-boxes.yaml

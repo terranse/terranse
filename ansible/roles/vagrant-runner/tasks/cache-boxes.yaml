@@ -1,0 +1,18 @@
+---
+- name: Check if vagrant box is already cached
+  become: true
+  become_user: "{{ runner_user }}"
+  command: vagrant box list
+  environment:
+    HOME: "/home/{{ runner_user }}"
+  register: vagrant_boxes
+  changed_when: false
+
+- name: Cache default vagrant box
+  become: true
+  become_user: "{{ runner_user }}"
+  command: "vagrant box add {{ vagrant_default_box }} --provider {{ vagrant_default_provider }}"
+  environment:
+    HOME: "/home/{{ runner_user }}"
+  when: "vagrant_default_box not in vagrant_boxes.stdout"
+  changed_when: true

@@ -1,0 +1,38 @@
+---
+- name: Add GitLab Runner GPG key
+  become: true
+  ansible.builtin.get_url:
+    url: https://packages.gitlab.com/runner/gitlab-runner/gpgkey
+    dest: /usr/share/keyrings/gitlab-runner-archive-keyring.asc
+    mode: "0644"
+
+- name: Add GitLab Runner APT repository
+  become: true
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/gitlab-runner-archive-keyring.asc] https://packages.gitlab.com/runner/gitlab-runner/debian/ {{ ansible_distribution_release }} main"
+    state: present
+    filename: gitlab-runner
+
+- name: Install gitlab-runner
+  become: true
+  ansible.builtin.apt:
+    name: gitlab-runner
+    state: present
+    update_cache: true
+
+- name: Add gitlab-runner user to libvirt and kvm groups
+  become: true
+  ansible.builtin.user:
+    name: "{{ runner_user }}"
+    groups:
+      - libvirt
+      - kvm
+    append: true
+  notify: Restart gitlab-runner
+
+- name: Enable and start gitlab-runner service
+  become: true
+  ansible.builtin.service:
+    name: gitlab-runner
+    enabled: true
+    state: started

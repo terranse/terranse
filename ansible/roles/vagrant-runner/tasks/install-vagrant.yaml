@@ -1,0 +1,30 @@
+---
+- name: Add HashiCorp GPG key
+  become: true
+  ansible.builtin.get_url:
+    url: https://apt.releases.hashicorp.com/gpg
+    dest: /usr/share/keyrings/hashicorp-archive-keyring.asc
+    mode: "0644"
+
+- name: Add HashiCorp APT repository
+  become: true
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.asc] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+    state: present
+    filename: hashicorp
+
+- name: Install Vagrant
+  become: true
+  ansible.builtin.apt:
+    name: vagrant
+    state: present
+    update_cache: true
+
+- name: Install vagrant-libvirt plugin
+  become: true
+  become_user: "{{ runner_user }}"
+  command: vagrant plugin install vagrant-libvirt
+  args:
+    creates: "/home/{{ runner_user }}/.vagrant.d/gems/*/gems/vagrant-libvirt-*"
+  environment:
+    HOME: "/home/{{ runner_user }}"
