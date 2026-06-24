@@ -8,23 +8,23 @@ services:
       file: common.yaml
       service: base-service
     environment:
-      MYSQL_PASSWORD: "{{ MYSQL_PASSWORD }}"
+      MYSQL_PASSWORD: "{{ lookup('community.general.onepassword', 'MYSQL_PASSWORD', vault='Infrastructure', field='password') }}"
       MYSQL_DATABASE: nextcloud
       MYSQL_USER: nextcloud
       MYSQL_HOST: db
       NEXTCLOUD_ADMIN_USER: some_admin
-      NEXTCLOUD_ADMIN_PASSWORD: "{{ NEXTCLOUD_ADMIN_PASSWORD }}"
+      NEXTCLOUD_ADMIN_PASSWORD: "{{ lookup('community.general.onepassword', 'NEXTCLOUD_ADMIN_PASSWORD', vault='Infrastructure', field='password') }}"
       REDIS_HOST: cache
       REDIS_HOST_PORT: 6379
-      REDIS_HOST_PASSWORD: "{{ REDIS_PASSWORD }}"
-      JWT_SECRET: "{{ JWT_SECRET }}"
+      REDIS_HOST_PASSWORD: "{{ lookup('community.general.onepassword', 'REDIS_PASSWORD', vault='Infrastructure', field='password') }}"
+      JWT_SECRET: "{{ lookup('community.general.onepassword', 'JWT_SECRET', vault='Infrastructure', field='password') }}"
     volumes:
-      - "{{ service_mounts.configs }}/{{ item.name }}/config:/var/www/html/config"
-      - "{{ service_mounts.configs }}/{{ item.name }}/data:/var/www/html/data"
-      # - "{{ cert_location }}:/etc/ssl/nextcloud"
+      - "{{ service_mounts.config }}/{{ item.name }}/config:/var/www/html/config"
+      - "{{ service_mounts.config }}/{{ item.name }}/data:/var/www/html/data"
+      {# - "{{ cert_location }}:/etc/ssl/nextcloud" #}
       # - /etc/ssl/certs/server.crt:/etc/ssl/certs/server.crt:ro
       # Temporary solution for https://github.com/nextcloud/docker/issues/763#issuecomment-1007447212
-      - "{{ service_mounts.configs }}/{{ item.name }}/redis-session.ini:/usr/local/etc/php/conf.d/redis-session.ini
+      - "{{ service_mounts.config }}/{{ item.name }}/redis-session.ini:/usr/local/etc/php/conf.d/redis-session.ini"
     ports:
       - 8080:80
       - 443:443
@@ -37,12 +37,12 @@ services:
   cache:
     image: redis
     container_name: redis
-    command: redis-server --requirepass "{{ REDIS_PASSWORD }}"
+    command: redis-server --requirepass "{{ lookup('community.general.onepassword', 'REDIS_PASSWORD', vault='Infrastructure', field='password') }}"
     extends:
       file: common.yaml
       service: base-service
     environment:
-      REDIS_PASSWORD: "{{ REDIS_PASSWORD }}"
+      REDIS_PASSWORD: "{{ lookup('community.general.onepassword', 'REDIS_PASSWORD', vault='Infrastructure', field='password') }}"
     expose:
       - 6379
     volumes:
@@ -57,8 +57,8 @@ services:
       - "{{ ansible_env.HOME }}/nextcloud-database:/var/lib/mysql"
     environment:
       TZ: Europe/Stockholm
-      MYSQL_ROOT_PASSWORD: "{{ MYSQL_ROOT_PASSWORD }}"
-      MYSQL_PASSWORD: "{{ MYSQL_PASSWORD }}"
+      MYSQL_ROOT_PASSWORD: "{{ lookup('community.general.onepassword', 'MYSQL_ROOT_PASSWORD', vault='Infrastructure', field='password') }}"
+      MYSQL_PASSWORD: "{{ lookup('community.general.onepassword', 'MYSQL_PASSWORD', vault='Infrastructure', field='password') }}"
       MYSQL_DATABASE: nextcloud
       MYSQL_USER: nextcloud
 
@@ -71,10 +71,10 @@ services:
     restart: always
     environment:
       JWT_ENABLED: "true"
-      JWT_SECRET: "{{ JWT_SECRET }}"
+      JWT_SECRET: "{{ lookup('community.general.onepassword', 'JWT_SECRET', vault='Infrastructure', field='password') }}"
     expose:
       - '80'
       # - '443'
     volumes:
-      - "{{ service_mounts.configs }}/{{ item.name }}/onlyoffice:/var/www/onlyoffice/Data
-      - "{{ service_mounts.configs }}/{{ item.name }}/onlyoffice/logs:/var/log/onlyoffice
+      - "{{ service_mounts.config }}/{{ item.name }}/onlyoffice:/var/www/onlyoffice/Data"
+      - "{{ service_mounts.config }}/{{ item.name }}/onlyoffice/logs:/var/log/onlyoffice"

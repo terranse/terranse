@@ -10,9 +10,9 @@ services:
       retries: 5
       timeout: 5s
     volumes:
-      - "{{ service_mounts.configs }}/{{ item.name }}:/var/lib/postgresql/data"
+      - "{{ service_mounts.config }}/{{ item.name }}:/var/lib/postgresql/data"
     environment:
-      POSTGRES_PASSWORD: "{{ AUTHENTIK_DB_PASSWORD }}"
+      POSTGRES_PASSWORD: "{{ lookup('community.general.onepassword', 'AUTHENTIK_DB_PASSWORD', vault='Infrastructure', field='password') }}"
       POSTGRES_USER: authentik
       POSTGRES_DB: authentik
 
@@ -38,8 +38,8 @@ services:
       AUTHENTIK_POSTGRESQL__HOST: postgresql
       AUTHENTIK_POSTGRESQL__USER: authentik
       AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__PASSWORD: "{{ AUTHENTIK_DB_PASSWORD }}"
-      AUTHENTIK_SECRET_KEY: "{{ AUTHENTIK_SECRET_KEY }}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "{{ lookup('community.general.onepassword', 'AUTHENTIK_DB_PASSWORD', vault='Infrastructure', field='password') }}"
+      AUTHENTIK_SECRET_KEY: "{{ lookup('community.general.onepassword', 'AUTHENTIK_SECRET_KEY', vault='Infrastructure', field='password') }}"
     # volumes:
       # - ./media:/media # Optional; used for storing icons etc.
       # - ./custom-templates:/templates # Optional; storing custom email templates
@@ -59,8 +59,8 @@ services:
       AUTHENTIK_POSTGRESQL__HOST: postgresql
       AUTHENTIK_POSTGRESQL__USER: authentik
       AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__PASSWORD: "{{ AUTHENTIK_DB_PASSWORD }}"
-      AUTHENTIK_SECRET_KEY: "{{ AUTHENTIK_SECRET_KEY }}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "{{ lookup('community.general.onepassword', 'AUTHENTIK_DB_PASSWORD', vault='Infrastructure', field='password') }}"
+      AUTHENTIK_SECRET_KEY: "{{ lookup('community.general.onepassword', 'AUTHENTIK_SECRET_KEY', vault='Infrastructure', field='password') }}"
     # `user: root` and the docker socket volume are optional.
     # See more for the docker socket integration here:
     # https://goauthentik.io/docs/outposts/integrations/docker

@@ -84,7 +84,7 @@ services:
       TZ: Europe/Stockholm
       UN_LOG_FILE: /config/unpackerr.log
       UN_SONARR_0_URL: http://sonarr:8989
-      UN_SONARR_0_API_KEY: "{{ lookup('onepassword', 'Serverarr', vault='HomeNetwork', section='API Tokens', field='sonarr-token') }}"
+      UN_SONARR_0_API_KEY: "{{ lookup('community.general.onepassword', 'Serverarr', vault='HomeNetwork', section='API Tokens', field='sonarr-token') }}"
       UN_RADARR_0_URL: http://radarr:7878
-      UN_RADARR_0_API_KEY: "{{ lookup('onepassword', 'Serverarr', vault='HomeNetwork', section='API Tokens', field='radarr-token') }}"
+      UN_RADARR_0_API_KEY: "{{ lookup('community.general.onepassword', 'Serverarr', vault='HomeNetwork', section='API Tokens', field='radarr-token') }}"
 

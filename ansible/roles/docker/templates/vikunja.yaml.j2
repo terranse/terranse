@@ -7,11 +7,11 @@ services:
     environment:
       VIKUNJA_SERVICE_PUBLICURL: http://tasks.edholm.cc
       VIKUNJA_DATABASE_HOST: db
-      VIKUNJA_DATABASE_PASSWORD: "{{ lookup('onepassword', 'Vikunja', vault= 'HomeNetwork', field= 'password') }}"
+      VIKUNJA_DATABASE_PASSWORD: "{{ lookup('community.general.onepassword', 'Vikunja', vault= 'HomeNetwork', field= 'password') }}"
       VIKUNJA_DATABASE_TYPE: postgres
       VIKUNJA_DATABASE_USER: vikunja
       VIKUNJA_DATABASE_DATABASE: vikunja
-      VIKUNJA_SERVICE_JWTSECRET: "{{ lookup('onepassword', 'Vikunja', vault= 'HomeNetwork', field= 'jwt_secret') }}"
+      VIKUNJA_SERVICE_JWTSECRET: "{{ lookup('community.general.onepassword', 'Vikunja', vault= 'HomeNetwork', field= 'jwt_secret') }}"
       VIKUNJA_CORS_ENABLE: "false"
     ports:
       - 3456:3456
@@ -24,7 +24,7 @@ services:
   db:
     image: postgres:17
     environment:
-      POSTGRES_PASSWORD: "{{ lookup('onepassword', 'Vikunja', vault= 'HomeNetwork', field= 'password') }}"
+      POSTGRES_PASSWORD: "{{ lookup('community.general.onepassword', 'Vikunja', vault= 'HomeNetwork', field= 'password') }}"
       POSTGRES_USER: vikunja
     volumes:
       - ./db:/var/lib/postgresql/data

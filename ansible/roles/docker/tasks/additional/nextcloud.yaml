@@ -7,8 +7,8 @@
   block:
     - name: Deploy fix for redis-file
       copy:
-        src: redis-session.ini
-        dest: "{{ service_mounts.configs }}/nextcloud/redis-session.ini"
+        src: nextcloud/redis-session.ini
+        dest: "{{ service_mounts.config }}/nextcloud/redis-session.ini"
         owner: "{{ docker_user }}"
         group: "{{ docker_group }}"
         mode: '0644'
@@ -20,8 +20,8 @@
     nextcloud_container_name: nextcloud
     nextcloud_family_user: Family
     # Use OnePassword lookup instead of random generation
-    nextcloud_family_password: "{{ lookup('community.general.onepassword', 'Nextcloud Family Account', field='password', vault='Personal') }}"
-    nextcloud_data_path: "{{ service_mounts.configs }}/nextcloud/data/Family/files"
+    nextcloud_family_password: "{{ lookup('community.general.onepassword', 'Nextcloud Family Account', field='password') }}"
+    nextcloud_data_path: "{{ service_mounts.config }}/nextcloud/data/Family/files"
     # User that has access to /storage/* and docker
     service_user: "{{ docker_user }}"
     # Rate limiting: wait X seconds after changes before scanning
@@ -34,24 +34,7 @@
       - Dokument
     # Subdirectory depth to watch (1 = immediate children, 2 = grandchildren, etc.)
     watch_depth: 1
-    inotify_max_watches: 1048576
-  handlers:
-    - name: reload_user_systemd
-      become_user: "{{ service_user }}"
-      systemd:
-        daemon_reload: true
-        scope: user
-      environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ lookup('pipe', 'id -u ' + service_user) }}"
   block:
-    - name: Increase inotify watch limits
-      sysctl:
-        name: fs.inotify.max_user_watches
-        value: "{{ inotify_max_watches }}"
-        state: present
-        sysctl_file: /etc/sysctl.d/99-nextcloud-inotify.conf
-        reload: true
-
     - name: Ensure Nextcloud data directory exists
       file:
         path: "{{ nextcloud_data_path }}"
@@ -135,14 +118,14 @@
         path: "/home/{{ service_user }}/.config/systemd/user"
         state: directory
         owner: "{{ service_user }}"
-        group: "{{ service_user }}"
+        group: "{{ docker_group }}"
         mode: '0755'
 
     - name: Create systemd service units for each subdirectory
       template:
         dest: "/home/{{ service_user }}/.config/systemd/user/nextcloud-scan-{{ item | replace('/', '-') }}.service"
         owner: "{{ service_user }}"
-        group: "{{ service_user }}"
+        group: "{{ docker_group }}"
         mode: '0644'
         content: |
           [Unit]
@@ -166,13 +149,12 @@
           # Timeout after 30 minutes for very large scans
           TimeoutStartSec=1800
       loop: "{{ all_watch_paths }}"
-      notify: reload_user_systemd
 
     - name: Create systemd path units for each subdirectory
       template:
         dest: "/home/{{ service_user }}/.config/systemd/user/nextcloud-scan-{{ item | replace('/', '-') }}.path"
         owner: "{{ service_user }}"
-        group: "{{ service_user }}"
+        group: "{{ docker_group }}"
         mode: '0644'
         content: |
           [Unit]
@@ -190,18 +172,29 @@
           [Install]
           WantedBy=default.target
       loop: "{{ all_watch_paths }}"
-      notify: reload_user_systemd
 
-    - name: Flush handlers to reload user systemd
-      meta: flush_handlers
+    - name: Ensure user systemd session is active
+      become: true
+      systemd:
+        name: "user@{{ docker_user_uid }}.service"
+        state: started
+      when: all_watch_paths | length > 0
+
+    - name: Reload user systemd daemon
+      become: true
+      shell: >-
+        su -l {{ service_user }} -s /bin/bash -c
+        'XDG_RUNTIME_DIR=/run/user/{{ docker_user_uid }}
+        DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{{ docker_user_uid }}/bus
+        systemctl --user daemon-reload'
+      when: all_watch_paths | length > 0
 
     - name: Enable and start path watchers for each subdirectory
-      systemd:
-        name: "nextcloud-scan-{{ item | replace('/', '-') }}.path"
-        enabled: true
-        state: started
-        scope: user
-        daemon_reload: true
+      become: true
+      shell: >-
+        su -l {{ service_user }} -s /bin/bash -c
+        'XDG_RUNTIME_DIR=/run/user/{{ docker_user_uid }}
+        DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{{ docker_user_uid }}/bus
+        systemctl --user enable --now nextcloud-scan-{{ item | replace("/", "-") }}.path'
       loop: "{{ all_watch_paths }}"
-      environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ lookup('pipe', 'id -u ' + service_user) }}"
+      when: all_watch_paths | length > 0
