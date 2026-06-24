@@ -4,8 +4,8 @@
   when: task_phase == "post"
   vars:
     additional_tasks_post: true
-    gitlab_url: "{{ lookup('community.general.onepassword', 'GitLab Runner', vault='HomeNetwork', field='url') }}"
-    runner_token: "{{ lookup('community.general.onepassword', 'GitLab Runner', vault='HomeNetwork', field='token') }}"
+    gitlab_url: "https://gitlab.com"
+    runner_token: "{{ lookup('community.general.onepassword', 'Gitlab Runner', vault='Private', field='token') }}"
   block:
     - name: Check if runner is already registered
       shell: |

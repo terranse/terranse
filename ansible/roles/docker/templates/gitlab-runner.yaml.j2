@@ -1,13 +1,15 @@
 ---
-# Jobs run via shell executor inside this container — no Docker socket is mounted.
+# Docker executor: runner spawns sibling containers on the LXC's Docker daemon.
 # The LXC is unprivileged on Proxmox (user namespace remapping), so even a full
 # LXC escape only lands an attacker as an unprivileged user on the workstation.
 services:
   gitlab-runner:
     image: gitlab/gitlab-runner:latest
+    container_name: gitlab-runner
     restart: always
     volumes:
       - runner-config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   runner-config:
