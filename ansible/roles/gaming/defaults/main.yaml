@@ -63,6 +63,7 @@ vgpu_feature_type: 2
 
 # Sunshine web-UI admin account, seeded non-interactively so Moonlight can pair.
 sunshine_admin_user: admin
-# Set sunshine_admin_password (e.g. from the 1Password vault) to enable pairing
-# without manual first-run account creation.
-# sunshine_admin_password: "{{ lookup('community.general.onepassword', 'Sunshine', field='password') }}"
+# Random password generated and stored in 1Password. Seeding creds also makes
+# Sunshine generate its web-UI TLS cert on first run (an absent/empty cert
+# otherwise crashes it with "use_certificate_chain_file: no start line").
+sunshine_admin_password: "{{ lookup('community.general.onepassword', 'Sunshine Gaming', vault='Infrastructure', field='password') }}"

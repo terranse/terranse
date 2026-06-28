@@ -139,6 +139,16 @@
   no_log: true
 
 # --- RetroArch runner registration ---
+# The Lutris flatpak only creates its config tree on first launch, so create the
+# runners dir ourselves (otherwise the copy below fails on a fresh VM).
+- name: Ensure Lutris runners config directory exists
+  ansible.builtin.file:
+    path: "{{ _lutris_config_dir }}/runners"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+
 - name: Register RetroArch as Lutris runner
   ansible.builtin.copy:
     content: |

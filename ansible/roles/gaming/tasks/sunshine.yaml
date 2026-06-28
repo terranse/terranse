@@ -115,9 +115,13 @@
     src: /mnt/sunshine-creds
     dest: "/home/{{ gaming_user }}/.config/sunshine/credentials"
     state: link
+    force: true
     owner: "{{ gaming_user }}"
     group: "{{ gaming_user }}"
+  # Optional NFS credential sharing — never block the deploy if the dest already
+  # exists as a real directory (no NFS share present on this VM).
   when: creds_mount.stat.exists | default(false)
+  failed_when: false
 
 # Set capabilities for Sunshine — cap_sys_admin is required for KMS capture and
 # lets Sunshine run as an unprivileged user service (no AmbientCapabilities in
@@ -182,6 +186,25 @@
     owner: "{{ gaming_user }}"
     group: "{{ gaming_user }}"
     mode: '0644'
+
+# An empty/zero-byte cert from an interrupted earlier run makes Sunshine abort on
+# startup ("use_certificate_chain_file: no start line"). Remove empties so the
+# creds seed (and Sunshine's first launch) regenerate them cleanly.
+- name: Find Sunshine cert files
+  ansible.builtin.find:
+    paths: "/home/{{ gaming_user }}/.config/sunshine/credentials"
+    patterns: "*.pem"
+    file_type: file
+  register: sunshine_empty_certs
+  failed_when: false
+
+- name: Remove empty Sunshine cert files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ sunshine_empty_certs.files | default([]) | selectattr('size', 'eq', 0) | list }}"
+  loop_control:
+    label: "{{ item.path }}"
 
 - name: Seed Sunshine web-UI credentials (non-interactive)
   become: true
