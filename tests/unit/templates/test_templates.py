@@ -22,7 +22,6 @@ ANSIBLE_LOOKUP_TEMPLATES = [
     "nextcloud.yaml.j2",
     "authentik.yaml.j2",
     "vikunja.yaml.j2",
-    "fastapi-dls.yaml.j2",
 ]
 
 
@@ -159,7 +158,6 @@ class TestTemplateDiscovery:
             "authentik.yaml.j2",
             "vikunja.yaml.j2",
             "docker-compose.yaml.j2",
-            "fastapi-dls.yaml.j2",
         ]
 
         for template_name in expected_templates:
@@ -177,7 +175,6 @@ class TestTemplateDiscovery:
             "authentik.yaml.j2",
             "vikunja.yaml.j2",
             "docker-compose.yaml.j2",
-            "fastapi-dls.yaml.j2",
         }
 
         actual_templates = {

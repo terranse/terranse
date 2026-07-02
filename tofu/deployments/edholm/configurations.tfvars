@@ -73,13 +73,14 @@ hosts = {
         ]
       }
 
+      # DLS decommissioned: vGPU licensing now uses nvlts (local trusted store)
+      # in the gaming guest — no network license server is needed. The LXC is
+      # retained but runs nothing; delete this whole block to have tofu reclaim it.
       dls-server = {
         roles = [
           { name = "docker" }
         ]
-        docker_services = [
-          { name = "fastapi-dls" }
-        ]
+        docker_services = []
       }
 
       sharing = {

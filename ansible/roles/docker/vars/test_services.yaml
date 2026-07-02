@@ -104,12 +104,3 @@ service_tests:
     health_checks: []
     uses_onepassword: true
 
-  fastapi-dls:
-    containers:
-      - fastapi-dls
-    health_checks:
-      - name: fastapi-dls
-        port: 443
-        path: /-/health
-        expected_status: [200]
-        use_https: true
