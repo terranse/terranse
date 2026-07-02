@@ -1,25 +1,17 @@
 # NVIDIA vGPU Guest Licensing Configuration
 # Managed by Ansible - do not edit manually
-#
-# Points to FastAPI-DLS server for vGPU licensing
 
 # Enable vGPU licensing.
 # FeatureType selects the licensed product and MUST match the assigned vGPU
-# profile, or the guest stays Unlicensed even with a reachable DLS server:
+# profile, or the guest stays Unlicensed:
 #   1 = vGPU / vPC, 2 = RTX Virtual Workstation (vWS), 4 = vCompute Server.
 # The A5000 Q-series profile (RTXA5000-8Q) is a vWS profile, so use 2.
 FeatureType={{ vgpu_feature_type | default(2) }}
 
-# FastAPI-DLS server configuration
-ServerAddress={{ dls_server_ip }}
-ServerPort=443
-EnableMultiServer=false
-
-# License server type (1 = DLS)
-LicenseServerType=1
-
-# Client configuration
-ClientConfigTokenPath=/etc/nvidia/ClientConfigToken
+# Licensing is handled by nvlts (local trusted store): the license is forged into
+# /var/lib/nvidia/vGPULicensing/DataStore.bin by /opt/nvlts/generate-license.sh
+# (nvidia-gridd ExecStartPre). No DLS server — nvidia-gridd reads the license
+# locally and never contacts a network license server.
 
 # Logging
 EnableLog=1

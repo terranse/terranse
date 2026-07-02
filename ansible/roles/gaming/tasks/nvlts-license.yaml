@@ -1,0 +1,78 @@
+---
+# vGPU licensing via NVIDIA Local Trusted Store (nvlts)
+#
+# Default licensing method for the gaming guest. Replaces the FastAPI-DLS flow,
+# which cannot license vGPU 20.x (driver 595): the guest driver validates the
+# DLS certificate chain against NVIDIA's real NLS root CA, and on 20.x that root
+# is embedded in signed, boot-ROM-verified GSP firmware — unpatchable, so no
+# self-hosted DLS chain validates. nvlts sidesteps it entirely by forging a
+# permanent node-locked license into the driver's local trusted store
+# (AES-GCM with the driver's fixed built-in key). Offline, no server, no patch.
+#
+# Source: {{ nvlts_repo_url }} (commit {{ nvlts_vendored_commit }}). The
+# pre-built static x86-64 binary is vendored at files/nvlts; rebuild with
+# `CGO_ENABLED=0 go build -ldflags "-s -w" .` after cloning the repo.
+#
+# Assumes the NVIDIA guest driver (nvidia-gridd) is already installed.
+
+- name: Create nvlts directory
+  ansible.builtin.file:
+    path: /opt/nvlts
+    state: directory
+    mode: '0755'
+
+- name: Install vendored nvlts binary
+  ansible.builtin.copy:
+    src: nvlts
+    dest: /opt/nvlts/nvlts
+    mode: '0755'
+  register: nvlts_binary
+
+- name: Install nvlts license-generation wrapper
+  ansible.builtin.template:
+    src: nvlts-generate-license.sh.j2
+    dest: /opt/nvlts/generate-license.sh
+    mode: '0755'
+  register: nvlts_wrapper
+
+- name: Ensure nvidia-gridd systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/nvidia-gridd.service.d
+    state: directory
+    mode: '0755'
+
+- name: Regenerate the node-locked license before nvidia-gridd starts (every boot)
+  # `ExecStartPre=-` so a generation hiccup never blocks the daemon from starting.
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (terranse gaming role)
+      [Service]
+      ExecStartPre=-/opt/nvlts/generate-license.sh
+    dest: /etc/systemd/system/nvidia-gridd.service.d/nvlts.conf
+    mode: '0644'
+  register: nvlts_dropin
+
+- name: Reload systemd if the gridd unit changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: nvlts_dropin.changed
+
+- name: Generate license now and (re)start nvidia-gridd
+  ansible.builtin.systemd:
+    name: nvidia-gridd
+    state: restarted
+  when: nvlts_binary.changed or nvlts_wrapper.changed or nvlts_dropin.changed
+  failed_when: false
+
+- name: Check licensing status (non-fatal)
+  ansible.builtin.command: nvidia-smi -q
+  register: nvlts_license_check
+  changed_when: false
+  failed_when: false
+
+- name: Report licensing status
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'vGPU Licensed via nvlts local trusted store'
+         if ('License Status' in (nvlts_license_check.stdout | default('')) and 'Licensed' in (nvlts_license_check.stdout | default('')) and 'Unlicensed' not in (nvlts_license_check.stdout | default('')))
+         else 'vGPU still Unlicensed — check /opt/nvlts/generate-license.sh output and journalctl -u nvidia-gridd' }}

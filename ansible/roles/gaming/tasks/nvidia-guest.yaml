@@ -1,11 +1,9 @@
 ---
 # NVIDIA vGPU Guest Driver Installation
 #
-# Installs the NVIDIA vGPU guest driver inside the VM.
+# Installs the NVIDIA vGPU guest driver inside the VM and licenses it via nvlts
+# (local trusted store — see tasks/nvlts-license.yaml).
 # Drivers are shared from the Proxmox host via virtiofs.
-#
-# Required variables:
-#   dls_server_ip: IP of FastAPI-DLS server
 #
 # Optional variables:
 #   nvidia_guest_driver_url: Direct URL fallback if virtiofs not available
@@ -121,114 +119,27 @@
   notify: Reboot for NVIDIA driver
 
 # =============================================================================
-# Configure licensing
+# Configure licensing (nvlts — NVIDIA Local Trusted Store)
 #
-# vGPU licensing is unforgiving: the guest must (1) point gridd at a reachable
-# DLS server with the right FeatureType, (2) have a clock within 10 minutes of
-# the DLS server (NVIDIA bug 3859889) on the same timezone, and (3) fetch a
-# fresh client token and restart nvidia-gridd within ~1 hour of generating it.
-# We therefore sync time first, then fetch the token and restart gridd as one
-# step so the registration window is never blown.
+# Forge a permanent node-locked license into the driver's local trusted store;
+# fully offline, no DLS server, no client token, no driver patching. Works on all
+# branches incl. vGPU 20.x/595, where FastAPI-DLS cannot (the NLS root CA moved
+# into unpatchable GSP firmware). See tasks/nvlts-license.yaml.
 # =============================================================================
-- name: Ensure time sync is installed and active (vGPU licensing prerequisite)
-  ansible.builtin.apt:
-    name: systemd-timesyncd
-    state: present
-
-- name: Enable and start systemd-timesyncd
-  ansible.builtin.systemd:
-    name: systemd-timesyncd
-    enabled: true
-    state: started
-
-- name: Set guest timezone to match the DLS server
-  community.general.timezone:
-    name: "{{ dls_timezone | default('Europe/Stockholm') }}"
-
-- name: Verify the clock is synchronized (fail loudly if not)
-  ansible.builtin.command: timedatectl show -p NTPSynchronized --value
-  register: ntp_synced
-  changed_when: false
-  retries: 6
-  delay: 10
-  until: ntp_synced.stdout | trim == "yes"
-  failed_when: ntp_synced.stdout | trim != "yes"
-
 - name: Ensure NVIDIA config directory exists
   ansible.builtin.file:
     path: /etc/nvidia
     state: directory
     mode: '0755'
 
-- name: Configure FastAPI-DLS licensing
+- name: Write nvidia-gridd configuration
   ansible.builtin.template:
     src: gridd-guest.conf.j2
     dest: /etc/nvidia/gridd.conf
     mode: '0644'
-  when: dls_server_ip is defined
 
-# =============================================================================
-# Fetch the client config token and (re)license
-#
-# Token endpoint is /-/client-token (note the /-/). We keep exactly ONE token in
-# the dir (clear stale ones) and download straight to disk — the token contains
-# special characters and must never be copy/pasted. FastAPI-DLS serves a
-# self-signed webserver cert, so the fetch skips TLS verification (matches the
-# upstream README's `--no-check-certificate`).
-#
-# NOTE (driver 18.x+, incl. 595/vGPU 20.x): nvidia-gridd pins NVIDIA's real NLS
-# root CA and rejects FastAPI-DLS's chain ("Invalid certificate received from
-# server") until the gridd binary is patched with gridd-unlock-patcher. That
-# patcher (v1.1) does NOT yet work on 595, so licensing stays Unlicensed on this
-# driver — tracked separately. These tasks are all non-fatal so the rest of the
-# gaming setup deploys regardless of licensing state.
-# =============================================================================
-- name: Fetch vGPU client config token and license the guest
-  when: dls_server_ip is defined
-  block:
-    - name: Ensure ClientConfigToken directory exists
-      ansible.builtin.file:
-        path: /etc/nvidia/ClientConfigToken
-        state: directory
-        mode: '0755'
-
-    - name: Remove stale client config tokens
-      ansible.builtin.find:
-        paths: /etc/nvidia/ClientConfigToken
-        patterns: "*.tok"
-      register: stale_tokens
-
-    - name: Delete stale client config tokens
-      ansible.builtin.file:
-        path: "{{ item.path }}"
-        state: absent
-      loop: "{{ stale_tokens.files }}"
-
-    - name: Download client config token from FastAPI-DLS
-      ansible.builtin.get_url:
-        url: "https://{{ dls_server_ip }}/-/client-token"
-        dest: "/etc/nvidia/ClientConfigToken/client_configuration_token_{{ ansible_date_time.iso8601_basic_short }}.tok"
-        mode: '0644'
-        validate_certs: false  # FastAPI-DLS webserver cert is self-signed
-      failed_when: false
-
-    - name: Restart nvidia-gridd to register the new token
-      ansible.builtin.systemd:
-        name: nvidia-gridd
-        state: restarted
-      failed_when: false
-
-    - name: Check licensing status (non-fatal)
-      ansible.builtin.command: nvidia-smi -q
-      register: nvidia_license
-      changed_when: false
-      failed_when: false
-
-    - name: Report licensing status
-      ansible.builtin.debug:
-        msg: >-
-          {{ 'vGPU Licensed' if ('Licensed' in (nvidia_license.stdout | default('')) and 'Unlicensed' not in (nvidia_license.stdout | default('')))
-             else 'vGPU still Unlicensed — driver 18.x+ needs the gridd-unlock-patcher (not working on 595 yet); DLS server itself is healthy' }}
+- name: License the vGPU via nvlts (local trusted store)
+  ansible.builtin.include_tasks: nvlts-license.yaml
 
 - name: Enable nvidia-persistenced
   ansible.builtin.systemd:

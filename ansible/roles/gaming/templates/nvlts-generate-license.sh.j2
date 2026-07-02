@@ -1,0 +1,34 @@
+#!/bin/sh
+# Managed by Ansible (terranse gaming role) — DO NOT EDIT.
+#
+# Regenerates the vGPU node-locked license in the NVIDIA Local Trusted Store
+# right before nvidia-gridd starts (wired as ExecStartPre). This licenses the
+# vGPU fully offline: no DLS server, no client token, no certificate chain, no
+# GSP validation, no driver patching. nvlts writes a forged permanent lease into
+# /var/lib/nvidia/vGPULicensing/DataStore.bin, which the driver decrypts with a
+# fixed built-in AES key ("GridLicensing2.0").
+#
+# Why this instead of FastAPI-DLS: vGPU 18.x+ pins NVIDIA's real NLS root CA;
+# on vGPU 20.x (driver 595) that root lives in signed, boot-ROM-verified GSP
+# firmware, so a self-hosted DLS chain can never validate. nvlts avoids the
+# whole network/cert path.
+#
+# The driver version is read from the live driver so the license fingerprint
+# always matches, even after a guest driver update.
+set -eu
+
+DRIVER_VER="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 | tr -d ' ')"
+: "${DRIVER_VER:={{ nvlts_fallback_driver_version }}}"
+
+cat > /opt/nvlts/config.json <<EOF
+{
+  "GuestDriverVersion": "${DRIVER_VER}",
+  "HostDriverVersion": "${DRIVER_VER}",
+  "ProductName": "{{ vgpu_product_name }}",
+  "FeatureName": "{{ vgpu_feature_name }}",
+  "FeatureVersion": "{{ vgpu_feature_version }}",
+  "GPU": [""]
+}
+EOF
+
+exec /opt/nvlts/nvlts -c /opt/nvlts/config.json -g
