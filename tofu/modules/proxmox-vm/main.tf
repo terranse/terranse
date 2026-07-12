@@ -99,7 +99,7 @@ resource "proxmox_vm_qemu" "vms" {
   # write-only attributes for cipassword, so any value passed through the
   # module would get persisted in the tfstate. The template's default
   # user/password is the source of truth for first-login access.
-  ipconfig0 = "ip=dhcp"
+  ipconfig0 = coalesce(each.value.ipconfig, "ip=dhcp")
 
   cpu {
     cores   = each.value.cores

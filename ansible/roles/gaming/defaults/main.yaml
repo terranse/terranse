@@ -54,6 +54,17 @@ game_sync_package: game-sync-service
 # form) or flip the repo public for anonymous git+https installs.
 game_sync_package_url: "git+https://github.com/yarcod/game-sync-service.git"
 
+# Sunshine web UI credentials (1Password item). Home Player reads the same item
+# to post pairing PINs to Sunshine's API, so Moonlight clients pair without
+# anyone typing a PIN. Empty values leave whatever credentials Sunshine already
+# has, and pairing falls back to the web UI.
+op_sunshine_item: "Sunshine"
+sunshine_web_username: "{{ lookup('community.general.onepassword', op_sunshine_item, vault='Infrastructure', field='username', errors='warn') | default('', true) }}"
+sunshine_web_password: "{{ lookup('community.general.onepassword', op_sunshine_item, vault='Infrastructure', field='password', errors='warn') | default('', true) }}"
+# Sunshine stores only a hash, so we cannot detect a *changed* password. Set true
+# to reprovision (rotation, or adopting an install whose password nobody knows).
+sunshine_force_creds: false
+
 # Metadata enrichment API keys (1Password items; register the free keys there).
 # Absent items resolve to empty, which disables enrichment rather than failing
 # the play — game-sync still syncs the library and enriches on a later scan

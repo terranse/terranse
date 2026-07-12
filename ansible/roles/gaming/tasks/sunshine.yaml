@@ -123,6 +123,34 @@
   when: creds_mount.stat.exists | default(false)
   failed_when: false
 
+# Web UI credentials. Home Player needs these to submit pairing PINs to
+# /api/pin on the operator's behalf, which is what makes Moonlight pairing
+# hands-free. Both sides read the same 1Password item, so the password never has
+# to be typed or copied anywhere.
+- name: Read current Sunshine web credential state
+  ansible.builtin.command:
+    cmd: grep -q '"username"' /home/{{ gaming_user }}/.config/sunshine/sunshine_state.json
+  register: _sunshine_creds_present
+  changed_when: false
+  failed_when: false
+
+- name: Provision Sunshine web UI credentials from 1Password
+  ansible.builtin.command:
+    cmd: sunshine --creds {{ sunshine_web_username | quote }} {{ sunshine_web_password | quote }}
+  become: true
+  become_user: "{{ gaming_user }}"
+  # Sunshine hashes the password into sunshine_state.json, so we cannot compare
+  # against the desired value — only whether *any* credential is set. Reprovision
+  # when none exists, or when explicitly forced (rotation / adopting an unknown
+  # password set by hand).
+  when:
+    - sunshine_web_username | length > 0
+    - sunshine_web_password | length > 0
+    - _sunshine_creds_present.rc != 0 or sunshine_force_creds | bool
+  no_log: true
+  changed_when: true
+  notify: Restart sunshine
+
 # Set capabilities for Sunshine — cap_sys_admin is required for KMS capture and
 # lets Sunshine run as an unprivileged user service (no AmbientCapabilities in
 # the unit).
