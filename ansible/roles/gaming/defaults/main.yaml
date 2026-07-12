@@ -43,13 +43,21 @@ gog_enabled: true
 # 1Password item names for store credentials
 op_epic_item: "Epic Games"
 op_gog_item: "GOG"
+op_igdb_item: "IGDB"
+op_steamgriddb_item: "SteamGridDB"
 
 # Game sync service
 game_sync_enabled: true
 game_sync_port: 9766
 game_sync_package: game-sync-service
-# Override with URL or path for pre-release installs
-# game_sync_package_url: https://...
+# Private repo: the VM needs credentials (deploy key -> use the git+ssh URL
+# form) or flip the repo public for anonymous git+https installs.
+game_sync_package_url: "git+https://github.com/yarcod/game-sync-service.git"
+
+# Metadata enrichment API keys (1Password items; register the free keys there)
+igdb_client_id: "{{ lookup('community.general.onepassword', op_igdb_item, vault='Infrastructure', field='client_id') }}"
+igdb_client_secret: "{{ lookup('community.general.onepassword', op_igdb_item, vault='Infrastructure', field='client_secret') }}"
+steamgriddb_api_key: "{{ lookup('community.general.onepassword', op_steamgriddb_item, vault='Infrastructure', field='api_key') }}"
 
 # GPU Manager API (if running)
 # gpu_manager_url: http://192.168.1.x:8080

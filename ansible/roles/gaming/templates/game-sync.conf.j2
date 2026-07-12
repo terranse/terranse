@@ -13,16 +13,23 @@ hostname = {{ ansible_hostname }}
 db_path = {{ _lutris_data_dir }}/pga.db
 # Lutris binary for triggering resyncs
 lutris_cmd = {{ 'flatpak run net.lutris.Lutris' if lutris_install_method == 'flatpak' else 'lutris' }}
+# Lutris cover art cache (preferred cover source before SteamGridDB)
+coverart_dir = {{ _lutris_cache_dir }}/coverart
 
 [sunshine]
 # Path to Sunshine apps.json (sync service manages this file)
 apps_path = /home/{{ gaming_user }}/.config/sunshine/apps.json
+# Sunshine (v2026.x) does not watch apps.json; run this after changes.
+# Left empty by default: restarting sunshine kills active Moonlight streams.
+reload_cmd =
 
 [storage]
 # Cover art cache directory
 cover_cache_dir = /var/lib/game-sync/covers
 # Game profiles for GPU recommendations
 game_profiles_path = /etc/gpu-manager/game-profiles.json
+# Metadata db, sunshine sidecar, overrides.toml live here
+data_dir = /var/lib/game-sync
 
 [stores]
 epic_enabled = {{ epic_enabled | lower }}
@@ -30,3 +37,11 @@ gog_enabled = {{ gog_enabled | lower }}
 steam_enabled = {{ steam_enabled | lower }}
 retroarch_enabled = {{ retroarch_enabled | lower }}
 retroarch_rom_path = /mnt/games/emulation/roms
+
+[metadata]
+# IGDB via Twitch client-credentials; SteamGridDB static bearer key.
+# Empty values disable enrichment (safe: the service skips enrichment
+# entirely and enriches on the next scan after keys appear).
+igdb_client_id = {{ igdb_client_id }}
+igdb_client_secret = {{ igdb_client_secret }}
+steamgriddb_api_key = {{ steamgriddb_api_key }}
