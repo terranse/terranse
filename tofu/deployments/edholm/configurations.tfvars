@@ -157,13 +157,16 @@ hosts = {
 
     vms = {
       gaming = {
-        cores     = 8
-        memory    = 16384
+        cores     = 12
+        memory    = 32768
         disk_size = "64G"
         clone     = "ubuntu-2604-base"
         pci_devices = [{
-          mapping_id    = "RTX-A5000"
-          vgpu_slice_gb = 8
+          mapping_id = "RTX-A5000"
+          # Full 24 GB slice (RTXA5000-24Q). The A5000 only permits homogeneous
+          # slices, so this VM must be the sole slice-holder: the driver won't
+          # even offer 24Q as creatable while another vGPU is assigned.
+          vgpu_slice_gb = 24
           pcie          = true
           # primary_gpu (x-vga) MUST stay false for a headless streaming VM:
           # making the vGPU the primary display hangs boot once the gaming

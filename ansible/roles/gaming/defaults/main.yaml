@@ -54,10 +54,13 @@ game_sync_package: game-sync-service
 # form) or flip the repo public for anonymous git+https installs.
 game_sync_package_url: "git+https://github.com/yarcod/game-sync-service.git"
 
-# Metadata enrichment API keys (1Password items; register the free keys there)
-igdb_client_id: "{{ lookup('community.general.onepassword', op_igdb_item, vault='Infrastructure', field='client_id') }}"
-igdb_client_secret: "{{ lookup('community.general.onepassword', op_igdb_item, vault='Infrastructure', field='client_secret') }}"
-steamgriddb_api_key: "{{ lookup('community.general.onepassword', op_steamgriddb_item, vault='Infrastructure', field='api_key') }}"
+# Metadata enrichment API keys (1Password items; register the free keys there).
+# Absent items resolve to empty, which disables enrichment rather than failing
+# the play — game-sync still syncs the library and enriches on a later scan
+# once the keys exist.
+igdb_client_id: "{{ lookup('community.general.onepassword', op_igdb_item, vault='Infrastructure', field='client_id', errors='warn') | default('', true) }}"
+igdb_client_secret: "{{ lookup('community.general.onepassword', op_igdb_item, vault='Infrastructure', field='client_secret', errors='warn') | default('', true) }}"
+steamgriddb_api_key: "{{ lookup('community.general.onepassword', op_steamgriddb_item, vault='Infrastructure', field='api_key', errors='warn') | default('', true) }}"
 
 # GPU Manager API (if running)
 # gpu_manager_url: http://192.168.1.x:8080
