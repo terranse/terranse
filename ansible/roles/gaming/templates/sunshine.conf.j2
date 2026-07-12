@@ -12,12 +12,12 @@ hevc_mode = 1
 # =============================================================================
 # KMS capture provides direct DRM framebuffer access
 # Works with gamescope, cage, sway, and other wlroots compositors
-capture = kms
+capture = wlr
 
 # =============================================================================
 # Display settings
 # =============================================================================
-adapter_name = auto
+adapter_name = /dev/dri/renderD128
 # Virtual display is created by the Wayland compositor (gamescope/cage/sway)
 # Resolution is set via compositor config, not here
 

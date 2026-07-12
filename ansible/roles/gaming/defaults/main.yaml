@@ -10,7 +10,7 @@ gaming_user: gamer
 # Display configuration
 # Sway (headless wlroots output) is the supported streaming compositor: on
 # NVIDIA, headless gamescope produces no capturable output, whereas Sunshine
-# can KMS-capture a headless Sway session (with WLR_RENDERER=gles).
+# captures a headless Sway session via wlroots screencopy (WLR_RENDERER=gles2).
 wayland_compositor: sway
 display_server: wayland
 virtual_display_width: 1920
