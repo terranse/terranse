@@ -79,6 +79,10 @@
       {{ '/home/' + gaming_user + '/.var/app/net.lutris.Lutris/config/legendary'
          if lutris_install_method == 'flatpak'
          else '/home/' + gaming_user + '/.config/legendary' }}
+    _lutris_cache_dir: >-
+      {{ '/home/' + gaming_user + '/.var/app/net.lutris.Lutris/cache/lutris'
+         if lutris_install_method == 'flatpak'
+         else '/home/' + gaming_user + '/.cache/lutris' }}
 
 - name: Create Lutris config directories
   ansible.builtin.file:
