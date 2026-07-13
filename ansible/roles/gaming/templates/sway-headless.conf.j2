@@ -34,10 +34,13 @@ exec systemctl --user start sunshine.service
 # selecting Desktop in Moonlight used to hand you a perfectly encoded black
 # screen with no way to launch anything. A launcher gives the session something
 # to show and a way in; the terminal is the escape hatch when it doesn't.
+{# This config binds Mod4 directly and never defines $mod — using $mod here makes
+   sway reject the line and raise a "There are errors in your config file" bar
+   over the streamed session. #}
 {% if gaming_desktop_launcher | default(true) %}
 exec {{ gaming_desktop_terminal | default('foot') }}
-bindsym $mod+d exec {{ gaming_desktop_menu | default('wofi --show drun') }}
-bindsym $mod+Return exec {{ gaming_desktop_terminal | default('foot') }}
+bindsym Mod4+d exec {{ gaming_desktop_menu | default('wofi --show drun') }}
+bindsym Mod4+Shift+Return exec {{ gaming_desktop_terminal | default('foot') }}
 {% endif %}
 
 # Sway tiles, and the Desktop session's terminal is a window like any other — so a
