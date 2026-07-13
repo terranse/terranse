@@ -339,6 +339,14 @@
   when:
     - vgpu_profile_checks | default({}) | length > 0
     - vgpu_creatable_types.stdout | default('') | length > 0
+    # Check only the ids the driver is currently offering. The A5000 permits one
+    # profile across all slices, so the moment any VM holds a vGPU,
+    # creatable_vgpu_types lists that profile ALONE — every other id disappears.
+    # Demanding all of them be present therefore reports drift whenever a gaming
+    # VM is running, which is nearly always. Absence is the homogeneity
+    # constraint; only a *contradiction* (an id present under the wrong name) is
+    # real drift, and that is still caught.
+    - vgpu_creatable_types.stdout | regex_search("^\s*" ~ (item.key | regex_replace("^nvidia-", "")) ~ "\s*:", multiline=True) is not none
 
 # =============================================================================
 # Step 8: Systemd timer for periodic driver updates

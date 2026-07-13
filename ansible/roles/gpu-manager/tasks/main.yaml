@@ -135,21 +135,65 @@
   when: enable_monitoring | default(true)
 
 # =============================================================================
-# Attach virtiofs game storage mappings to gaming VMs
+# Attach virtiofs mappings to gaming VMs
 # =============================================================================
 # gaming_vms is a dict keyed by hostname ({ gaming: { vmid: 111 } }) — the same
 # shape vm-map.json.j2 consumes. Attach the directory mappings as virtiofs
 # devices. The change takes effect when the VM next (re)starts.
-- name: Attach game storage virtiofs to gaming VMs
-  ansible.builtin.command: >-
-    qm set {{ item.value.vmid }}
-    --virtiofs0 dirid=gaming-pc-games
-    --virtiofs1 dirid=gaming-emulation
+#
+# virtiofs2 is the vGPU guest-driver share the drivers role publishes. Without
+# it the gaming role has nothing to mount at /mnt/drivers, and because that
+# mount is best-effort every driver-install task downstream silently *skips* —
+# leaving a VM with no NVIDIA driver and no error to show for it.
+
+# Attaching a dirid that does not exist on the host makes the VM refuse to
+# START ("Directory ID gaming-pc-games does not exist") — and `qm set` accepts
+# it happily, so the damage only shows up at the next boot. Attach exactly the
+# shares that exist.
+- name: Read the directory mappings the host actually publishes
+  ansible.builtin.command: pvesh get /cluster/mapping/dir --output-format json
+  register: gpu_dir_mappings
+  changed_when: false
+  failed_when: false
+
+- name: Select the virtiofs shares to attach
+  ansible.builtin.set_fact:
+    _virtiofs_shares: >-
+      {{
+        ['gaming-pc-games', 'gaming-emulation', vgpu_virtiofs_mapping | default('nvidia-guest-drivers')]
+        | select('in', (gpu_dir_mappings.stdout | default('[]') | from_json | map(attribute='id') | list))
+        | list
+      }}
+
+- name: Note which game-storage shares the host has not published
+  ansible.builtin.set_fact:
+    _virtiofs_missing: "{{ ['gaming-pc-games', 'gaming-emulation'] | difference(_virtiofs_shares) }}"
+
+- name: Warn about game-storage shares the host has not published
+  ansible.builtin.debug:
+    msg: >-
+      Directory mapping(s) {{ _virtiofs_missing | join(', ') }} do not exist on this
+      host, so they are not being attached. Game storage will be missing inside the
+      VM until they are created.
+  when: _virtiofs_missing | length > 0
+
+- name: Build the virtiofs arguments
+  ansible.builtin.set_fact:
+    _virtiofs_args: "{{ _virtiofs_args | default('') }} --virtiofs{{ idx }} dirid={{ share }}"
+  loop: "{{ _virtiofs_shares }}"
+  loop_control:
+    index_var: idx
+    loop_var: share
+    label: "virtiofs{{ idx }}={{ share }}"
+
+- name: Attach virtiofs shares to gaming VMs
+  ansible.builtin.command: "qm set {{ item.value.vmid }} {{ _virtiofs_args }}"
   loop: "{{ gaming_vms | dict2items }}"
   loop_control:
     label: "{{ item.key }} (vmid {{ item.value.vmid }})"
-  when: gaming_vms is defined and gaming_vms | length > 0
-  failed_when: false
+  when:
+    - gaming_vms is defined and gaming_vms | length > 0
+    - _virtiofs_shares | length > 0
 
 - name: Display GPU Manager setup info
   ansible.builtin.debug:
