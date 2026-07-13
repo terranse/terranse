@@ -58,7 +58,7 @@ game_sync_package_url: "git+https://github.com/yarcod/game-sync-service.git"
 # to post pairing PINs to Sunshine's API, so Moonlight clients pair without
 # anyone typing a PIN. Empty values leave whatever credentials Sunshine already
 # has, and pairing falls back to the web UI.
-op_sunshine_item: "Sunshine"
+op_sunshine_item: "Sunshine Gaming"
 sunshine_web_username: "{{ lookup('community.general.onepassword', op_sunshine_item, vault='Infrastructure', field='username', errors='warn') | default('', true) }}"
 sunshine_web_password: "{{ lookup('community.general.onepassword', op_sunshine_item, vault='Infrastructure', field='password', errors='warn') | default('', true) }}"
 # Sunshine stores only a hash, so we cannot detect a *changed* password. Set true
