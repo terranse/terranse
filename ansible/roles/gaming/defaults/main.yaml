@@ -50,9 +50,13 @@ op_steamgriddb_item: "SteamGridDB"
 game_sync_enabled: true
 game_sync_port: 9766
 game_sync_package: game-sync-service
-# Private repo: the VM needs credentials (deploy key -> use the git+ssh URL
-# form) or flip the repo public for anonymous git+https installs.
-game_sync_package_url: "git+https://github.com/yarcod/game-sync-service.git"
+# The repo is private and the VM holds no GitHub credentials, so install the
+# wheel shipped with this role (see files/). Rebuild it with `uv build` in
+# game-sync-service and drop the new wheel here to upgrade.
+game_sync_wheel: game_sync_service-0.1.0-py3-none-any.whl
+# Set to install from a URL instead — a public repo, an index, or a git+ssh
+# remote backed by a deploy key. Empty means "use the vendored wheel".
+game_sync_package_url: ""
 
 # Sunshine web UI credentials (1Password item). Home Player reads the same item
 # to post pairing PINs to Sunshine's API, so Moonlight clients pair without

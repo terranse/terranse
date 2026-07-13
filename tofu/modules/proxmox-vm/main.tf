@@ -101,6 +101,12 @@ resource "proxmox_vm_qemu" "vms" {
   # user/password is the source of truth for first-login access.
   ipconfig0 = coalesce(each.value.ipconfig, "ip=dhcp")
 
+  # DHCP hands out DNS with the lease; a static ipconfig does not. Without these
+  # a statically-addressed guest comes up with an empty resolv.conf and every
+  # name lookup hangs — apt in particular retries for many minutes before failing.
+  nameserver   = each.value.nameserver
+  searchdomain = each.value.searchdomain
+
   cpu {
     cores   = each.value.cores
     sockets = 1
@@ -108,15 +114,12 @@ resource "proxmox_vm_qemu" "vms" {
   }
   scsihw = "virtio-scsi-single"
 
-  disk {
-    slot    = local.disk_slot[each.key]
-    size    = each.value.disk_size
-    type    = "disk"
-    storage = var.storage_pool
-    # iothread only valid with virtio or virtio-scsi-single — disable for SATA
-    iothread = !startswith(local.disk_slot[each.key], "sata")
-  }
-
+  # ORDER MATTERS. Telmate diffs `disk` blocks positionally, and reads them back
+  # from Proxmox sorted by slot — so ide2 always comes back before scsi0/sata0/
+  # virtio0. Declaring the data disk first therefore produces a permanent phantom
+  # diff in which the two blocks swap slots (boot disk -> cloudinit and back),
+  # which an in-place apply would happily carry out. Keep ide2 declared first.
+  #
   # Cloud-init drive on ide2. Telmate's linked clone does NOT inherit
   # the template's ide2 cloudinit drive, so we declare it explicitly
   # here so every clone gets a fresh one. Both Linux cloud images and
@@ -126,6 +129,15 @@ resource "proxmox_vm_qemu" "vms" {
     slot    = "ide2"
     type    = "cloudinit"
     storage = var.storage_pool
+  }
+
+  disk {
+    slot    = local.disk_slot[each.key]
+    size    = each.value.disk_size
+    type    = "disk"
+    storage = var.storage_pool
+    # iothread only valid with virtio or virtio-scsi-single — disable for SATA
+    iothread = !startswith(local.disk_slot[each.key], "sata")
   }
 
   network {

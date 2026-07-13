@@ -25,9 +25,22 @@
     state: present
   become: true
 
+# game-sync-service lives in a private GitHub repo, and the VM has no credentials
+# for it — `pip install git+https://…` dies with "could not read Username for
+# 'https://github.com'". Ship the built wheel with the role instead, the same way
+# the nvlts binary is vendored. Set game_sync_package_url to install from a URL
+# (a public repo, an index, a deploy-key ssh remote) and this is bypassed.
+- name: Stage the vendored game-sync wheel
+  ansible.builtin.copy:
+    src: "{{ game_sync_wheel }}"
+    dest: "/tmp/{{ game_sync_wheel }}"
+    mode: '0644'
+  become: true
+  when: game_sync_package_url | length == 0
+
 - name: Install game-sync-service into its own venv
   ansible.builtin.pip:
-    name: "{{ game_sync_package_url | default(game_sync_package) }}"
+    name: "{{ game_sync_package_url if game_sync_package_url | length > 0 else '/tmp/' + game_sync_wheel }}"
     state: present
     virtualenv: /opt/game-sync
     virtualenv_command: python3 -m venv

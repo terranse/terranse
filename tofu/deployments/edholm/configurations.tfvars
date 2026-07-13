@@ -164,7 +164,9 @@ hosts = {
         # Static: the LAN DHCP server stopped answering this MAC (it leases fine
         # to every other guest), and a streaming target needs a stable address
         # anyway — Moonlight pairs against a host, not a hostname lookup.
-        ipconfig = "ip=192.168.1.172/24,gw=192.168.1.1"
+        ipconfig     = "ip=192.168.1.172/24,gw=192.168.1.1"
+        nameserver   = "192.168.1.1"
+        searchdomain = "edholm.cc"
         pci_devices = [{
           mapping_id = "RTX-A5000"
           # Full 24 GB slice (RTXA5000-24Q). The A5000 only permits homogeneous

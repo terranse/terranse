@@ -52,6 +52,11 @@ variable "configuration" {
     network_model = optional(string)      # virtio / e1000 / rtl8139 — derived from clone when null
     mac_address   = optional(string)      # Fixed MAC on net0; auto-generated when null
     ipconfig      = optional(string)      # cloud-init ipconfig0, e.g. "ip=192.168.1.10/24,gw=192.168.1.1"; DHCP when null
+    # A static ipconfig carries no DNS — the DHCP lease used to supply it — so a
+    # statically-addressed VM MUST set this or it boots with an empty resolv.conf
+    # and every name lookup (apt, flatpak) hangs on retries.
+    nameserver   = optional(string)
+    searchdomain = optional(string)
     pci_devices = optional(list(object({
       mapping_id    = optional(string)       # Proxmox resource mapping
       raw_id        = optional(string)       # Direct PCI address (e.g. "0000:41:00.0")
