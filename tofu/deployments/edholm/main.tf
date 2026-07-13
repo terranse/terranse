@@ -40,20 +40,27 @@ locals {
     }
   }
 
+  # Give every role a `vars` map and fold the VMIDs into gpu-manager's, both
+  # unconditionally. HCL requires a conditional's two arms to have *identical*
+  # types, and host_roles is a heterogeneous tuple — `drivers` declares `vars`,
+  # `gpu-manager` declares none — so `r.name == "gpu-manager" ? merge(r, {vars =
+  # ...}) : r` is a type error ("attribute vars absent in the false value"). The
+  # `if` inside the map comprehension selects instead of branching, which keeps
+  # one type throughout.
   hosts_wired = {
-    for host_key, host in var.hosts : host_key => (
-      contains(keys(local.gaming_vms_by_host), host_key) && try(host.host_roles, null) != null
-      ? merge(host, {
-        host_roles = [
-          for r in host.host_roles : (
-            r.name == "gpu-manager"
-            ? merge(r, { vars = merge(try(r.vars, {}), { gaming_vms = local.gaming_vms_by_host[host_key] }) })
-            : r
+    for host_key, host in var.hosts : host_key => merge(host, {
+      host_roles = [
+        for r in try(host.host_roles, []) : merge(r, {
+          vars = merge(
+            try(r.vars, {}),
+            {
+              for k, v in { gaming_vms = try(local.gaming_vms_by_host[host_key], {}) } : k => v
+              if r.name == "gpu-manager" && contains(keys(local.gaming_vms_by_host), host_key)
+            }
           )
-        ]
-      })
-      : host
-    )
+        })
+      ]
+    })
   }
 }
 
