@@ -24,17 +24,11 @@ exec systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DES
 exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP
 exec systemctl --user start sunshine.service
 
-# The headless guest has no sound card, so the session provides a null sink for
-# Sunshine to capture. The NAME matters: Sunshine switches the default sink to
-# `sink-sunshine-stereo` at stream start and then captures *that* sink's monitor.
-# Naming it anything else (it used to be "VirtualSink") makes Sunshine switch to a
-# sink that does not exist, its monitor lookup comes back empty, and every stream
-# starts with "pa_simple_new() failed" — video fine, no audio ever.
-#
-# It has to be created here rather than by Ansible: a `pactl load-module` sink
-# lives only as long as the PipeWire session, so it must be (re)created whenever
-# this session starts.
-exec pactl load-module module-null-sink sink_name={{ sunshine_audio_sink_name }} sink_properties=device.description=Sunshine && pactl set-default-sink {{ sunshine_audio_sink_name }}
+# No audio sink is created here on purpose. This used to `pactl load-module` a
+# null sink, but a runtime module is not durable — it disappeared between
+# sessions and left every stream silent. The sink is now declared to PipeWire
+# itself, in /etc/pipewire/pipewire.conf.d/ (see pipewire-sunshine-sink.conf.j2),
+# so it exists before this session starts and survives it.
 
 # Make the "Desktop" app worth streaming. Sway on its own draws nothing, so
 # selecting Desktop in Moonlight used to hand you a perfectly encoded black
@@ -45,6 +39,16 @@ exec {{ gaming_desktop_terminal | default('foot') }}
 bindsym $mod+d exec {{ gaming_desktop_menu | default('wofi --show drun') }}
 bindsym $mod+Return exec {{ gaming_desktop_terminal | default('foot') }}
 {% endif %}
+
+# Sway tiles, and the Desktop session's terminal is a window like any other — so a
+# launched game would split the output with it and arrive on the client at half
+# width. Anything streamed is meant to own the screen: force it fullscreen.
+for_window [app_id="steam"] fullscreen enable
+for_window [class="Steam"] fullscreen enable
+for_window [app_id="^gamescope$"] fullscreen enable
+for_window [class="^lutris$"] fullscreen enable
+for_window [app_id="^net.lutris.Lutris$"] fullscreen enable
+for_window [app_id="^org.libretro.RetroArch$"] fullscreen enable
 
 # Keybindings for gaming
 bindsym Mod4+Return exec xfce4-terminal

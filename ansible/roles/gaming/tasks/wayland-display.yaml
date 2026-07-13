@@ -35,6 +35,22 @@
       - xwayland  # For X11 game compatibility
     state: present
 
+# The guest has no sound card, so declare the sink Sunshine captures. It must be
+# a PipeWire object rather than a `pactl load-module` call from the session: the
+# runtime module did not survive between sessions, PipeWire fell back to
+# auto_null, and every stream came up silent.
+- name: Ensure the PipeWire drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/pipewire/pipewire.conf.d
+    state: directory
+    mode: '0755'
+
+- name: Declare the Sunshine capture sink to PipeWire
+  ansible.builtin.template:
+    src: pipewire-sunshine-sink.conf.j2
+    dest: /etc/pipewire/pipewire.conf.d/99-sunshine-sink.conf
+    mode: '0644'
+
 # Gamescope - Valve's gaming compositor (recommended)
 - name: Install gamescope
   when: wayland_compositor == 'gamescope'

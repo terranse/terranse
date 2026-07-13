@@ -1,0 +1,25 @@
+# Persistent null sink for Sunshine to capture.
+# Managed by Ansible - do not edit manually.
+#
+# The guest has no sound card. Sunshine switches the default sink to
+# `{{ sunshine_audio_sink_name }}` at stream start and captures that sink's
+# monitor, so the sink must exist and carry exactly that name.
+#
+# It is declared here rather than created with `pactl load-module` from the Sway
+# session because a runtime module is not durable: it disappeared between
+# sessions, PipeWire fell back to `auto_null`, and every stream then failed with
+# `pa_simple_new(): Invalid argument` — video fine, no audio, and a log line
+# ("Found default monitor by name: ") whose emptiness was the only clue.
+context.objects = [
+  { factory = adapter
+    args = {
+      factory.name     = support.null-audio-sink
+      node.name        = "{{ sunshine_audio_sink_name }}"
+      node.description = "Sunshine"
+      media.class      = Audio/Sink
+      audio.position   = [ FL FR ]
+      monitor.channel-volumes = true
+      object.linger    = true
+    }
+  }
+]
