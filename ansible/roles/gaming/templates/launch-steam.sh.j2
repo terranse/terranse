@@ -1,13 +1,52 @@
 #!/bin/sh
-# Sunshine launches Steam through this indirection because the role does not know,
-# at template time, which Steam it will end up with: the Flatpak is preferred and
-# apt is only a fallback. apps.json used to hardcode one of them, so whenever the
-# other was installed Sunshine ran a command that exited immediately — the session
-# came up, the encoder started, the client connected, and it streamed a perfectly
-# encoded black screen with nothing in any log to say why.
+# Sunshine launches Steam through this indirection for two reasons.
+#
+# 1. Which Steam exists is not knowable at template time: the Flatpak is preferred
+#    and apt is only a fallback. apps.json used to hardcode one of them, so when
+#    the other was installed Sunshine ran a command that exited immediately — the
+#    session came up, the encoder started, the client connected, and it streamed a
+#    perfectly encoded black screen with nothing in any log to say why.
+#
+# 2. Steam is single-instance. If a Steam process is alive but has lost its window
+#    (it has crashed, or a previous session left it wedged), a fresh launch just
+#    hands off to that corpse and exits — so every subsequent stream shows an empty
+#    desktop, forever, and restarting the session does not help. Detect that and
+#    restart it.
 #
 # Managed by Ansible - do not edit manually.
-set -eu
+set -u
+
+: "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
+# Sunshine's environment does not carry SWAYSOCK; find the running compositor's.
+if [ -z "${SWAYSOCK:-}" ]; then
+    SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock 2>/dev/null | head -1)
+    export SWAYSOCK
+fi
+
+steam_running() {
+    pgrep -u "$(id -u)" -f 'com.valvesoftware.Steam|/steam.sh|/usr/games/steam' >/dev/null 2>&1
+}
+
+steam_has_window() {
+    [ -n "${SWAYSOCK:-}" ] || return 1
+    command -v swaymsg >/dev/null 2>&1 || return 1
+    swaymsg -t get_tree 2>/dev/null | grep -q '"app_id": *"steam"'
+}
+
+if steam_running && ! steam_has_window; then
+    echo "launch-steam: Steam is running with no window — restarting it, since a" \
+         "second instance would only hand off to it and exit." >&2
+    pkill -u "$(id -u)" -f 'com.valvesoftware.Steam' 2>/dev/null || true
+    pkill -u "$(id -u)" -f '/steam.sh' 2>/dev/null || true
+    # Give it a moment to release its single-instance lock before we start again.
+    i=0
+    while steam_running && [ "$i" -lt 10 ]; do
+        sleep 1
+        i=$((i + 1))
+    done
+    steam_running && pkill -9 -u "$(id -u)" -f 'com.valvesoftware.Steam' 2>/dev/null
+    sleep 1
+fi
 
 if flatpak info com.valvesoftware.Steam >/dev/null 2>&1; then
     exec flatpak run com.valvesoftware.Steam "$@"
