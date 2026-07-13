@@ -52,6 +52,15 @@ variable "configuration" {
     network_model = optional(string)      # virtio / e1000 / rtl8139 — derived from clone when null
     mac_address   = optional(string)      # Fixed MAC on net0; auto-generated when null
     ipconfig      = optional(string)      # cloud-init ipconfig0, e.g. "ip=192.168.1.10/24,gw=192.168.1.1"; DHCP when null
+    # Host ZFS datasets to share into the guest, same shape as the LXC `mounts`.
+    # A container can bind-mount the host's filesystem directly; a VM cannot, so
+    # each entry becomes a Proxmox directory mapping shared over virtiofs and
+    # mounted at `path` inside the guest. `name` is the mapping id / virtiofs tag.
+    mounts = optional(list(object({
+      name    = string
+      dataset = string
+      path    = string
+    })), [])
     # A static ipconfig carries no DNS — the DHCP lease used to supply it — so a
     # statically-addressed VM MUST set this or it boots with an empty resolv.conf
     # and every name lookup (apt, flatpak) hangs on retries.

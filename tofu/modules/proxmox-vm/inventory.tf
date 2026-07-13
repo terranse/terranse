@@ -26,6 +26,8 @@ resource "ansible_host" "vm_hosts" {
     ansible_user   = each.value.ci_user
     ansible_become = "true"
     ansible_host   = local.ansible_hosts[each.key]
+    # The guest side of `mounts`: which virtiofs tag lands at which path.
+    mounts = jsonencode(each.value.mounts)
   }
 }
 

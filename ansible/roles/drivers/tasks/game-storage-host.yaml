@@ -35,24 +35,27 @@
   changed_when: false
   failed_when: false
 
+# `--map` takes a property list, not host=path: Proxmox stores
+# "node=<node>,path=<path>" and rejects anything else with
+# "map[0].path: property is missing". The old form failed every run — silently,
+# because failed_when was false — so the mappings never existed and the VM had no
+# game storage. Do NOT drop the failed_when here without also fixing the format.
 - name: Create gaming-pc-games directory mapping
   ansible.builtin.command: >-
     pvesh create /cluster/mapping/dir
     --id gaming-pc-games
-    --map {{ ansible_hostname }}=/{{ game_storage_pools[0].pool }}/gaming/pc-games
+    --map node={{ ansible_hostname }},path=/{{ game_storage_pools[0].pool }}/gaming/pc-games
   when:
     - game_storage_pools | length > 0
     - game_storage_pools[0].pool in (zpool_list.stdout_lines | default([]))
     - "'gaming-pc-games' not in (existing_dir_mappings.stdout | default(''))"
-  failed_when: false
 
 - name: Create gaming-emulation directory mapping
   ansible.builtin.command: >-
     pvesh create /cluster/mapping/dir
     --id gaming-emulation
-    --map {{ ansible_hostname }}=/{{ game_storage_pools[1].pool }}/gaming/emulation
+    --map node={{ ansible_hostname }},path=/{{ game_storage_pools[1].pool }}/gaming/emulation
   when:
     - game_storage_pools | length > 1
     - game_storage_pools[1].pool in (zpool_list.stdout_lines | default([]))
     - "'gaming-emulation' not in (existing_dir_mappings.stdout | default(''))"
-  failed_when: false

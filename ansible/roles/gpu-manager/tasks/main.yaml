@@ -135,65 +135,93 @@
   when: enable_monitoring | default(true)
 
 # =============================================================================
-# Attach virtiofs mappings to gaming VMs
+# Publish and attach each VM's declared mounts over virtiofs
 # =============================================================================
-# gaming_vms is a dict keyed by hostname ({ gaming: { vmid: 111 } }) — the same
-# shape vm-map.json.j2 consumes. Attach the directory mappings as virtiofs
-# devices. The change takes effect when the VM next (re)starts.
+# gaming_vms is keyed by hostname: { gaming: { vmid: 111, mounts: [...] } }.
 #
-# virtiofs2 is the vGPU guest-driver share the drivers role publishes. Without
-# it the gaming role has nothing to mount at /mnt/drivers, and because that
-# mount is best-effort every driver-install task downstream silently *skips* —
-# leaving a VM with no NVIDIA driver and no error to show for it.
+# A container can bind-mount the host's filesystem; a VM cannot. So every mount a
+# VM declares becomes a Proxmox directory mapping (id = mount name = virtiofs
+# tag), attached here and mounted inside the guest by the guest play. This is the
+# VM counterpart of the LXC `mounts` list and takes the same {name,dataset,path}.
+#
+# The vGPU guest-driver share is attached alongside them: it is not user storage,
+# it is how the guest gets its driver, and without it every driver-install task in
+# the gaming role silently *skips* — a VM with no NVIDIA driver and no error.
+#
+# Attaching a dirid that does not exist makes the VM refuse to START ("Directory
+# ID gaming-pc-games does not exist"), and `qm set` accepts it without complaint,
+# so the damage only surfaces at the next boot. Publish first, then attach only
+# what exists.
+- name: Read the directory mappings that already exist
+  ansible.builtin.command: pvesh get /cluster/mapping/dir --output-format json
+  register: gpu_dir_mappings_pre
+  changed_when: false
+  failed_when: false
 
-# Attaching a dirid that does not exist on the host makes the VM refuse to
-# START ("Directory ID gaming-pc-games does not exist") — and `qm set` accepts
-# it happily, so the damage only shows up at the next boot. Attach exactly the
-# shares that exist.
-- name: Read the directory mappings the host actually publishes
+- name: Resolve the host mountpoint of each declared dataset
+  ansible.builtin.command: "zfs list -Ho mountpoint {{ item.1.dataset }}"
+  register: _vm_mount_points
+  loop: "{{ gaming_vms | dict2items | subelements('value.mounts', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.1.name }} ({{ item.1.dataset }})"
+  changed_when: false
+  failed_when: false
+
+- name: Publish a directory mapping for each mount
+  # --map is a property list; "host=path" is rejected with
+  # "map[0].path: property is missing".
+  ansible.builtin.command: >-
+    pvesh create /cluster/mapping/dir
+    --id {{ item.item.1.name }}
+    --map node={{ ansible_hostname }},path={{ item.stdout | trim }}
+    --description "{{ item.item.1.dataset }} (shared to {{ item.item.0.key }} via virtiofs)"
+  loop: "{{ _vm_mount_points.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.1.name }} -> {{ item.stdout | default('') | trim }}"
+  when:
+    - item.rc | default(1) == 0
+    - item.stdout | default('') | trim is match('^/')
+    - item.item.1.name not in (gpu_dir_mappings_pre.stdout | default('') )
+  failed_when: false
+
+- name: Read the directory mappings the host publishes
   ansible.builtin.command: pvesh get /cluster/mapping/dir --output-format json
   register: gpu_dir_mappings
   changed_when: false
   failed_when: false
 
-- name: Select the virtiofs shares to attach
+- name: Select the shares to attach to each VM
   ansible.builtin.set_fact:
-    _virtiofs_shares: >-
-      {{
-        ['gaming-pc-games', 'gaming-emulation', vgpu_virtiofs_mapping | default('nvidia-guest-drivers')]
-        | select('in', (gpu_dir_mappings.stdout | default('[]') | from_json | map(attribute='id') | list))
-        | list
-      }}
-
-- name: Note which game-storage shares the host has not published
-  ansible.builtin.set_fact:
-    _virtiofs_missing: "{{ ['gaming-pc-games', 'gaming-emulation'] | difference(_virtiofs_shares) }}"
-
-- name: Warn about game-storage shares the host has not published
-  ansible.builtin.debug:
-    msg: >-
-      Directory mapping(s) {{ _virtiofs_missing | join(', ') }} do not exist on this
-      host, so they are not being attached. Game storage will be missing inside the
-      VM until they are created.
-  when: _virtiofs_missing | length > 0
-
-- name: Build the virtiofs arguments
-  ansible.builtin.set_fact:
-    _virtiofs_args: "{{ _virtiofs_args | default('') }} --virtiofs{{ idx }} dirid={{ share }}"
-  loop: "{{ _virtiofs_shares }}"
-  loop_control:
-    index_var: idx
-    loop_var: share
-    label: "virtiofs{{ idx }}={{ share }}"
+    _published: "{{ gpu_dir_mappings.stdout | default('[]') | from_json | map(attribute='id') | list }}"
 
 - name: Attach virtiofs shares to gaming VMs
-  ansible.builtin.command: "qm set {{ item.value.vmid }} {{ _virtiofs_args }}"
+  ansible.builtin.command: >-
+    qm set {{ item.value.vmid }}
+    {% for share in ((item.value.mounts | default([]) | map(attribute='name') | list)
+                     + [vgpu_virtiofs_mapping | default('nvidia-guest-drivers')])
+                    | select('in', _published) | list %}
+    --virtiofs{{ loop.index0 }} dirid={{ share }}
+    {% endfor %}
   loop: "{{ gaming_vms | dict2items }}"
   loop_control:
     label: "{{ item.key }} (vmid {{ item.value.vmid }})"
   when:
     - gaming_vms is defined and gaming_vms | length > 0
-    - _virtiofs_shares | length > 0
+    - ((item.value.mounts | default([]) | map(attribute='name') | list)
+       + [vgpu_virtiofs_mapping | default('nvidia-guest-drivers')])
+      | select('in', _published) | list | length > 0
+
+- name: Warn about declared mounts the host could not publish
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.key }}: mapping(s)
+      {{ item.value.mounts | default([]) | map(attribute='name') | difference(_published) | join(', ') }}
+      could not be published (missing dataset?), so they are not attached and will
+      be absent inside the VM.
+  loop: "{{ gaming_vms | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: item.value.mounts | default([]) | map(attribute='name') | difference(_published) | length > 0
 
 - name: Display GPU Manager setup info
   ansible.builtin.debug:

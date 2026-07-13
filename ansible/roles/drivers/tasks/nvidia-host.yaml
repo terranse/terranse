@@ -277,26 +277,28 @@
 # =============================================================================
 # Step 7: Expose guest drivers via virtiofs directory mapping
 # =============================================================================
+# `--map` is a property list — "node=<node>,path=<path>". Passing host=path is
+# rejected with "map[0].path: property is missing", and failed_when hid it.
 - name: Create Proxmox directory mapping for guest drivers
   ansible.builtin.command:
     cmd: >-
       pvesh create /cluster/mapping/dir
       --id nvidia-guest-drivers
-      --map {{ ansible_hostname }}={{ vgpu_driver_dir }}/guest
+      --map node={{ ansible_hostname }},path={{ vgpu_driver_dir }}/guest
       --description "NVIDIA vGPU guest drivers (shared via virtiofs)"
   register: dir_mapping_create
   changed_when: dir_mapping_create.rc == 0
+  # Already-exists is the only tolerable failure; the update below handles it.
   failed_when: false
 
 - name: Update Proxmox directory mapping if it already exists
   ansible.builtin.command:
     cmd: >-
       pvesh set /cluster/mapping/dir/nvidia-guest-drivers
-      --map {{ ansible_hostname }}={{ vgpu_driver_dir }}/guest
+      --map node={{ ansible_hostname }},path={{ vgpu_driver_dir }}/guest
       --description "NVIDIA vGPU guest drivers (shared via virtiofs)"
   when: dir_mapping_create.rc != 0
   changed_when: true
-  failed_when: false
 
 # =============================================================================
 # Step 7a: Enable vGPU SR-IOV (compute display mode + VFs + PCI mapping)

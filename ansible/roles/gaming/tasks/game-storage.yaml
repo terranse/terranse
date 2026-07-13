@@ -28,23 +28,42 @@
 # =============================================================================
 # Virtiofs mounts (preferred — shared from host ZFS pools)
 # =============================================================================
-- name: Mount PC games from virtiofs
-  ansible.posix.mount:
-    path: /mnt/games/pc
-    src: gaming-pc-games
-    fstype: virtiofs
-    state: mounted
-  failed_when: false
-  register: virtiofs_pc_games
+# Driven by the VM's `mounts` list (tofu passes it through the inventory), so a
+# new share is declared in one place rather than hardcoded here. The host play
+# publishes each as a directory mapping and attaches it; the virtiofs tag is the
+# mapping id.
+- name: Create mount points for the declared virtiofs shares
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ vm_mounts }}"
+  loop_control:
+    label: "{{ item.path }}"
 
-- name: Mount emulation from virtiofs
+- name: Mount the declared virtiofs shares
   ansible.posix.mount:
-    path: /mnt/games/emulation
-    src: gaming-emulation
+    path: "{{ item.path }}"
+    src: "{{ item.name }}"
     fstype: virtiofs
     state: mounted
+  loop: "{{ vm_mounts }}"
+  loop_control:
+    label: "{{ item.name }} -> {{ item.path }}"
+  register: _virtiofs_mounts
+  # A share attached while the VM was running is invisible to the guest until it
+  # restarts, so a first run after attaching legitimately cannot mount. Do not
+  # fail the play for that — but do not pretend it worked either (see below).
   failed_when: false
-  register: virtiofs_emulation
+
+- name: Report virtiofs shares that could not be mounted
+  ansible.builtin.debug:
+    msg: >-
+      Could not mount {{ _virtiofs_mounts.results | rejectattr('failed', 'equalto', false)
+                         | map(attribute='item.name') | join(', ') }}.
+      A share attached to a running VM is only visible after it restarts — reboot
+      the VM and re-run. If it persists, the host has not published the mapping.
+  when: _virtiofs_mounts.results | default([]) | rejectattr('failed', 'equalto', false) | list | length > 0
 
 # =============================================================================
 # NFS fallback (from NAS, when virtiofs is not available)
@@ -141,8 +160,10 @@
       ========================================
       Game Storage Configuration:
 
-      PC games:        /mnt/games/pc ({{ 'virtiofs' if virtiofs_pc_games is not failed else 'NFS' if nfs_server is defined else 'not mounted' }})
-      Emulation:       /mnt/games/emulation ({{ 'virtiofs' if virtiofs_emulation is not failed else 'NFS' if nfs_server is defined else 'not mounted' }})
+      virtiofs shares (from the VM's declared `mounts`):
+      {% for m in vm_mounts %}
+        {{ m.name }} -> {{ m.path }}
+      {% endfor %}
       Sunshine creds:  /mnt/sunshine-creds
       Session state:   /mnt/gaming/session-state (GPU manager)
       Cover art:       /mnt/games/covers

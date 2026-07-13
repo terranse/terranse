@@ -38,6 +38,13 @@ mouse = true
 # =============================================================================
 origin_web_ui_allowed = wan
 
+# Sunshine rejects web-UI requests whose Origin it does not know ("The request
+# was blocked by CSRF protection"), and it only knows localhost by default — so
+# reaching the UI at the VM's address is refused. This is not a DNS problem: the
+# hostname would be rejected just the same. Allow every address the UI is
+# actually reached by.
+csrf_allowed_origins = {{ sunshine_csrf_allowed_origins | to_json }}
+
 # =============================================================================
 # Logging
 # =============================================================================

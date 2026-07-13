@@ -167,6 +167,14 @@ hosts = {
         ipconfig     = "ip=192.168.1.172/24,gw=192.168.1.1"
         nameserver   = "192.168.1.1"
         searchdomain = "edholm.cc"
+
+        # Same declaration style as the LXC mounts. A VM cannot bind-mount the
+        # host, so each of these is published as a Proxmox directory mapping and
+        # shared over virtiofs (the mapping id doubles as the virtiofs tag).
+        mounts = [
+          { name = "gaming-pc-games", dataset = "nvmepool/gaming/pc-games", path = "/mnt/games/pc" },
+          { name = "gaming-emulation", dataset = "store/gaming/emulation", path = "/mnt/games/emulation" },
+        ]
         pci_devices = [{
           mapping_id = "RTX-A5000"
           # Full 24 GB slice (RTXA5000-24Q). The A5000 only permits homogeneous
