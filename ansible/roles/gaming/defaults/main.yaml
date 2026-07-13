@@ -62,6 +62,17 @@ game_sync_package_url: ""
 # to post pairing PINs to Sunshine's API, so Moonlight clients pair without
 # anyone typing a PIN. Empty values leave whatever credentials Sunshine already
 # has, and pairing falls back to the web UI.
+# Sunshine switches the default sink to this name at stream start and captures its
+# monitor, so the sway session must create a null sink with exactly this name.
+# Anything else and every stream comes up silent.
+sunshine_audio_sink_name: sink-sunshine-stereo
+
+# Give the headless session a launcher and a terminal, so Moonlight's "Desktop"
+# is usable rather than a black screen with nothing running on it.
+gaming_desktop_launcher: true
+gaming_desktop_terminal: foot
+gaming_desktop_menu: "wofi --show drun"
+
 # Host datasets shared into this VM over virtiofs. Tofu passes the VM's `mounts`
 # list through the inventory as JSON; the virtiofs tag is the mapping name.
 vm_mounts: "{{ mounts | default('[]') | from_json }}"

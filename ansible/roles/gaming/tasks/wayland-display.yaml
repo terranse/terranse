@@ -98,7 +98,8 @@
           - swaybg
           - swayidle
           - wlr-randr
-          - foot  # Terminal
+          - foot  # Terminal — also the Desktop session's escape hatch
+          - wofi  # App launcher, so Moonlight's "Desktop" is not an empty screen
         state: present
 
     - name: Create sway config directory

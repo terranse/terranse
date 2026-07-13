@@ -24,7 +24,11 @@ adapter_name = /dev/dri/renderD128
 # =============================================================================
 # Audio settings - PipeWire (Wayland standard)
 # =============================================================================
-audio_sink = default
+# The sway session creates this null sink (the guest has no sound card). Sunshine
+# switches the default sink to `virtual_sink` at stream start and captures its
+# monitor, so both must name the sink the session actually created.
+audio_sink = {{ sunshine_audio_sink_name }}.monitor
+virtual_sink = {{ sunshine_audio_sink_name }}
 
 # =============================================================================
 # Input settings

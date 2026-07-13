@@ -1,14 +1,17 @@
 #!/bin/sh
 # Sunshine launches Steam through this indirection because the role does not know,
-# at template time, which Steam it will end up with: it installs the apt package
-# when that works and only falls back to Flatpak when it does not. apps.json used
-# to hardcode `flatpak run com.valvesoftware.Steam`, so on the ordinary apt path
-# Sunshine ran a command that exited immediately with "not installed" — the
-# session came up and streamed a perfectly encoded black screen, with nothing in
-# any log to say why.
+# at template time, which Steam it will end up with: the Flatpak is preferred and
+# apt is only a fallback. apps.json used to hardcode one of them, so whenever the
+# other was installed Sunshine ran a command that exited immediately — the session
+# came up, the encoder started, the client connected, and it streamed a perfectly
+# encoded black screen with nothing in any log to say why.
 #
 # Managed by Ansible - do not edit manually.
 set -eu
+
+if flatpak info com.valvesoftware.Steam >/dev/null 2>&1; then
+    exec flatpak run com.valvesoftware.Steam "$@"
+fi
 
 for candidate in /usr/games/steam /usr/bin/steam; do
     if [ -x "$candidate" ]; then
@@ -16,4 +19,5 @@ for candidate in /usr/games/steam /usr/bin/steam; do
     fi
 done
 
-exec flatpak run com.valvesoftware.Steam "$@"
+echo "launch-steam: no Steam installation found (neither Flatpak nor apt)" >&2
+exit 1

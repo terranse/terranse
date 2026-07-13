@@ -12,15 +12,37 @@
     dest: /opt/sunshine/launch-steam.sh
     mode: '0755'
 
-- name: Enable i386 architecture for Steam
+# Flatpak first, deliberately. Ubuntu's `steam-installer` is only a bootstrapper:
+# on first launch it downloads the real client and wants a licence accepted, which
+# on a headless guest wedged into several stuck processes drawing no window at all
+# — the session streamed a black screen with nothing in any log to explain it.
+# The Flatpak ships a complete, self-contained client with its own runtime, needs
+# no i386 host libraries, and is what Lutris and RetroArch already use here.
+- name: Add Flathub repository
+  community.general.flatpak_remote:
+    name: flathub
+    flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
+    state: present
+
+- name: Install Steam via Flatpak
+  community.general.flatpak:
+    name: com.valvesoftware.Steam
+    state: present
+  failed_when: false
+  register: steam_flatpak_install
+
+# Fall back to apt only when Flatpak is unavailable.
+- name: Enable i386 architecture for Steam (apt fallback)
   ansible.builtin.command: dpkg --add-architecture i386
   changed_when: false
+  when: steam_flatpak_install is failed
 
-- name: Update apt cache after adding i386
+- name: Update apt cache after adding i386 (apt fallback)
   ansible.builtin.apt:
     update_cache: true
+  when: steam_flatpak_install is failed
 
-- name: Install Steam dependencies
+- name: Install Steam via apt (fallback)
   ansible.builtin.apt:
     name:
       - steam-installer
@@ -29,22 +51,7 @@
       - libgl1:i386
       - libc6:i386
     state: present
-  failed_when: false
-  register: steam_apt_install
-
-# Install Steam via Flatpak as fallback if apt install failed
-- name: Add Flathub repository
-  community.general.flatpak_remote:
-    name: flathub
-    flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
-    state: present
-  when: steam_apt_install is failed
-
-- name: Install Steam via Flatpak
-  community.general.flatpak:
-    name: com.valvesoftware.Steam
-    state: present
-  when: steam_apt_install is failed
+  when: steam_flatpak_install is failed
 
 # Configure Steam library paths
 - name: Create Steam library directories

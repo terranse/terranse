@@ -24,9 +24,27 @@ exec systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DES
 exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP
 exec systemctl --user start sunshine.service
 
-# Virtual audio sink — the VM has no audio hardware, so create a null sink for
-# Sunshine to capture (otherwise audio capture fails / streams silence).
-exec pactl load-module module-null-sink sink_name=VirtualSink sink_properties=device.description=VirtualSink && pactl set-default-sink VirtualSink
+# The headless guest has no sound card, so the session provides a null sink for
+# Sunshine to capture. The NAME matters: Sunshine switches the default sink to
+# `sink-sunshine-stereo` at stream start and then captures *that* sink's monitor.
+# Naming it anything else (it used to be "VirtualSink") makes Sunshine switch to a
+# sink that does not exist, its monitor lookup comes back empty, and every stream
+# starts with "pa_simple_new() failed" — video fine, no audio ever.
+#
+# It has to be created here rather than by Ansible: a `pactl load-module` sink
+# lives only as long as the PipeWire session, so it must be (re)created whenever
+# this session starts.
+exec pactl load-module module-null-sink sink_name={{ sunshine_audio_sink_name }} sink_properties=device.description=Sunshine && pactl set-default-sink {{ sunshine_audio_sink_name }}
+
+# Make the "Desktop" app worth streaming. Sway on its own draws nothing, so
+# selecting Desktop in Moonlight used to hand you a perfectly encoded black
+# screen with no way to launch anything. A launcher gives the session something
+# to show and a way in; the terminal is the escape hatch when it doesn't.
+{% if gaming_desktop_launcher | default(true) %}
+exec {{ gaming_desktop_terminal | default('foot') }}
+bindsym $mod+d exec {{ gaming_desktop_menu | default('wofi --show drun') }}
+bindsym $mod+Return exec {{ gaming_desktop_terminal | default('foot') }}
+{% endif %}
 
 # Keybindings for gaming
 bindsym Mod4+Return exec xfce4-terminal
