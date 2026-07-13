@@ -21,6 +21,17 @@
     state: directory
     mode: '0755'
 
+# nvlts writes the node-locked license into the driver's local trusted store.
+# On a long-running guest that directory already exists, but on a freshly built
+# one nothing has created it yet, and nvlts fails with "no such file or
+# directory" — leaving the GPU Unlicensed with only the grace period to show for
+# it. Create it before generating.
+- name: Ensure the driver's local trusted store directory exists
+  ansible.builtin.file:
+    path: /var/lib/nvidia/vGPULicensing
+    state: directory
+    mode: '0755'
+
 - name: Install vendored nvlts binary
   ansible.builtin.copy:
     src: nvlts

@@ -127,26 +127,39 @@
 # /api/pin on the operator's behalf, which is what makes Moonlight pairing
 # hands-free. Both sides read the same 1Password item, so the password never has
 # to be typed or copied anywhere.
-- name: Read current Sunshine web credential state
-  ansible.builtin.command:
-    cmd: grep -q '"username"' /home/{{ gaming_user }}/.config/sunshine/sunshine_state.json
-  register: _sunshine_creds_present
+# Sunshine hashes the password (with a random salt) into sunshine_state.json, so
+# the desired value cannot be compared against what is stored, and re-running
+# `sunshine --creds` would rewrite the file every time and restart the server —
+# killing any live stream. Nor is "is a username set?" a usable proxy: Sunshine
+# seeds one itself on first run, so that check never fires and the guest is left
+# on credentials nobody knows. Ask the server directly whether the credentials we
+# intend to use already work, and only reprovision when they do not.
+- name: Check whether the intended Sunshine credentials already work
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:47990/api/config"
+    method: GET
+    user: "{{ sunshine_web_username }}"
+    password: "{{ sunshine_web_password }}"
+    force_basic_auth: true
+    validate_certs: false
+    status_code: [200, 401]
+  register: _sunshine_auth
   changed_when: false
   failed_when: false
+  no_log: true
+  when:
+    - sunshine_web_username | length > 0
+    - sunshine_web_password | length > 0
 
 - name: Provision Sunshine web UI credentials from 1Password
   ansible.builtin.command:
     cmd: sunshine --creds {{ sunshine_web_username | quote }} {{ sunshine_web_password | quote }}
   become: true
   become_user: "{{ gaming_user }}"
-  # Sunshine hashes the password into sunshine_state.json, so we cannot compare
-  # against the desired value — only whether *any* credential is set. Reprovision
-  # when none exists, or when explicitly forced (rotation / adopting an unknown
-  # password set by hand).
   when:
     - sunshine_web_username | length > 0
     - sunshine_web_password | length > 0
-    - _sunshine_creds_present.rc != 0 or sunshine_force_creds | bool
+    - (_sunshine_auth.status | default(0)) != 200 or sunshine_force_creds | bool
   no_log: true
   changed_when: true
   notify: Restart sunshine
