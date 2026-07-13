@@ -16,12 +16,30 @@
     - /var/lib/game-sync
     - /var/lib/game-sync/covers
 
-# Install from pip/uv (configurable source)
-- name: Install game-sync-service package
+# Ubuntu 26.04 marks the system interpreter externally-managed (PEP 668), so a
+# system-wide `pip3 install` refuses to run. Install into a dedicated venv and
+# expose the entry point where the unit expects it.
+- name: Ensure venv support is present
+  ansible.builtin.apt:
+    name: "python3-venv"
+    state: present
+  become: true
+
+- name: Install game-sync-service into its own venv
   ansible.builtin.pip:
     name: "{{ game_sync_package_url | default(game_sync_package) }}"
     state: present
-    executable: pip3
+    virtualenv: /opt/game-sync
+    virtualenv_command: python3 -m venv
+  become: true
+  notify: Restart game-sync
+
+- name: Expose the game-sync entry point on PATH
+  ansible.builtin.file:
+    src: /opt/game-sync/bin/game-sync-service
+    dest: /usr/local/bin/game-sync-service
+    state: link
+  become: true
 
 - name: Deploy game-sync configuration
   ansible.builtin.template:

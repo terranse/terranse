@@ -194,6 +194,26 @@
   changed_when: false
   when: sunshine_udev is changed
 
+# An earlier version of this role installed Sunshine as a *system* unit. It has
+# no WAYLAND_DISPLAY (it sets DISPLAY=:0), so it never finds the compositor:
+# every encoder probe fails and it cannot bind RTSP 48010 because the real,
+# session-scoped instance already holds it. Both write the same log file, so the
+# healthy instance's web UI ends up reporting the dead one's fatal errors.
+# Ansible does not remove units it no longer manages, so retire it explicitly.
+- name: Retire the legacy system-scoped Sunshine unit
+  ansible.builtin.systemd:
+    name: sunshine
+    scope: system
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Remove the legacy system-scoped Sunshine unit file
+  ansible.builtin.file:
+    path: /etc/systemd/system/sunshine.service
+    state: absent
+  notify: Reload systemd
+
 # -----------------------------------------------------------------------------
 # Sunshine runs as a user service in the gamer session (started by Sway). Modern
 # Sunshine forces interactive web-UI account creation before pairing, so we seed
