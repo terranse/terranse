@@ -3,6 +3,15 @@
 #
 # Installs Steam with Proton for Linux gaming
 
+# Sunshine cannot hardcode the launch command: apt is preferred and Flatpak is
+# only a fallback, so which Steam exists is not known until the install below
+# has run. Launch through a script that picks whichever is actually present.
+- name: Deploy the Steam launcher Sunshine calls
+  ansible.builtin.template:
+    src: launch-steam.sh.j2
+    dest: /opt/sunshine/launch-steam.sh
+    mode: '0755'
+
 - name: Enable i386 architecture for Steam
   ansible.builtin.command: dpkg --add-architecture i386
   changed_when: false

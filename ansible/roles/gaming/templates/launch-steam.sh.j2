@@ -1,0 +1,19 @@
+#!/bin/sh
+# Sunshine launches Steam through this indirection because the role does not know,
+# at template time, which Steam it will end up with: it installs the apt package
+# when that works and only falls back to Flatpak when it does not. apps.json used
+# to hardcode `flatpak run com.valvesoftware.Steam`, so on the ordinary apt path
+# Sunshine ran a command that exited immediately with "not installed" — the
+# session came up and streamed a perfectly encoded black screen, with nothing in
+# any log to say why.
+#
+# Managed by Ansible - do not edit manually.
+set -eu
+
+for candidate in /usr/games/steam /usr/bin/steam; do
+    if [ -x "$candidate" ]; then
+        exec "$candidate" "$@"
+    fi
+done
+
+exec flatpak run com.valvesoftware.Steam "$@"
