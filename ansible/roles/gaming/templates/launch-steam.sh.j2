@@ -30,7 +30,11 @@ steam_running() {
 steam_has_window() {
     [ -n "${SWAYSOCK:-}" ] || return 1
     command -v swaymsg >/dev/null 2>&1 || return 1
-    swaymsg -t get_tree 2>/dev/null | grep -q '"app_id": *"steam"'
+    # Steam is an XWayland client: it has no app_id, it has a window_properties
+    # class ("steam", lower case). Matching only app_id reports "no window" for a
+    # perfectly healthy Steam — and this function decides whether to kill it.
+    swaymsg -t get_tree 2>/dev/null \
+        | grep -qiE '"app_id": *"steam"|"class": *"steam"'
 }
 
 if steam_running && ! steam_has_window; then

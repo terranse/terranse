@@ -46,12 +46,19 @@ bindsym Mod4+Shift+Return exec {{ gaming_desktop_terminal | default('foot') }}
 # Sway tiles, and the Desktop session's terminal is a window like any other — so a
 # launched game would split the output with it and arrive on the client at half
 # width. Anything streamed is meant to own the screen: force it fullscreen.
-for_window [app_id="steam"] fullscreen enable
-for_window [class="Steam"] fullscreen enable
-for_window [app_id="^gamescope$"] fullscreen enable
-for_window [class="^lutris$"] fullscreen enable
-for_window [app_id="^net.lutris.Lutris$"] fullscreen enable
-for_window [app_id="^org.libretro.RetroArch$"] fullscreen enable
+#
+# Match on class as well as app_id, case-insensitively: Steam is an XWayland
+# client, so it has NO app_id at all — only a window_properties class, and that
+# class is lower-case "steam". An app_id-only rule silently never fires.
+#
+# Steam's sign-in window is deliberately left alone: fullscreening a 705x440
+# dialog just scales it up.
+for_window [app_id="(?i)^steam$"] fullscreen enable
+for_window [class="(?i)^steam$" title="^(?!Sign in to Steam).*"] fullscreen enable
+for_window [app_id="(?i)^gamescope$"] fullscreen enable
+for_window [class="(?i)^lutris$"] fullscreen enable
+for_window [app_id="(?i)^net\.lutris\.Lutris$"] fullscreen enable
+for_window [app_id="(?i)^org\.libretro\.RetroArch$"] fullscreen enable
 
 # Keybindings for gaming
 bindsym Mod4+Return exec xfce4-terminal
