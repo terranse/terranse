@@ -101,6 +101,49 @@
     force: true
   when: steam_share.stat.exists | default(false)
 
+# Register the game pool as a Steam library.
+#
+# Steam's Big Picture "add drive" button silently does nothing for a path it does
+# not already consider a library, and Steam ships no CLI for this — so without
+# this the games quietly install onto the VM's 64 GB root disk instead of the
+# multi-terabyte pool, on every rebuild.
+- name: Look up the gaming user uid
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ gaming_user }}"
+
+- name: Install the Steam library registration helper
+  ansible.builtin.copy:
+    src: register-steam-library.py
+    dest: /opt/gaming/register-steam-library.py
+    mode: '0755'
+
+- name: Check whether the game pool is already a Steam library
+  ansible.builtin.command:
+    cmd: grep -q '"path".*"{{ steam_library_path }}"' {{ _steam_libraryfolders }}
+  register: _steam_lib_registered
+  changed_when: false
+  failed_when: false
+
+# Steam rewrites libraryfolders.vdf when it exits, so an edit made underneath a
+# running client is simply discarded.
+- name: Stop Steam before registering the library
+  ansible.builtin.command: pkill -u {{ gaming_user }} -f valvesoftware
+  changed_when: false
+  failed_when: false
+  when: _steam_lib_registered.rc != 0
+
+- name: Register the game pool as a Steam library
+  ansible.builtin.command:
+    cmd: >-
+      python3 /opt/gaming/register-steam-library.py
+      --steam-root {{ _steam_root }}
+      --library {{ steam_library_path }}
+      --uid {{ getent_passwd[gaming_user][1] | default(1001) }}
+  register: _steam_lib_register
+  changed_when: "'already registered' not in _steam_lib_register.stdout"
+  when: _steam_lib_registered.rc != 0
+
 # Install Proton-GE for better compatibility
 - name: Create Proton-GE directory
   ansible.builtin.file:
@@ -120,7 +163,13 @@
 - name: Extract Proton-GE version
   ansible.builtin.set_fact:
     proton_ge_version: "{{ proton_ge_release.json.tag_name }}"
-    proton_ge_url: "{{ proton_ge_release.json.assets | selectattr('name', 'match', '.*\\.tar\\.gz$') | map(attribute='browser_download_url') | first }}"
+    # Match the tarball for THIS release exactly ("GE-Proton11-1.tar.gz"). Taking
+    # the first `*.tar.gz` asset grabbed "GE-Proton11-1-aarch64.tar.gz" — an ARM64
+    # Proton, installed on an x86_64 guest, every time.
+    proton_ge_url: >-
+      {{ proton_ge_release.json.assets
+         | selectattr('name', 'equalto', proton_ge_release.json.tag_name ~ '.tar.gz')
+         | map(attribute='browser_download_url') | first }}
 
 - name: Check if Proton-GE is installed
   ansible.builtin.stat:

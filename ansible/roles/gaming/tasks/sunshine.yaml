@@ -170,7 +170,10 @@
 - name: Set capabilities for Sunshine
   community.general.capabilities:
     path: /usr/bin/sunshine
-    capability: cap_sys_admin+ep
+    # `=ep`, not `+ep`: getcap reports "cap_sys_admin=ep", and the module compares
+    # against that string — so `+ep` never matches and the task reports changed on
+    # every single run.
+    capability: cap_sys_admin=ep
     state: present
   failed_when: false
 
@@ -267,14 +270,11 @@
   loop_control:
     label: "{{ item.path }}"
 
-- name: Seed Sunshine web-UI credentials (non-interactive)
-  become: true
-  become_user: "{{ gaming_user }}"
-  ansible.builtin.command:
-    cmd: "sunshine --creds {{ sunshine_admin_user | default('admin') }} {{ sunshine_admin_password }}"
-  when: sunshine_admin_password is defined
-  no_log: true
-  changed_when: true
+# Credential seeding lives in "Provision Sunshine web UI credentials from
+# 1Password" above, which asks the server whether the intended credentials
+# already work and only reprovisions when they do not. This task rewrote them on
+# EVERY run (changed_when: true, no guard) — churning the salted hash, reporting
+# a change forever, and restarting Sunshine underneath any live stream.
 
 - name: Warn when Sunshine credentials are not seeded
   ansible.builtin.debug:

@@ -72,6 +72,21 @@ sunshine_audio_sink_name: sink-sunshine-stereo
 # x360, xone, ds4, ds5, switch.
 sunshine_gamepad: xone
 
+# Encoder tuning for latency over quality — this is a LAN game stream, not a
+# recording. preset 1 is NVENC's fastest; two-pass and spatial AQ both buy image
+# quality with encode time; FEC overhead is wasted on a wired link.
+sunshine_nvenc_preset: 1
+sunshine_nvenc_twopass: disabled
+sunshine_nvenc_spatial_aq: disabled
+sunshine_nvenc_vbv_increase: 0
+sunshine_fec_percentage: 10
+
+# Steam library on the shared pool (see the `mounts` list), so games do not fill
+# the VM's small root disk.
+steam_library_path: /mnt/games/pc
+_steam_root: "/home/{{ gaming_user }}/.var/app/com.valvesoftware.Steam/.local/share/Steam"
+_steam_libraryfolders: "{{ _steam_root }}/steamapps/libraryfolders.vdf"
+
 # Give the headless session a launcher and a terminal, so Moonlight's "Desktop"
 # is usable rather than a black screen with nothing running on it.
 gaming_desktop_launcher: true

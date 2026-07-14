@@ -70,3 +70,15 @@ headless = true
 # =============================================================================
 # These notify the GPU manager when sessions start/stop
 global_prep_cmd = [{"do": "/opt/sunshine/hooks/session-start.sh", "undo": "/opt/sunshine/hooks/session-stop.sh"}]
+
+# =============================================================================
+# Latency
+# =============================================================================
+# Favour latency over image quality: this is an interactive LAN stream. NVENC
+# preset 1 is the fastest; two-pass and spatial AQ spend encode time on quality;
+# FEC overhead is largely wasted on a wired link.
+nvenc_preset = {{ sunshine_nvenc_preset | default(1) }}
+nvenc_twopass = {{ sunshine_nvenc_twopass | default('disabled') }}
+nvenc_spatial_aq = {{ sunshine_nvenc_spatial_aq | default('disabled') }}
+nvenc_vbv_increase = {{ sunshine_nvenc_vbv_increase | default(0) }}
+fec_percentage = {{ sunshine_fec_percentage | default(10) }}
