@@ -12,7 +12,13 @@
     {
       "name": "Steam Big Picture",
       "image-path": "steam.png",
-      "cmd": "/opt/sunshine/launch-steam.sh -gamepadui -steamos",
+      {# -gamepadui, NOT -steamos. Both give the same Big Picture couch UI, but
+         -steamos makes Steam believe it is a Steam Deck: its first-run wizard
+         then runs the SteamOS OS updater (and the BIOS and dock-firmware
+         helpers), none of which exist here — /usr/bin/steamos-update is simply
+         absent — so setup dead-ends on "could not download the required update"
+         with a network that is in fact perfectly fine. #}
+      "cmd": "/opt/sunshine/launch-steam.sh -gamepadui",
       "auto-detach": true,
       "wait-all": true
     }{% endif %}
