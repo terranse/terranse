@@ -17,6 +17,16 @@
     XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[gaming_user][1] | default(1000) }}"
   failed_when: false
 
+# Restarting the whole user manager, not just sway: a new supplementary group (video,
+# input) only takes effect when the manager itself is re-execed, and sway needs those
+# groups to reach the seat. This tears down the streaming session, so it is a handler —
+# it fires only when something actually changed.
+- name: Restart gaming session
+  ansible.builtin.systemd:
+    name: "user@{{ getent_passwd[gaming_user][1] | default(1001) }}.service"
+    state: restarted
+  failed_when: false
+
 - name: Restart lightdm
   ansible.builtin.systemd:
     name: lightdm

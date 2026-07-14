@@ -10,11 +10,26 @@ Wants=pipewire.service
 Type=simple
 # Headless wlroots backend (no physical display on the vGPU). gles renderer
 # avoids the NVIDIA Vulkan/wlroots dmabuf-modifier bug that makes Sunshine KMS
-# capture fail with "Frame capture failed". No input devices on a headless VM —
-# Sunshine injects input via uinput.
-Environment=WLR_BACKENDS=headless
+# capture fail with "Frame capture failed".
+#
+# `headless` ALONE is not enough, and the comment that used to sit here ("no input
+# devices on a headless VM — Sunshine injects input via uinput") had it exactly
+# backwards. Sunshine's uinput mouse and keyboard ARE real evdev devices, but wlroots
+# only ever enumerates input through its *libinput* backend — which the headless
+# backend does not start. So the compositor ran with zero input devices and every
+# mouse click and keystroke Moonlight sent went nowhere. Only gamepads appeared to
+# work, because Steam reads evdev directly and Big Picture draws its own cursor; the
+# moment anything showed a plain dialog (a Steam uninstall prompt, the sway desktop)
+# it was completely uninteractable from the couch.
+#
+# libinput needs a seat, and a lingering user service has no logind seat — hence
+# seatd, with the gaming user in the _seatd group (see wayland-display.yaml).
+# WLR_LIBINPUT_NO_DEVICES stays: it lets sway start before Sunshine has created any
+# virtual device, instead of aborting with "no input devices".
+Environment=WLR_BACKENDS=headless,libinput
 Environment=WLR_RENDERER=gles2
 Environment=WLR_LIBINPUT_NO_DEVICES=1
+Environment=LIBSEAT_BACKEND=seatd
 Environment=XDG_CURRENT_DESKTOP=sway
 Environment=XDG_SESSION_TYPE=wayland
 ExecStart=/usr/bin/sway -c /home/{{ gaming_user }}/.config/sway/config

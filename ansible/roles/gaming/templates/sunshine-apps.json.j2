@@ -4,24 +4,18 @@
   },
   "apps": [
     {
-      "name": "Desktop",
-      "image-path": "",
-      "cmd": "",
-      "auto-detach": true
-    }{% if steam_enabled | default(true) %},
-    {
+      {# The gamescope session (Steam Big Picture) runs for the life of the guest,
+         started by Sway — so there is nothing for Sunshine to launch and, more
+         importantly, nothing for it to KILL. Sunshine terminates the app it launched
+         when a client disconnects: with Steam as a Sunshine "app", quitting the stream
+         took Steam down with it, and the next connect showed an empty desktop with no
+         hint why. Streaming the session as-is means reconnecting lands exactly where
+         you left off, mid-game. #}
       "name": "Steam Big Picture",
       "image-path": "steam.png",
-      {# -gamepadui, NOT -steamos. Both give the same Big Picture couch UI, but
-         -steamos makes Steam believe it is a Steam Deck: its first-run wizard
-         then runs the SteamOS OS updater (and the BIOS and dock-firmware
-         helpers), none of which exist here — /usr/bin/steamos-update is simply
-         absent — so setup dead-ends on "could not download the required update"
-         with a network that is in fact perfectly fine. #}
-      "cmd": "/opt/sunshine/launch-steam.sh -gamepadui",
-      "auto-detach": true,
-      "wait-all": true
-    }{% endif %}
+      "cmd": "",
+      "auto-detach": true
+    }
 
   ]
 }

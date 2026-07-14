@@ -23,6 +23,12 @@ seat seat0 hide_cursor 5000
 exec systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP
 exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP
 exec systemctl --user start sunshine.service
+{% if gamescope_session | default(true) %}
+# The session itself. Started here (not by Sunshine) on purpose: Sunshine terminates
+# the app it launched when the client disconnects, which used to take Steam down with
+# it — so every reconnect landed on an empty desktop until Steam was relaunched.
+exec systemctl --user start gamescope-session.service
+{% endif %}
 
 # No audio sink is created here on purpose. This used to `pactl load-module` a
 # null sink, but a runtime module is not durable — it disappeared between
@@ -38,32 +44,40 @@ exec systemctl --user start sunshine.service
    sway reject the line and raise a "There are errors in your config file" bar
    over the streamed session. #}
 {% if gaming_desktop_launcher | default(true) %}
-exec {{ gaming_desktop_terminal | default('foot') }}
+# Bind a terminal and a launcher, but do NOT start a terminal automatically. Sway
+# tiles, so a permanently-open terminal takes half the output away from Steam — and
+# because a game exiting can leave Steam un-fullscreened, that split is what the
+# client actually gets. Steam as the sole window fills the screen whether or not it
+# is fullscreen, so the fix is to have no second window sitting there by default.
+# Both are still one keystroke away over Moonlight's on-screen keyboard.
 bindsym Mod4+d exec {{ gaming_desktop_menu | default('wofi --show drun') }}
 bindsym Mod4+Shift+Return exec {{ gaming_desktop_terminal | default('foot') }}
 {% endif %}
 
-# Sway tiles, and the Desktop session's terminal is a window like any other — so a
-# launched game would split the output with it and arrive on the client at half
-# width. Anything streamed is meant to own the screen: force it fullscreen.
+# Sway hosts exactly ONE window: gamescope. Everything the user ever sees — Big
+# Picture, games, EA/Ubisoft installers, dialogs — is a client of gamescope, not of
+# sway, so sway has no geometry to negotiate and no windows to tile.
 #
-# Match on class as well as app_id, case-insensitively: Steam is an XWayland
-# client, so it has NO app_id at all — only a window_properties class, and that
-# class is lower-case "steam". An app_id-only rule silently never fires.
-#
-# Steam's sign-in window is deliberately left alone: fullscreening a 705x440
-# dialog just scales it up.
-for_window [app_id="(?i)^steam$"] fullscreen enable
-for_window [class="(?i)^steam$" title="^(?!Sign in to Steam).*"] fullscreen enable
+# This replaces a growing pile of per-app rules that never worked. Sway is a tiling WM:
+# it gave each new window a slice of the output, so a game launched beside Big Picture
+# was mapped at half width, fixed its swapchain to that, and ignored the later resize
+# when a fullscreen rule fired — half the picture off-screen. Fullscreening the newest
+# window instead left the previous one un-fullscreened, so Steam came back shrunken
+# after a game exited. Floating everything fixed the size but not the fact that sway was
+# arbitrating at all. gamescope presents a fixed virtual display and scales clients to
+# fill it, which is the actual requirement, and it is what the Steam Deck does.
 for_window [app_id="(?i)^gamescope$"] fullscreen enable
-for_window [class="(?i)^lutris$"] fullscreen enable
-for_window [app_id="(?i)^net\.lutris\.Lutris$"] fullscreen enable
-for_window [app_id="(?i)^org\.libretro\.RetroArch$"] fullscreen enable
 
 # Keybindings for gaming
 bindsym Mod4+Return exec xfce4-terminal
 bindsym Mod4+q kill
 bindsym Mod4+Shift+e exit
+
+# Escape hatches, reachable from Moonlight's on-screen keyboard when a stream has
+# nothing but a stuck window on it. Without these, a misbehaving dialog can only be
+# cleared by SSHing into the guest.
+bindsym Mod4+f fullscreen toggle
+bindsym Mod4+Tab focus next
 
 # Gaming-focused settings
 focus_follows_mouse no

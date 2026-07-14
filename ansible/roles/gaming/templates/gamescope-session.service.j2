@@ -1,0 +1,37 @@
+[Unit]
+Description=Gamescope session (Steam Big Picture)
+Documentation=https://github.com/ValveSoftware/gamescope
+# Sway is the OUTER compositor and exists only to give Sunshine a headless wl_output
+# to capture. It is a tiling window manager and a terrible fit for a streaming console:
+# it hands each new window a slice of the screen, so a game launched next to Big
+# Picture is mapped at half width, fixes its swapchain to that, and then ignores the
+# resize when a fullscreen rule fires — half the picture ends up off the display. Games
+# also shrink Big Picture when they exit, and dialogs open at whatever size they like.
+# Every workaround for that is a fight with the window manager.
+#
+# gamescope is the tool built for this job (it is what the Steam Deck runs). It presents
+# a FIXED 1920x1080 virtual display and scales every client to fill it, so no client
+# ever negotiates geometry with anything. Nested inside sway it is a single fullscreen
+# window that never changes, which leaves sway with nothing to manage.
+#
+# -e enables Steam's gamescope integration, which is also what provides the on-screen
+# keyboard — without it there is no way to type a password into the EA App from a couch.
+After=sway-gaming.service
+BindsTo=sway-gaming.service
+
+[Service]
+Type=simple
+# gamescope gives its children an X11 display (:1). If Steam can still see the parent
+# compositor's Wayland socket it connects THERE, bypassing gamescope entirely and
+# landing straight back in sway's lap — so scrub WAYLAND_DISPLAY for the child only.
+ExecStart={{ gamescope_bin | default('/usr/games/gamescope') }} \
+    -W {{ gaming_width | default(1920) }} \
+    -H {{ gaming_height | default(1080) }} \
+    -r {{ gaming_refresh | default(60) }} \
+    -f -e \
+    -- env -u WAYLAND_DISPLAY /opt/sunshine/launch-steam.sh -gamepadui
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
