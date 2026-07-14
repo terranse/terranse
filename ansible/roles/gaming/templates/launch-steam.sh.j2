@@ -37,6 +37,24 @@ steam_has_window() {
         | grep -qiE '"app_id": *"steam"|"class": *"steam"'
 }
 
+steam_fullscreen() {
+    [ -n "${SWAYSOCK:-}" ] || return 0
+    command -v swaymsg >/dev/null 2>&1 || return 0
+    # Same criteria as the for_window rule in the Sway config, sign-in dialog and all.
+    swaymsg '[class="(?i)^steam$" title="^(?!Sign in to Steam).*"] fullscreen enable' \
+        >/dev/null 2>&1 || true
+}
+
+# A `for_window` rule only fires when a window is CREATED, and Steam is
+# single-instance: relaunching it just raises the window it already has, so the rule
+# never runs again. Anything that took Steam out of fullscreen once — a game exiting
+# badly, a stray `swaymsg fullscreen disable` — therefore sticks for the entire life
+# of that Steam process, across every subsequent stream. Re-assert it on each launch
+# rather than trusting a create-time rule to have held.
+if steam_running && steam_has_window; then
+    steam_fullscreen
+fi
+
 if steam_running && ! steam_has_window; then
     echo "launch-steam: Steam is running with no window — restarting it, since a" \
          "second instance would only hand off to it and exit." >&2

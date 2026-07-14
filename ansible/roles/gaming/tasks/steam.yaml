@@ -144,10 +144,29 @@
   changed_when: "'already registered' not in _steam_lib_register.stdout"
   when: _steam_lib_registered.rc != 0
 
-# Install Proton-GE for better compatibility
+# Wine prefixes live on the game pool, and that is deliberate: they hold the EA/Ubisoft
+# account logins and the saves of any title without Steam Cloud, so they must outlive a
+# VM rebuild. Steam already puts a prefix inside the library the game lives in, so this
+# needs no configuration here — it needs the SHARE to support extended attributes,
+# which is set up in the gpu-manager role (ZFS xattr=sa + virtiofs expose-xattr=1).
+# Without that, Wine cannot write file attributes, msiexec dies, and the EA App
+# installer fails at 99% with INST-14-1603. Do not "fix" that by moving prefixes to the
+# guest's local disk: it works, and it silently throws the logins away on every rebuild.
+
+# Install Proton-GE for better compatibility.
+#
+# It MUST land under the Steam we actually run. This used to install into
+# ~/.steam/root/compatibilitytools.d — the apt Steam's path — while the role prefers
+# the Flatpak, which only ever reads
+# ~/.var/app/com.valvesoftware.Steam/.local/share/Steam/compatibilitytools.d. Steam
+# does not warn about a compat tool it cannot see, so Proton-GE was downloaded and
+# unpacked correctly on every run and was invisible to Steam every time. Games
+# silently fell back to stock Proton — which is exactly the configuration in which the
+# EA App installer dies with INST-14-1603. Use _steam_root, as the library
+# registration above already does.
 - name: Create Proton-GE directory
   ansible.builtin.file:
-    path: "/home/{{ gaming_user }}/.steam/root/compatibilitytools.d"
+    path: "{{ _steam_root }}/compatibilitytools.d"
     state: directory
     owner: "{{ gaming_user }}"
     group: "{{ gaming_user }}"
@@ -173,7 +192,7 @@
 
 - name: Check if Proton-GE is installed
   ansible.builtin.stat:
-    path: "/home/{{ gaming_user }}/.steam/root/compatibilitytools.d/{{ proton_ge_version }}"
+    path: "{{ _steam_root }}/compatibilitytools.d/{{ proton_ge_version }}"
   register: proton_ge_installed
 
 - name: Download Proton-GE
@@ -186,7 +205,7 @@
 - name: Extract Proton-GE
   ansible.builtin.unarchive:
     src: /tmp/proton-ge.tar.gz
-    dest: "/home/{{ gaming_user }}/.steam/root/compatibilitytools.d/"
+    dest: "{{ _steam_root }}/compatibilitytools.d/"
     remote_src: true
     owner: "{{ gaming_user }}"
     group: "{{ gaming_user }}"
