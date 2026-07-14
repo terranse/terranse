@@ -35,6 +35,39 @@
       - xwayland  # For X11 game compatibility
     state: present
 
+# NetworkManager must own the interface: Steam's -steamos mode reads network
+# state from it over D-Bus, and with the default networkd renderer NM owns
+# nothing. netplan renders NM connections instead; networkd must then let go of
+# the link, or NM reports it as "connected (externally)" and Steam still sees
+# no network.
+- name: Install NetworkManager (Steam reads network state from it)
+  ansible.builtin.apt:
+    name: network-manager
+    state: present
+
+- name: Render the network with NetworkManager instead of systemd-networkd
+  ansible.builtin.template:
+    src: netplan-nm-renderer.yaml.j2
+    dest: /etc/netplan/60-gaming.yaml
+    mode: '0600'
+  register: _gaming_netplan
+
+- name: Stop systemd-networkd owning the link
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - systemd-networkd.service
+    - systemd-networkd.socket
+  failed_when: false
+  when: _gaming_netplan is changed
+
+- name: Apply the network configuration
+  ansible.builtin.command: netplan apply
+  changed_when: true
+  when: _gaming_netplan is changed
+
 # The guest has no sound card, so declare the sink Sunshine captures. It must be
 # a PipeWire object rather than a `pactl load-module` call from the session: the
 # runtime module did not survive between sessions, PipeWire fell back to

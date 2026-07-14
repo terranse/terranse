@@ -67,6 +67,11 @@ game_sync_package_url: ""
 # Anything else and every stream comes up silent.
 sunshine_audio_sink_name: sink-sunshine-stereo
 
+# Emulated controller type presented to the guest (Sunshine option `gamepad`).
+# xone = Xbox One layout, which matches 8BitDo/Xbox-style pads. Valid: auto,
+# x360, xone, ds4, ds5, switch.
+sunshine_gamepad: xone
+
 # Give the headless session a launcher and a terminal, so Moonlight's "Desktop"
 # is usable rather than a black screen with nothing running on it.
 gaming_desktop_launcher: true

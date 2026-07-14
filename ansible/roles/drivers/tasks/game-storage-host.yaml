@@ -59,3 +59,18 @@
     - game_storage_pools | length > 1
     - game_storage_pools[1].pool in (zpool_list.stdout_lines | default([]))
     - "'gaming-emulation' not in (existing_dir_mappings.stdout | default(''))"
+
+# virtiofs passes uids through untranslated, so the dataset must be owned by the
+# uid the *guest's* gaming user has. Left root-owned, the share mounts read-only
+# in practice: Steam cannot write to it, so it silently installs games onto the
+# VM's small root disk instead of the pool.
+- name: Give the game datasets to the guest's gaming user
+  ansible.builtin.file:
+    path: "/{{ item.pool }}/gaming/{{ item.name }}"
+    state: directory
+    owner: "{{ gaming_guest_uid | default(1001) }}"
+    group: "{{ gaming_guest_gid | default(1001) }}"
+  loop: "{{ game_storage_pools }}"
+  loop_control:
+    label: "{{ item.pool }}/gaming/{{ item.name }}"
+  when: item.pool in (zpool_list.stdout_lines | default([]))

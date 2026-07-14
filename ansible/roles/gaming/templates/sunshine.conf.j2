@@ -34,7 +34,10 @@ virtual_sink = {{ sunshine_audio_sink_name }}
 # =============================================================================
 # Input settings
 # =============================================================================
-gamepad = true
+# A controller TYPE, not a boolean. `true` is not a valid value: Sunshine
+# falls back to auto-detect and picks whatever the client reports, which gave
+# a DualShock 5 mapping for an Xbox-layout pad and mismatched every button.
+gamepad = {{ sunshine_gamepad | default('xone') }}
 keyboard = true
 mouse = true
 

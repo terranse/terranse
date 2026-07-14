@@ -1,0 +1,21 @@
+# Managed by Ansible - do not edit manually.
+#
+# Steam's `-steamos` mode asks NetworkManager over D-Bus whether the box is
+# online. With netplan's default systemd-networkd renderer NM owns no devices, so
+# Big Picture reports "no network" on a guest that is perfectly connected and
+# refuses to move past its first-run network step.
+#
+# DHCP, deliberately — NOT a static address. The guest registers its hostname in
+# DNS when it takes a lease; pinning a static IP means no lease, so no
+# registration, and gaming.{{ domain | default('edholm.cc') }} then falls through
+# to the wildcard record pointing at the WAN IP. The static address CAUSED the
+# split-horizon symptom it appeared to work around.
+network:
+  version: 2
+  renderer: NetworkManager
+  ethernets:
+    {{ gaming_network_interface | default('eth0') }}:
+      dhcp4: true
+      dhcp4-overrides:
+        send-hostname: true
+        use-dns: true

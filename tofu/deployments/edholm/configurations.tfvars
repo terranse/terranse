@@ -161,12 +161,13 @@ hosts = {
         memory    = 32768
         disk_size = "64G"
         clone     = "ubuntu-2604-base"
-        # Static: the LAN DHCP server stopped answering this MAC (it leases fine
-        # to every other guest), and a streaming target needs a stable address
-        # anyway — Moonlight pairs against a host, not a hostname lookup.
-        ipconfig     = "ip=192.168.1.172/24,gw=192.168.1.1"
-        nameserver   = "192.168.1.1"
-        searchdomain = "edholm.cc"
+        # DHCP on purpose. The guest registers its hostname in DNS when it takes
+        # a lease, which is what makes gaming.edholm.cc resolve to it on the LAN.
+        # A static address means no lease and no registration, so the name falls
+        # through to the wildcard *.edholm.cc record pointing at the WAN IP — the
+        # static IP CAUSED the split-horizon symptom it looked like a fix for.
+        # (`ipconfig`/`nameserver` remain available for VMs that genuinely need
+        # a fixed address.)
 
         # Same declaration style as the LXC mounts. A VM cannot bind-mount the
         # host, so each of these is published as a Proxmox directory mapping and

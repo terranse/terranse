@@ -31,6 +31,26 @@
   failed_when: false
   register: steam_flatpak_install
 
+# The Flatpak sandbox blocks both of these by default, and each failure is silent
+# and looks like something else entirely.
+#
+# Without the filesystem grant Steam cannot see /mnt/games at all, so it installs
+# games onto the VM's small root disk instead of the multi-terabyte pool.
+#
+# Without the system-bus grant Steam cannot ask NetworkManager whether the box is
+# online, so `-steamos` mode reports "no network" on a guest with a perfectly good
+# connection — and the SteamOS first-run wizard refuses to go past its network step.
+- name: Let Steam reach game storage and NetworkManager from inside its sandbox
+  ansible.builtin.command:
+    cmd: >-
+      flatpak override
+      --filesystem={{ game_storage_root | default('/mnt/games') }}
+      --system-talk-name=org.freedesktop.NetworkManager
+      com.valvesoftware.Steam
+  become: true
+  changed_when: false
+  when: steam_flatpak_install is not failed
+
 # Fall back to apt only when Flatpak is unavailable.
 - name: Enable i386 architecture for Steam (apt fallback)
   ansible.builtin.command: dpkg --add-architecture i386
