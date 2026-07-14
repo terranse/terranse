@@ -167,6 +167,34 @@
   changed_when: false
   failed_when: false
 
+# Wine needs extended attributes, and it needs them all the way down.
+#
+# Steam puts a game's Proton prefix inside the library the game lives in, so prefixes
+# land on these shares. Wine stores Windows file attributes in xattrs; without them
+# wineserver reports "file_set_error() can't map error: Operation not supported",
+# msiexec cannot even create its own log (0 bytes), and every MSI-based installer dies
+# and rolls back. For EA titles that surfaces as the EA App failing at 99% with
+# INST-14-1603 — which looks like an EA bug, is reported all over ProtonDB as a Proton
+# bug, and is actually a missing virtiofsd flag. Ubisoft Connect and the Rockstar
+# launcher would break identically.
+#
+# ZFS must store the xattrs (`xattr=sa`) before virtiofsd can expose them: the pool
+# ships with acltype=off, and on that dataset `expose-acl=1` makes virtiofsd reject
+# EVERY operation — ls, touch and rm all fail with "Operation not supported" and the
+# guest's mount is unusable. Set the dataset properties first; keep expose-acl OFF
+# (Wine wants xattrs, not POSIX ACLs).
+- name: Let ZFS store extended attributes on the shared datasets
+  community.general.zfs:
+    name: "{{ item.1.dataset }}"
+    state: present
+    extra_zfs_properties:
+      xattr: sa
+      acltype: posixacl
+  loop: "{{ gaming_vms | dict2items | subelements('value.mounts', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.1.dataset }}"
+  failed_when: false
+
 - name: Publish a directory mapping for each mount
   # --map is a property list; "host=path" is rejected with
   # "map[0].path: property is missing".
@@ -194,13 +222,17 @@
   ansible.builtin.set_fact:
     _published: "{{ gpu_dir_mappings.stdout | default('[]') | from_json | map(attribute='id') | list }}"
 
+# expose-xattr=1: see "Let ZFS store extended attributes" above — without it Wine
+# prefixes on these shares cannot run MSI installers at all. Never add expose-acl=1;
+# it takes the whole mount down unless the host dataset has POSIX ACLs, and Wine does
+# not want it regardless.
 - name: Attach virtiofs shares to gaming VMs
   ansible.builtin.command: >-
     qm set {{ item.value.vmid }}
     {% for share in ((item.value.mounts | default([]) | map(attribute='name') | list)
                      + [vgpu_virtiofs_mapping | default('nvidia-guest-drivers')])
                     | select('in', _published) | list %}
-    --virtiofs{{ loop.index0 }} dirid={{ share }}
+    --virtiofs{{ loop.index0 }} dirid={{ share }},expose-xattr=1
     {% endfor %}
   loop: "{{ gaming_vms | dict2items }}"
   loop_control:
