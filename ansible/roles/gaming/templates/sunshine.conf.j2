@@ -5,7 +5,18 @@
 # Encoder settings
 # =============================================================================
 encoder = {{ 'nvenc' if gpu_type == 'nvidia_vgpu' else 'vaapi' }}
-hevc_mode = 1
+
+# 0 = advertise whatever the encoder can do and let the client pick; 1 = H.264 only.
+# This was pinned to 1, which forces every client onto H.264 — the worst codec for
+# the endpoints that need help most. An Android TV decodes HEVC in a dedicated block
+# (it is what every streaming app feeds it) but has a weak, low-bitrate H.264 path:
+# forced to H.264 at 34 Mbps it needed 25 ms to decode a frame against a 16.7 ms
+# budget at 60fps, so it fell behind and the picture stuttered even with zero packet
+# loss. HEVC also carries the same quality in roughly half the bits, which matters on
+# a 100 Mbit link where the H.264 stream was peaking at 78 Mbps on the wire.
+# The A5000's NVENC does H.264 and HEVC (only AV1 is genuinely absent on Ampere), so
+# let the client negotiate.
+hevc_mode = {{ sunshine_hevc_mode | default(0) }}
 
 # =============================================================================
 # Capture settings - Wayland via KMS
@@ -74,11 +85,28 @@ global_prep_cmd = [{"do": "/opt/sunshine/hooks/session-start.sh", "undo": "/opt/
 # =============================================================================
 # Latency
 # =============================================================================
-# Favour latency over image quality: this is an interactive LAN stream. NVENC
-# preset 1 is the fastest; two-pass and spatial AQ spend encode time on quality;
-# FEC overhead is largely wasted on a wired link.
+# Encoder
+# =============================================================================
+# Favour latency over image quality: this is an interactive stream, and preset 1
+# (P1, fastest) is also Sunshine's own default. Spatial AQ spends encode time on
+# quality it cannot show at these bitrates.
 nvenc_preset = {{ sunshine_nvenc_preset | default(1) }}
-nvenc_twopass = {{ sunshine_nvenc_twopass | default('disabled') }}
 nvenc_spatial_aq = {{ sunshine_nvenc_spatial_aq | default('disabled') }}
+
+# The two settings below decide whether a client on a slow link sees a picture at
+# all, so leave them at Sunshine's defaults unless you have measured the link.
+#
+# A 1080p60 frame at ~34 Mbps is ~70 KB — around 70 UDP packets — and the frame is
+# lost unless FEC can rebuild whatever the network drops. Frame loss therefore
+# compounds out of per-packet loss: at 3% packet loss, 20% FEC loses ~1% of frames
+# while 10% FEC loses ~35% of them. Halving FEC "to save bandwidth on a wired link"
+# turned a working stream into 99.94% dropped frames on a 100 Mbit endpoint, while
+# audio (512 kbps, tiny packets) kept flowing — which is what the failure looks
+# like from the couch: sound fine, picture frozen on the last decoded frame.
+#
+# Two-pass is what keeps a single frame from overshooting its bitrate target.
+# Disabling it makes the stream burstier, which is precisely what a small switch
+# buffer in front of a 100 Mbit port cannot absorb.
+nvenc_twopass = {{ sunshine_nvenc_twopass | default('quarter_res') }}
 nvenc_vbv_increase = {{ sunshine_nvenc_vbv_increase | default(0) }}
-fec_percentage = {{ sunshine_fec_percentage | default(10) }}
+fec_percentage = {{ sunshine_fec_percentage | default(20) }}
