@@ -72,14 +72,24 @@ sunshine_audio_sink_name: sink-sunshine-stereo
 # x360, xone, ds4, ds5, switch.
 sunshine_gamepad: xone
 
-# Encoder tuning for latency over quality — this is a LAN game stream, not a
-# recording. preset 1 is NVENC's fastest; two-pass and spatial AQ both buy image
-# quality with encode time; FEC overhead is wasted on a wired link.
+# Encoder tuning. preset 1 is NVENC's fastest and spatial AQ buys quality this
+# stream cannot show — those are safe latency wins.
+#
+# The two below decide whether a client on a real link sees a picture at all, so
+# they stay at Sunshine's defaults. These are set HERE, not just as a template
+# fallback: the template reads `{{ sunshine_fec_percentage | default(20) }}`, and a
+# variable defined here wins over that default — so an earlier "wired links don't
+# need FEC" edit that set fec=10/twopass=disabled here silently shipped despite the
+# template saying 20, and reintroduced the exact 99.94%-dropped-frames freeze it was
+# supposed to have fixed. FEC rebuilds whatever the network drops (a 1080p frame is
+# ~70 UDP packets, so per-packet loss compounds into whole-frame loss); two-pass
+# stops a single frame overshooting its bitrate target and bursting past the link.
+# Do not lower either without measuring the actual link.
 sunshine_nvenc_preset: 1
-sunshine_nvenc_twopass: disabled
+sunshine_nvenc_twopass: quarter_res
 sunshine_nvenc_spatial_aq: disabled
 sunshine_nvenc_vbv_increase: 0
-sunshine_fec_percentage: 10
+sunshine_fec_percentage: 20
 
 # Steam library on the shared pool (see the `mounts` list), so games do not fill
 # the VM's small root disk.
