@@ -10,5 +10,6 @@ resource "ansible_host" "lxc_hosts" {
     services        = jsonencode(each.value.services)
     docker_services = jsonencode(each.value.docker_services)
     mounts          = jsonencode(each.value.mounts)
+    devices         = jsonencode(each.value.devices)
   }
 }
