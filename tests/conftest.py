@@ -47,11 +47,21 @@ def mock_service_mounts():
 
 @pytest.fixture
 def mock_service_devices():
-    """Return mock USB serial device paths for template testing."""
+    """Return mock USB serial device entries for template testing."""
     return {
-        "zigbee": "/dev/serial/by-id/usb-ITead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_TEST-if00-port0",
-        "zwave": "/dev/serial/by-id/usb-Zooz_800_Z-Wave_Stick_TEST-if00",
-        "skyconnect": "/dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0_TEST-if00-port0",
+        "zigbee": {
+            "name": "zigbee",
+            "path": "/dev/serial/by-id/usb-ITead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_TEST-if00-port0",
+            "adapter": "deconz",
+        },
+        "zwave": {
+            "name": "zwave",
+            "path": "/dev/serial/by-id/usb-Zooz_800_Z-Wave_Stick_TEST-if00",
+        },
+        "skyconnect": {
+            "name": "skyconnect",
+            "path": "/dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0_TEST-if00-port0",
+        },
     }
 
 

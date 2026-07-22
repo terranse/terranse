@@ -25,7 +25,8 @@
             base_topic: zigbee2mqtt
             server: mqtt://mosquitto:1883
           serial:
-            port: {{ service_devices.zigbee }}
-          frontend:
+            port: {{ service_devices.zigbee.path }}
+          {% if service_devices.zigbee.adapter is defined %}  adapter: {{ service_devices.zigbee.adapter }}
+          {% endif %}frontend:
             enabled: true
             port: 8080

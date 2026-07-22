@@ -9,7 +9,7 @@ services:
       - "{{ service_mounts.config }}/zigbee2mqtt:/app/data"
       - /run/udev:/run/udev:ro
     devices:
-      - "{{ service_devices.zigbee }}:{{ service_devices.zigbee }}"
+      - "{{ service_devices.zigbee.path }}:{{ service_devices.zigbee.path }}"
     ports:
       - 8080:8080 # Z2M frontend
     depends_on:
