@@ -226,8 +226,9 @@ class TestZigbee2mqttTemplate:
                 item=mock_item,
             )
         )
-        devices = " ".join(parsed["services"]["zigbee2mqtt"]["devices"])
-        assert mock_service_devices["zigbee"]["path"] in devices
+        devices = parsed["services"]["zigbee2mqtt"]["devices"]
+        path = mock_service_devices["zigbee"]["path"]
+        assert devices == [f"{path}:{path}"]
 
 
 class TestZwaveJsUiTemplate:
@@ -257,8 +258,9 @@ class TestZwaveJsUiTemplate:
                 item=mock_item,
             )
         )
-        devices = " ".join(parsed["services"]["zwave-js-ui"]["devices"])
-        assert mock_service_devices["zwave"]["path"] in devices
+        devices = parsed["services"]["zwave-js-ui"]["devices"]
+        path = mock_service_devices["zwave"]["path"]
+        assert devices == [f"{path}:{path}"]
 
     def test_websocket_bound_to_localhost(
         self, jinja_env, mock_service_mounts, mock_service_devices, mock_item
