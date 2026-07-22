@@ -1,0 +1,15 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    extends:
+      file: common.yaml
+      service: base-service
+    # Host networking so HA can discover devices via mDNS/SSDP on the LAN.
+    # It also reaches mosquitto (127.0.0.1:1883) and the Z-Wave JS websocket
+    # (127.0.0.1:3000) through the LXC loopback.
+    network_mode: host
+    volumes:
+      - "{{ service_mounts.config }}/homeassistant:/config"
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped

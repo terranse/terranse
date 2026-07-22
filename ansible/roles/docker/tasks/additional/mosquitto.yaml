@@ -1,0 +1,26 @@
+---
+
+- name: Pre-deployment tasks for mosquitto
+  when: task_phase == "pre"
+  vars:
+    additional_tasks_pre: true
+  block:
+    - name: Ensure mosquitto config directory
+      become: true
+      file:
+        path: "{{ service_mounts.config }}/mosquitto/config"
+        state: directory
+        mode: '0755'
+
+    - name: Write mosquitto broker config
+      become: true
+      copy:
+        dest: "{{ service_mounts.config }}/mosquitto/config/mosquitto.conf"
+        mode: '0644'
+        content: |
+          # Anonymous access is acceptable because the broker port is
+          # published on the LXC loopback only (see mosquitto.yaml.j2).
+          listener 1883
+          allow_anonymous true
+          persistence true
+          persistence_location /mosquitto/data/

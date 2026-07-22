@@ -13,6 +13,10 @@ from pathlib import Path
 BASIC_TEMPLATES = [
     "common.yaml.j2",
     "jellyfin.yaml.j2",
+    "homeassistant.yaml.j2",
+    "mosquitto.yaml.j2",
+    "zigbee2mqtt.yaml.j2",
+    "zwave-js-ui.yaml.j2",
 ]
 
 # Templates requiring Ansible lookups (onepassword, etc.) - skip in unit tests
@@ -144,6 +148,135 @@ class TestDockerComposeTemplate:
         pass
 
 
+class TestHomeassistantTemplate:
+    """Tests for homeassistant.yaml.j2."""
+
+    def test_renders_valid_yaml(self, jinja_env, mock_service_mounts, mock_item):
+        template = jinja_env.get_template("homeassistant.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(service_mounts=mock_service_mounts, item=mock_item)
+        )
+        assert "homeassistant" in parsed["services"]
+
+    def test_uses_host_networking_for_discovery(
+        self, jinja_env, mock_service_mounts, mock_item
+    ):
+        template = jinja_env.get_template("homeassistant.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(service_mounts=mock_service_mounts, item=mock_item)
+        )
+        assert parsed["services"]["homeassistant"]["network_mode"] == "host"
+
+    def test_config_volume_in_appdata(self, jinja_env, mock_service_mounts, mock_item):
+        template = jinja_env.get_template("homeassistant.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(service_mounts=mock_service_mounts, item=mock_item)
+        )
+        volumes = " ".join(parsed["services"]["homeassistant"]["volumes"])
+        assert "/appdata/homeassistant:/config" in volumes
+
+
+class TestMosquittoTemplate:
+    """Tests for mosquitto.yaml.j2 MQTT broker template."""
+
+    def test_renders_valid_yaml(self, jinja_env, mock_service_mounts, mock_item):
+        template = jinja_env.get_template("mosquitto.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(service_mounts=mock_service_mounts, item=mock_item)
+        )
+        assert "mosquitto" in parsed["services"]
+
+    def test_broker_bound_to_localhost_only(
+        self, jinja_env, mock_service_mounts, mock_item
+    ):
+        """MQTT runs unauthenticated: it must only be reachable from inside
+        the LXC (HA on host network) and the compose network (Z2M)."""
+        template = jinja_env.get_template("mosquitto.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(service_mounts=mock_service_mounts, item=mock_item)
+        )
+        ports = [str(p) for p in parsed["services"]["mosquitto"]["ports"]]
+        assert any(p.startswith("127.0.0.1:1883:") for p in ports)
+
+
+class TestZigbee2mqttTemplate:
+    """Tests for zigbee2mqtt.yaml.j2."""
+
+    def test_renders_valid_yaml(
+        self, jinja_env, mock_service_mounts, mock_service_devices, mock_item
+    ):
+        template = jinja_env.get_template("zigbee2mqtt.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(
+                service_mounts=mock_service_mounts,
+                service_devices=mock_service_devices,
+                item=mock_item,
+            )
+        )
+        assert "zigbee2mqtt" in parsed["services"]
+
+    def test_maps_zigbee_dongle_by_id(
+        self, jinja_env, mock_service_mounts, mock_service_devices, mock_item
+    ):
+        template = jinja_env.get_template("zigbee2mqtt.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(
+                service_mounts=mock_service_mounts,
+                service_devices=mock_service_devices,
+                item=mock_item,
+            )
+        )
+        devices = " ".join(parsed["services"]["zigbee2mqtt"]["devices"])
+        assert mock_service_devices["zigbee"] in devices
+
+
+class TestZwaveJsUiTemplate:
+    """Tests for zwave-js-ui.yaml.j2."""
+
+    def test_renders_valid_yaml(
+        self, jinja_env, mock_service_mounts, mock_service_devices, mock_item
+    ):
+        template = jinja_env.get_template("zwave-js-ui.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(
+                service_mounts=mock_service_mounts,
+                service_devices=mock_service_devices,
+                item=mock_item,
+            )
+        )
+        assert "zwave-js-ui" in parsed["services"]
+
+    def test_maps_zwave_stick_by_id(
+        self, jinja_env, mock_service_mounts, mock_service_devices, mock_item
+    ):
+        template = jinja_env.get_template("zwave-js-ui.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(
+                service_mounts=mock_service_mounts,
+                service_devices=mock_service_devices,
+                item=mock_item,
+            )
+        )
+        devices = " ".join(parsed["services"]["zwave-js-ui"]["devices"])
+        assert mock_service_devices["zwave"] in devices
+
+    def test_websocket_bound_to_localhost(
+        self, jinja_env, mock_service_mounts, mock_service_devices, mock_item
+    ):
+        """HA reaches the Z-Wave JS websocket via localhost (host network);
+        it must not be exposed to the LAN."""
+        template = jinja_env.get_template("zwave-js-ui.yaml.j2")
+        parsed = yaml.safe_load(
+            template.render(
+                service_mounts=mock_service_mounts,
+                service_devices=mock_service_devices,
+                item=mock_item,
+            )
+        )
+        ports = [str(p) for p in parsed["services"]["zwave-js-ui"]["ports"]]
+        assert any(p.startswith("127.0.0.1:3000:") for p in ports)
+
+
 class TestTemplateDiscovery:
     """Tests to verify all templates are accounted for."""
 
@@ -158,6 +291,10 @@ class TestTemplateDiscovery:
             "authentik.yaml.j2",
             "vikunja.yaml.j2",
             "docker-compose.yaml.j2",
+            "homeassistant.yaml.j2",
+            "mosquitto.yaml.j2",
+            "zigbee2mqtt.yaml.j2",
+            "zwave-js-ui.yaml.j2",
         ]
 
         for template_name in expected_templates:
@@ -175,6 +312,10 @@ class TestTemplateDiscovery:
             "authentik.yaml.j2",
             "vikunja.yaml.j2",
             "docker-compose.yaml.j2",
+            "homeassistant.yaml.j2",
+            "mosquitto.yaml.j2",
+            "zigbee2mqtt.yaml.j2",
+            "zwave-js-ui.yaml.j2",
         }
 
         actual_templates = {

@@ -1,0 +1,31 @@
+---
+
+- name: Pre-deployment tasks for zigbee2mqtt
+  when: task_phase == "pre"
+  vars:
+    additional_tasks_pre: true
+  block:
+    - name: Ensure zigbee2mqtt data directory
+      become: true
+      file:
+        path: "{{ service_mounts.config }}/zigbee2mqtt"
+        state: directory
+        mode: '0755'
+
+    - name: Seed zigbee2mqtt configuration (first boot only)
+      become: true
+      copy:
+        dest: "{{ service_mounts.config }}/zigbee2mqtt/configuration.yaml"
+        force: false
+        mode: '0644'
+        content: |
+          homeassistant:
+            enabled: true
+          mqtt:
+            base_topic: zigbee2mqtt
+            server: mqtt://mosquitto:1883
+          serial:
+            port: {{ service_devices.zigbee }}
+          frontend:
+            enabled: true
+            port: 8080

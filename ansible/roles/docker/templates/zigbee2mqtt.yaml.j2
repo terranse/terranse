@@ -1,0 +1,17 @@
+services:
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt:2
+    container_name: zigbee2mqtt
+    extends:
+      file: common.yaml
+      service: base-service
+    volumes:
+      - "{{ service_mounts.config }}/zigbee2mqtt:/app/data"
+      - /run/udev:/run/udev:ro
+    devices:
+      - "{{ service_devices.zigbee }}:{{ service_devices.zigbee }}"
+    ports:
+      - 8080:8080 # Z2M frontend
+    depends_on:
+      - mosquitto
+    restart: unless-stopped

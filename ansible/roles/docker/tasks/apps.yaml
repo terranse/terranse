@@ -35,6 +35,31 @@
             {}
           {%- endif -%}
 
+    # Parse devices list into a dictionary for easier access in templates,
+    # mirroring service_mounts. Resulting format:
+    #    service_devices:
+    #      zigbee: "/dev/serial/by-id/usb-..."
+    # Only devices with a 'name' attribute are included
+    - name: Parse and flatten devices
+      set_fact:
+        service_devices: >-
+          {%- if devices is defined and devices != '' -%}
+            {%- set result = {} -%}
+            {%- if devices is string -%}
+              {%- set devices_list = devices | from_json -%}
+            {%- else -%}
+              {%- set devices_list = devices -%}
+            {%- endif -%}
+            {%- for dev in devices_list -%}
+              {%- if dev.name is defined -%}
+                {%- set _ = result.update({dev.name: dev.path}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ result }}
+          {%- else -%}
+            {}
+          {%- endif -%}
+
     - name: Check for additional tasks file
       stat:
         path: "{{ role_path }}/tasks/additional/{{ item.name }}.yaml"
