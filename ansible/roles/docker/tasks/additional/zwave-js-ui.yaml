@@ -1,0 +1,35 @@
+---
+
+- name: Pre-deployment tasks for zwave-js-ui
+  when: task_phase == "pre"
+  vars:
+    additional_tasks_pre: true
+  block:
+    - name: Ensure zwave-js-ui store directory
+      become: true
+      file:
+        path: "{{ service_mounts.config }}/zwave-js-ui"
+        state: directory
+        mode: '0755'
+
+    # First-boot seed only (force: false): zwave-js-ui owns and rewrites this
+    # file at runtime. Partial settings are fine — the app merges defaults.
+    # serverEnabled/serverPort expose the zwave-js websocket HomeAssistant
+    # connects to; MQTT stays disabled (HA uses the websocket, not MQTT).
+    - name: Seed zwave-js-ui settings (first boot only)
+      become: true
+      copy:
+        dest: "{{ service_mounts.config }}/zwave-js-ui/settings.json"
+        force: false
+        mode: '0644'
+        content: |
+          {
+            "zwave": {
+              "port": "{{ service_devices.zwave.path }}",
+              "serverEnabled": true,
+              "serverPort": 3000
+            },
+            "mqtt": {
+              "disabled": true
+            }
+          }
