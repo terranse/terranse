@@ -295,6 +295,7 @@ class TestTemplateDiscovery:
             "mosquitto.yaml.j2",
             "zigbee2mqtt.yaml.j2",
             "zwave-js-ui.yaml.j2",
+            "gitlab-runner.yaml.j2",
         ]
 
         for template_name in expected_templates:
@@ -316,6 +317,7 @@ class TestTemplateDiscovery:
             "mosquitto.yaml.j2",
             "zigbee2mqtt.yaml.j2",
             "zwave-js-ui.yaml.j2",
+            "gitlab-runner.yaml.j2",
         }
 
         actual_templates = {
