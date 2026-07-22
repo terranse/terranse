@@ -61,6 +61,13 @@
     - mounts not in ['[]', '', 'null']
     - not (skip_proxmox_delegation | default(false))
 
+- name: Pass through USB serial devices to the calling ct
+  include_tasks: devices/usb-serial-passthrough.yaml
+  when:
+    - devices is defined
+    - devices not in ['[]', '', 'null']
+    - not (skip_proxmox_delegation | default(false))
+
 - name: Setup necessary container features to allow docker
   include_tasks: "{{ item }}"
   when:

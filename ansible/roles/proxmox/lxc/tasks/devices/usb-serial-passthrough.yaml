@@ -1,0 +1,70 @@
+---
+# Pass USB serial dongles (Zigbee/Z-Wave/Thread radios) into an unprivileged
+# LXC via Proxmox `devN:` entries (PVE 8+), which handle the cgroup device
+# allow and uid/gid mapping automatically — unlike the older
+# lxc.cgroup2.devices.allow + lxc.mount.entry pattern.
+#
+# Runbook notes:
+# - Always declare devices with /dev/serial/by-id/ paths; they survive
+#   re-enumeration (ttyUSB0 <-> ttyUSB1 shuffles).
+# - Physically replugging a dongle while the container runs leaves the bind
+#   stale: restart the container (`pct reboot <vmid>`) to re-attach.
+# - A declared device that is missing at container start fails the start
+#   loudly, on purpose: better than HA silently running without its radios.
+
+- name: Normalize devices list
+  set_fact:
+    _devices: "{{ devices | from_json if devices is string else devices }}"
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
+
+- name: Build desired device entries
+  set_fact:
+    desired_dev_lines: "{{ desired_dev_lines | default([]) + ['dev' ~ idx ~ ': ' ~ item.path] }}"
+  loop: "{{ _devices }}"
+  loop_control:
+    index_var: idx
+    label: "{{ item.name | default(item.path) }}"
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
+
+- name: Get current device entries from config
+  slurp:
+    path: "/etc/pve/lxc/{{ current_vmid }}.conf"
+  register: lxc_config_devs
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
+
+- name: Parse current device entries
+  set_fact:
+    current_dev_lines: "{{ lxc_config_devs.content | b64decode | regex_findall('^dev\\d+:.*$', multiline=True) }}"
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
+
+# Remove before add: devN entries are keyed by index, so a changed path on the
+# same index must not coexist with its replacement even transiently.
+- name: Remove obsolete device entries
+  lineinfile:
+    path: "/etc/pve/lxc/{{ current_vmid }}.conf"
+    line: "{{ item }}"
+    state: absent
+  loop: "{{ current_dev_lines | difference(desired_dev_lines | default([])) }}"
+  notify: Restart container
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
+
+- name: Add missing device entries
+  lineinfile:
+    path: "/etc/pve/lxc/{{ current_vmid }}.conf"
+    line: "{{ item }}"
+    insertafter: "^unprivileged"
+  loop: "{{ desired_dev_lines | default([]) | difference(current_dev_lines) }}"
+  notify: Restart container
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
