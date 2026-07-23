@@ -1,3 +1,8 @@
+# Name-contract: this template requires a `devices` entry named `zigbee`
+# (its /dev/serial/by-id/ path; an optional `adapter`, e.g. `deconz` for the
+# ConBee II) declared on the host's tfvars `devices` list. See
+# usb-serial-passthrough.yaml for the passthrough mechanics.
+{% set zigbee_device = service_devices.zigbee | mandatory('zigbee2mqtt requires a device named "zigbee" in this LXC\'s devices list') %}
 services:
   zigbee2mqtt:
     image: koenkk/zigbee2mqtt:2
@@ -9,7 +14,7 @@ services:
       - "{{ service_mounts.config }}/zigbee2mqtt:/app/data"
       - /run/udev:/run/udev:ro
     devices:
-      - "{{ service_devices.zigbee.path }}:{{ service_devices.zigbee.path }}"
+      - "{{ zigbee_device.path }}:{{ zigbee_device.path }}"
     ports:
       - 8080:8080 # Z2M frontend
     depends_on:

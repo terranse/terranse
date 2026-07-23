@@ -1,9 +1,15 @@
 ---
+# Name-contract: requires a `devices` entry named `zigbee` (its by-id path;
+# optional `adapter`). Guarded below with `mandatory` so a missing entry
+# fails the converge loudly instead of seeding a broken configuration.yaml.
 
 - name: Pre-deployment tasks for zigbee2mqtt
   when: task_phase == "pre"
   vars:
     additional_tasks_pre: true
+    zigbee_device: >-
+      {{ service_devices.zigbee
+         | mandatory('zigbee2mqtt requires a device named "zigbee" in this LXC\'s devices list') }}
   block:
     - name: Ensure zigbee2mqtt data directory
       file:
@@ -27,8 +33,8 @@
             base_topic: zigbee2mqtt
             server: mqtt://mosquitto:1883
           serial:
-            port: {{ service_devices.zigbee.path }}
-          {% if service_devices.zigbee.adapter is defined %}  adapter: {{ service_devices.zigbee.adapter }}
+            port: {{ zigbee_device.path }}
+          {% if zigbee_device.adapter is defined %}  adapter: {{ zigbee_device.adapter }}
           {% endif %}frontend:
             enabled: true
             port: 8080

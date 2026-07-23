@@ -1,6 +1,10 @@
+# Name-contract: this template requires a `devices` entry named `zwave`
+# (its /dev/serial/by-id/ path) declared on the host's tfvars `devices` list.
+# See usb-serial-passthrough.yaml for the passthrough mechanics.
+{% set zwave_device = service_devices.zwave | mandatory('zwave-js-ui requires a device named "zwave" in this LXC\'s devices list') %}
 services:
   zwave-js-ui:
-    image: zwavejs/zwave-js-ui:latest
+    image: zwavejs/zwave-js-ui:11
     container_name: zwave-js-ui
     extends:
       file: common.yaml
@@ -8,7 +12,7 @@ services:
     volumes:
       - "{{ service_mounts.config }}/zwave-js-ui:/usr/src/app/store"
     devices:
-      - "{{ service_devices.zwave.path }}:{{ service_devices.zwave.path }}"
+      - "{{ zwave_device.path }}:{{ zwave_device.path }}"
     ports:
       - 8091:8091 # Web UI
       # Loopback only: HA's Z-Wave JS integration connects to this websocket

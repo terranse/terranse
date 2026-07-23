@@ -1,9 +1,14 @@
 ---
+# Name-contract: requires a `devices` entry named `zwave` (its by-id path).
+# Guarded below with `mandatory` so a missing entry fails the converge
+# loudly instead of seeding a broken settings.json.
 
 - name: Pre-deployment tasks for zwave-js-ui
   when: task_phase == "pre"
   vars:
     additional_tasks_pre: true
+    zwave_device: >-
+      {{ service_devices.zwave | mandatory('zwave-js-ui requires a device named "zwave" in this LXC\'s devices list') }}
     zwave_key_item: "Z-Wave Network Keys (home LXC)"
     zwave_key_vault: "HomeNetwork"
     zwave_key_s0_legacy: >-
@@ -41,11 +46,11 @@
         force: false
         owner: "{{ docker_user }}"
         group: "{{ docker_group }}"
-        mode: '0644'
+        mode: '0640'
         content: |
           {
             "zwave": {
-              "port": "{{ service_devices.zwave.path }}",
+              "port": "{{ zwave_device.path }}",
               "serverEnabled": true,
               "serverPort": 3000,
               "securityKeys": {

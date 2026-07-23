@@ -231,6 +231,20 @@ class TestZigbee2mqttTemplate:
         path = mock_service_devices["zigbee"]["path"]
         assert devices == [f"{path}:{path}"]
 
+    def test_missing_zigbee_device_fails_loudly(
+        self, jinja_env, mock_service_mounts, mock_item
+    ):
+        """Name-contract guard: no `zigbee` entry in service_devices must
+        raise, mentioning the device name, instead of rendering a broken
+        (or KeyError-on-render) compose file."""
+        template = jinja_env.get_template("zigbee2mqtt.yaml.j2")
+        with pytest.raises(Exception, match="zigbee"):
+            template.render(
+                service_mounts=mock_service_mounts,
+                service_devices={},
+                item=mock_item,
+            )
+
 
 class TestZwaveJsUiTemplate:
     """Tests for zwave-js-ui.yaml.j2."""
@@ -278,6 +292,20 @@ class TestZwaveJsUiTemplate:
         )
         ports = [str(p) for p in parsed["services"]["zwave-js-ui"]["ports"]]
         assert any(p.startswith("127.0.0.1:3000:") for p in ports)
+
+    def test_missing_zwave_device_fails_loudly(
+        self, jinja_env, mock_service_mounts, mock_item
+    ):
+        """Name-contract guard: no `zwave` entry in service_devices must
+        raise, mentioning the device name, instead of rendering a broken
+        (or KeyError-on-render) compose file."""
+        template = jinja_env.get_template("zwave-js-ui.yaml.j2")
+        with pytest.raises(Exception, match="zwave"):
+            template.render(
+                service_mounts=mock_service_mounts,
+                service_devices={},
+                item=mock_item,
+            )
 
 
 class TestTemplateDiscovery:

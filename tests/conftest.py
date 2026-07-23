@@ -2,7 +2,24 @@
 
 import pytest
 from pathlib import Path
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, Undefined
+from jinja2.exceptions import UndefinedError
+
+
+def _mandatory(value, msg=None):
+    """Mock of Ansible's `mandatory` filter for plain-Jinja unit tests.
+
+    Ansible's real `mandatory` filter (ansible.builtin) raises
+    AnsibleUndefinedVariable when passed an Undefined value; it isn't
+    registered in a bare jinja2.Environment, so templates that use it would
+    otherwise fail to even compile here (`No filter named 'mandatory'`).
+    This mirrors just enough of the real behavior — raise loudly, mentioning
+    the custom message — to keep the templates' name-contract guards
+    testable without pulling in ansible-core as a test dependency.
+    """
+    if isinstance(value, Undefined):
+        raise UndefinedError(msg or "Mandatory variable is not defined.")
+    return value
 
 
 @pytest.fixture
@@ -26,10 +43,12 @@ def templates_dir(ansible_dir):
 @pytest.fixture
 def jinja_env(templates_dir):
     """Return a Jinja2 environment configured for the templates directory."""
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(str(templates_dir)),
         keep_trailing_newline=True,
     )
+    env.filters["mandatory"] = _mandatory
+    return env
 
 
 @pytest.fixture
