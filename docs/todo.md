@@ -14,7 +14,10 @@
 
 - [x] Install!
 - [x] Forward USB HW
-- [ ] Add Yale + existing lights
+- [x] Add existing lights (Hue bridge paired; 28 lights + 31 scenes in HA)
+- [ ] Add Yale lock — older Doorman on proprietary Ethernet hub: either create a
+      Yale account (Yale Smart Living cloud integration) or fit the Z-Wave module
+      and S2-include against the stick (network keys already seeded from 1Password)
 
 ## Ansible
 
