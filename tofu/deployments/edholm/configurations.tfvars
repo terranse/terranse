@@ -80,12 +80,13 @@ hosts = {
           # ConBee II: Zigbee2MQTT needs the deconz adapter driver for it
           {name = "zigbee", path = "/dev/serial/by-id/usb-dresden_elektronik_ingenieurtechnik_GmbH_ConBee_II_DE2257955-if00", adapter = "deconz"},
           {name = "zwave", path = "/dev/serial/by-id/usb-0658_0200-if00"},
-          # SkyConnect intentionally dropped: Proxmox devN has no `optional`
-          # flag, so an unconsumed dongle is a needless hard boot dependency.
-          # Re-add here when Thread/Matter work starts (otbr + matter-server
-          # compose services) — dongle firmware is already updated to Zigbee
-          # NCP 7.5.1.0. Re-declare the device BEFORE any service consumes
-          # it, per the usb-serial-passthrough runbook notes.
+          # SkyConnect/ZBT-1, reserved for Thread/Matter (otbr + matter-server
+          # services are the next planned work; currently on Zigbee NCP 7.5.1.0
+          # firmware, needs a flash to OpenThread RCP when that starts).
+          # NOTE: Proxmox devN has no `optional` flag — if this dongle is ever
+          # unplugged, the container will refuse to start until the entry is
+          # removed here or the dongle is re-seated.
+          {name = "skyconnect", path = "/dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0_0832078b2a97ed118396c998a7669f5d-if00-port0"},
         ]
 
         roles = [
