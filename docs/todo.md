@@ -15,11 +15,13 @@
 - [x] Install!
 - [x] Forward USB HW
 - [x] Add existing lights (Hue bridge paired; 28 lights + 31 scenes in HA)
-- [ ] Add Yale lock — hub is NOT currently on the LAN (power it up first!). Then:
-      read labels on hub + in-lock module (Smart Hub vs Connect Bridge; V2N/Classic/L3),
-      pick `yale_smart_alarm` or `yale` integration accordingly — both need a Yale
-      account (no local path for the Ethernet hub). Alternative: Z-Wave module +
-      S2 inclusion (network keys already seeded from 1Password).
+- [x] Add Yale lock — done via the **Verisure** integration (the receiver is a
+      Verisure VBox Micro; `lock.ytterdorr` + alarm panel in HA). Caveats: PIN
+      management stays in the Verisure app (API doesn't expose it); sessions may
+      demand a re-MFA every few days (fallback: `my_verisure` community
+      integration); cloud-polling — do NOT firewall-block Verisure or control
+      dies (the VBox Micro has no GSM; the lock itself keeps working locally).
+      Future option: Z-Wave module + S2 inclusion (keys seeded) for local-only.
 - [ ] Matter enablement: flash SkyConnect/ZBT-1 from Zigbee NCP 7.5.1.0 to
       OpenThread RCP, add `otbr` + `matter-server` compose services (+ HA
       Thread/Matter integrations); bulbs are on hand. Mind IPv6/sysctls in the LXC.
