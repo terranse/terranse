@@ -12,8 +12,8 @@
 
 ### HomeAssistant
 
-- [ ] Install!
-- [ ] Forward USB HW
+- [x] Install!
+- [x] Forward USB HW
 - [ ] Add Yale + existing lights
 
 ## Ansible
