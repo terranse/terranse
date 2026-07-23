@@ -57,6 +57,7 @@ class TestCommonTemplate:
         assert "PUID" in env
         assert "PGID" in env
         assert "TZ" in env
+        assert env["UMASK_SET"] == "022"
 
 
 class TestJellyfinTemplate:
