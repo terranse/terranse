@@ -11,6 +11,16 @@
 #   stale: restart the container (`pct reboot <vmid>`) to re-attach.
 # - A declared device that is missing at container start fails the start
 #   loudly, on purpose: better than HA silently running without its radios.
+# - Proxmox `devN:` entries have NO `optional` flag: every declared device is
+#   a hard boot dependency. Do not declare dongles that aren't plugged in, or
+#   the container will refuse to start.
+# - Options on a devN line (uid/gid/mode) are managed ONLY from tfvars. This
+#   role does a literal line compare against /etc/pve/lxc/<vmid>.conf, so any
+#   out-of-band edit to a devN option string (e.g. hand-editing mode via the
+#   PVE UI/CLI) will show up as permanent drift every converge.
+# - Converges that touch this role need the 1Password CLI unlocked (vault
+#   password + key lookups happen elsewhere in the play, but a locked session
+#   will hang/fail the whole run, not just skip this task).
 
 - name: Normalize devices list
   set_fact:
@@ -19,9 +29,21 @@
   vars:
     ansible_user: root
 
+- name: Initialize desired device entries
+  set_fact:
+    desired_dev_lines: []
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
+
 - name: Build desired device entries
   set_fact:
-    desired_dev_lines: "{{ desired_dev_lines | default([]) + ['dev' ~ idx ~ ': ' ~ item.path] }}"
+    desired_dev_lines: >-
+      {{ desired_dev_lines
+         + ['dev' ~ idx ~ ': ' ~ item.path
+            ~ (',uid=' ~ item.uid if item.uid is defined else '')
+            ~ (',gid=' ~ item.gid if item.gid is defined else '')
+            ~ (',mode=' ~ item.mode if item.mode is defined else '')] }}
   loop: "{{ _devices }}"
   loop_control:
     index_var: idx
