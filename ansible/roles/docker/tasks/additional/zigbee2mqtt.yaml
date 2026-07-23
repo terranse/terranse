@@ -6,17 +6,19 @@
     additional_tasks_pre: true
   block:
     - name: Ensure zigbee2mqtt data directory
-      become: true
       file:
         path: "{{ service_mounts.config }}/zigbee2mqtt"
         state: directory
-        mode: '0755'
+        owner: "{{ docker_user }}"
+        group: "{{ docker_group }}"
+        mode: '0775'
 
     - name: Seed zigbee2mqtt configuration (first boot only)
-      become: true
       copy:
         dest: "{{ service_mounts.config }}/zigbee2mqtt/configuration.yaml"
         force: false
+        owner: "{{ docker_user }}"
+        group: "{{ docker_group }}"
         mode: '0644'
         content: |
           homeassistant:

@@ -1,0 +1,14 @@
+---
+
+- name: Pre-deployment tasks for homeassistant
+  when: task_phase == "pre"
+  vars:
+    additional_tasks_pre: true
+  block:
+    - name: Ensure homeassistant config directory
+      file:
+        path: "{{ service_mounts.config }}/homeassistant"
+        state: directory
+        owner: "{{ docker_user }}"
+        group: "{{ docker_group }}"
+        mode: '0775'
