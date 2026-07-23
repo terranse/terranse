@@ -45,13 +45,14 @@ variable "configuration" {
     disk_slot     = optional(string) # scsi0 / sata0 / virtio0 — derived from clone when null
     vmid          = optional(number)
     clone         = optional(string, "ubuntu-2604-base")
-    full_clone    = optional(bool, false) # false = fast ZFS linked clone; true = full copy
+    full_clone    = optional(bool, false)      # false = fast ZFS linked clone; true = full copy
     ci_user       = optional(string, "ubuntu") # cloud-init / ansible login user (cloud images refuse root)
-    bios          = optional(string)      # "ovmf" or "seabios" — derived from clone when null
-    os_type       = optional(string)      # proxmox os_type — derived from clone when null
-    network_model = optional(string)      # virtio / e1000 / rtl8139 — derived from clone when null
-    mac_address   = optional(string)      # Fixed MAC on net0; auto-generated when null
-    ipconfig      = optional(string)      # cloud-init ipconfig0, e.g. "ip=192.168.1.10/24,gw=192.168.1.1"; DHCP when null
+    bios          = optional(string)           # "ovmf" or "seabios" — derived from clone when null
+    os_type       = optional(string)           # proxmox os_type — derived from clone when null
+    network_model = optional(string)           # virtio / e1000 / rtl8139 — derived from clone when null
+    mac_address   = optional(string)           # Fixed MAC on net0; auto-generated when null
+    ipconfig      = optional(string)           # cloud-init ipconfig0, e.g. "ip=192.168.1.10/24,gw=192.168.1.1"; DHCP when null
+    onboot        = optional(bool, false)      # start_at_node_boot — auto-start this VM when the Proxmox host boots
     # Host ZFS datasets to share into the guest, same shape as the LXC `mounts`.
     # A container can bind-mount the host's filesystem directly; a VM cannot, so
     # each entry becomes a Proxmox directory mapping shared over virtiofs and
@@ -67,10 +68,10 @@ variable "configuration" {
     nameserver   = optional(string)
     searchdomain = optional(string)
     pci_devices = optional(list(object({
-      mapping_id    = optional(string)       # Proxmox resource mapping
-      raw_id        = optional(string)       # Direct PCI address (e.g. "0000:41:00.0")
-      mdev          = optional(string)       # Explicit mdev type (overrides vgpu_slice_gb)
-      vgpu_slice_gb = optional(number)       # vGPU VRAM in GB — resolved to mdev type via vgpu_profiles
+      mapping_id    = optional(string) # Proxmox resource mapping
+      raw_id        = optional(string) # Direct PCI address (e.g. "0000:41:00.0")
+      mdev          = optional(string) # Explicit mdev type (overrides vgpu_slice_gb)
+      vgpu_slice_gb = optional(number) # vGPU VRAM in GB — resolved to mdev type via vgpu_profiles
       pcie          = optional(bool, true)
       primary_gpu   = optional(bool, false)
       rombar        = optional(bool, true)

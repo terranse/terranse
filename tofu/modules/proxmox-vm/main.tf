@@ -85,13 +85,14 @@ resource "proxmox_vm_qemu" "vms" {
   vmid        = try(each.value.vmid, local.vmid_map[each.key])
   name        = each.key
 
-  agent      = 1
-  os_type    = local.os_type[each.key]
-  clone      = each.value.clone
-  full_clone = each.value.full_clone
-  memory     = each.value.memory
-  bios       = local.bios[each.key]
-  boot       = "order=${local.disk_slot[each.key]}"
+  agent              = 1
+  os_type            = local.os_type[each.key]
+  clone              = each.value.clone
+  full_clone         = each.value.full_clone
+  memory             = each.value.memory
+  bios               = local.bios[each.key]
+  boot               = "order=${local.disk_slot[each.key]}"
+  start_at_node_boot = each.value.onboot
 
   # Cloud-init networking only. Admin credentials are baked into the
   # Packer template itself (see winrm_password / preseed user) and
@@ -136,6 +137,12 @@ resource "proxmox_vm_qemu" "vms" {
     size    = each.value.disk_size
     type    = "disk"
     storage = var.storage_pool
+    # Every VM disk here is block-backed (ZFS zvol or whole disk), never a
+    # qcow2/file-backed image, so raw is fleet-wide reality, not per-VM
+    # config. Declaring it explicitly stops the provider from reporting a
+    # phantom drift (it otherwise reads "raw" back from Proxmox but has no
+    # value to compare it against, since nothing set it in config).
+    format = "raw"
     # iothread only valid with virtio or virtio-scsi-single — disable for SATA
     iothread = !startswith(local.disk_slot[each.key], "sata")
   }
@@ -257,6 +264,13 @@ resource "proxmox_vm_qemu" "vms" {
   lifecycle {
     ignore_changes = [
       network,
+      # Proxmox records order/shutdown_timeout/startup_delay = -1 out-of-band
+      # for any VM with no explicit start/shutdown ordering (i.e. every VM
+      # this module manages), and the provider then reads that back as a
+      # diff against an undeclared block on every plan. There is nothing to
+      # declare that would satisfy it — it's provider/API bookkeeping, not
+      # config drift — so ignore the block instead of fighting it.
+      startup_shutdown,
     ]
   }
 

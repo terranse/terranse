@@ -192,6 +192,9 @@ hosts = {
         memory    = 32768
         disk_size = "64G"
         clone     = "ubuntu-2604-base"
+        # Set by hand in the Proxmox UI: the streaming box should come back up
+        # on its own after a host reboot rather than sit powered off.
+        onboot = true
         # DHCP on purpose. The guest registers its hostname in DNS when it takes
         # a lease, which is what makes gaming.edholm.cc resolve to it on the LAN.
         # A static address means no lease and no registration, so the name falls
