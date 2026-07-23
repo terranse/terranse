@@ -65,6 +65,37 @@ hosts = {
         ]
       }
 
+      home = {
+        memory    = 4096
+        disk_size = "16G"
+
+        mounts = [
+          {name = "config", dataset = "tank/appdata", path = "/appdata"},
+        ]
+
+        # USB radio dongles, passed through as Proxmox devN entries.
+        # by-id paths survive re-enumeration; replugging while the CT runs
+        # still needs a `pct reboot`.
+        devices = [
+          # ConBee II: Zigbee2MQTT needs the deconz adapter driver for it
+          {name = "zigbee", path = "/dev/serial/by-id/usb-dresden_elektronik_ingenieurtechnik_GmbH_ConBee_II_DE2257955-if00", adapter = "deconz"},
+          {name = "zwave", path = "/dev/serial/by-id/usb-0658_0200-if00"},
+          # SkyConnect: passed through but unused until Thread/Matter work
+          # (otbr + matter-server compose services) begins.
+          {name = "skyconnect", path = "/dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0_0832078b2a97ed118396c998a7669f5d-if00-port0"},
+        ]
+
+        roles = [
+          { name = "docker" }
+        ]
+        docker_services = [
+          { name = "mosquitto" },
+          { name = "zigbee2mqtt" },
+          { name = "zwave-js-ui" },
+          { name = "homeassistant" },
+        ]
+      }
+
       # TODO: Add configuration for a VPN client container, to route specific traffic through a VPN
       # TODO: Set, e.g., netbird to be a `service` instead of a role path
       network = {
