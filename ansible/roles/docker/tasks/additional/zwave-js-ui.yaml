@@ -4,6 +4,20 @@
   when: task_phase == "pre"
   vars:
     additional_tasks_pre: true
+    zwave_key_item: "Z-Wave Network Keys (home LXC)"
+    zwave_key_vault: "HomeNetwork"
+    zwave_key_s0_legacy: >-
+      {{ lookup('community.general.onepassword', zwave_key_item,
+      field='S0_Legacy', vault=zwave_key_vault) }}
+    zwave_key_s2_unauth: >-
+      {{ lookup('community.general.onepassword', zwave_key_item,
+      field='S2_Unauthenticated', vault=zwave_key_vault) }}
+    zwave_key_s2_auth: >-
+      {{ lookup('community.general.onepassword', zwave_key_item,
+      field='S2_Authenticated', vault=zwave_key_vault) }}
+    zwave_key_s2_access: >-
+      {{ lookup('community.general.onepassword', zwave_key_item,
+      field='S2_AccessControl', vault=zwave_key_vault) }}
   block:
     - name: Ensure zwave-js-ui store directory
       file:
@@ -17,6 +31,10 @@
     # file at runtime. Partial settings are fine — the app merges defaults.
     # serverEnabled/serverPort expose the zwave-js websocket HomeAssistant
     # connects to; MQTT stays disabled (HA uses the websocket, not MQTT).
+    #
+    # securityKeys come from the vault: without them, secure inclusion (the
+    # door lock) is impossible, and keys clicked into the UI would be the one
+    # secret a container rebuild loses.
     - name: Seed zwave-js-ui settings (first boot only)
       copy:
         dest: "{{ service_mounts.config }}/zwave-js-ui/settings.json"
@@ -29,7 +47,13 @@
             "zwave": {
               "port": "{{ service_devices.zwave.path }}",
               "serverEnabled": true,
-              "serverPort": 3000
+              "serverPort": 3000,
+              "securityKeys": {
+                "S0_Legacy": "{{ zwave_key_s0_legacy }}",
+                "S2_Unauthenticated": "{{ zwave_key_s2_unauth }}",
+                "S2_Authenticated": "{{ zwave_key_s2_auth }}",
+                "S2_AccessControl": "{{ zwave_key_s2_access }}"
+              }
             },
             "mqtt": {
               "disabled": true
