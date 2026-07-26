@@ -23,3 +23,6 @@ packer/*/downloaded_iso_path/
 *.egg-info/
 __pycache__/
 *.pyc
+
+# media audit local dumps
+docs/media-audit/.cache/
