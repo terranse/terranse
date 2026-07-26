@@ -254,11 +254,29 @@ exactly this misparse, which is why Band of Brothers' NFOs said `S20E01` (`2001`
 `S20E11` (`2011`).
 
 The NFO title and episode number *are* honoured; only the season is overridden. Where the filename contains
-no season-like token the rewritten NFO applies cleanly — 8 of the 10 series are fully correct now. Three
-groups cannot be fixed by NFO at all and need the ambiguity removed from the filename:
-`Planet Dinosaur(2011)[720p]` (6 files), `Pixar Short Film Collection` (13), and the `3 - Beasts` subfolder
-of `Walking with…` (6). Moving them into a real `Season 01/` folder does **not** help — the filename parse
-still wins.
+no season-like token the rewritten NFO applies cleanly — that fixed 8 of the 10 series. Three groups needed
+the ambiguity removed from the filename instead, which `rename_episodes.py` did for 25 files. Moving them
+into a real `Season 01/` folder does **not** help; the filename parse still wins.
+
+All ten are correct now:
+
+| Series | Before | After |
+|---|---|---|
+| `Band Of Brothers` | 10 episodes collapsed into one, "season 20" | S01E01–E10, real titles |
+| `Star Wars - The Clone Wars` | 63 of 117 with no episode number | 22/19/22/21/20/13 across S1–S6, 0 unindexed |
+| `Breaking bad` | extras scrambled, duplicate index in S1 | 7/13/13/13/16 |
+| `Planet Dinosaur` | all 6 in "season 20" | S01E01–E06 — and Jellyfin then pulled real TVDB titles |
+| `Walking with…` | 19 episodes spread over 6 seasons | 3/6/6/4 — Monsters, Dinosaurs, Beasts, Cavemen |
+| `Pixar Short Film Collection` | seasons 19 and 20 | 13 shorts at S01E01–E13 |
+| `BBC Planet Earth II` | 6 episodes with no index | S01E01–E06 |
+| `Spartacus Blood and Sand` | 6 with no index | S00E01–E06 (the folder holds *Gods of the Arena*) |
+| `Dinosauriernas Planet` | season `null` | S01E01–E03 |
+| `Krigets Unga Hjärtan` | season `null` | S01E01–E03 |
+
+One deliberate residue: three Despicable Me minions shorts are misfiled under `Pixar Short Film Collection`
+and still sit in a phantom "season 20". They are Illumination's, not Pixar's, so both `fix_nfo.py` and
+`rename_episodes.py` skip them by name rather than stamping the wrong show onto them. They want moving out
+of the TV library altogether.
 
 ## Fixing a mis-identified title in Jellyfin
 
