@@ -80,10 +80,10 @@
         fail_msg: "Jellyfin container is not running"
         success_msg: "Jellyfin container is running"
 
-    - name: Verify jellyseerr container is running
+    - name: Verify seerr container is running
       ansible.builtin.assert:
         that:
-          - "'jellyseerr' in running_containers.stdout"
+          - "'seerr' in running_containers.stdout"
         fail_msg: "Jellyseerr container is not running"
         success_msg: "Jellyseerr container is running"
 

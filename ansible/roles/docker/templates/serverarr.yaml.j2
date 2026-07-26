@@ -83,6 +83,28 @@ services:
       - "{{ service_mounts.util }}/Books:/media/books"
     restart: unless-stopped
 
+  # Subtitles. Radarr and Sonarr can only prefer release-name tokens like NORDiC
+  # or SWESUB, which say nothing reliable about what is actually in the file --
+  # of 806 imported films, 434 had any subtitle track and only 183 a Swedish one.
+  # Bazarr fetches per-language subtitles independently, which is the only way to
+  # get Swedish/English coverage across the whole library.
+  #
+  # The media paths deliberately match Radarr's and Sonarr's exactly
+  # (/media/movies, /media/tv_series) so Bazarr needs no path mapping.
+  bazarr:
+    image: lscr.io/linuxserver/bazarr
+    container_name: bazarr
+    extends:
+      file: common.yaml
+      service: base-service
+    ports:
+      - "6767:6767"
+    volumes:
+      - "{{ service_mounts.config }}/bazarr:/config"
+      - "{{ service_mounts.movies }}:/media/movies"
+      - "{{ service_mounts.tv_series }}:/media/tv_series"
+    restart: unless-stopped
+
   unpackerr:
     image: golift/unpackerr
     container_name: unpackerr
