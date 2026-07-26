@@ -69,16 +69,20 @@ them properly would need a rename.
 
 ## Known outstanding
 
+- **Extract the 471 GB of archives** and remove the parts once verified (see above — nothing is seeding
+  from these folders).
+- **Flatten the pack folders** so Jellyfin and Radarr can both see the individual films.
+- **Delete the corrupt episode NFOs** on the ten affected series.
+- **Re-identify the ~10 mis-matched Sonarr series** (needs a human — see above).
 - **10 phantom `Video` items in Jellyfin** pointing into the deleted `Avatar - The Last Airbender[720p]`
   folder, half of them under the pre-migration `/media/tv_series/` prefix. The files are gone, so they are
   pure orphans. Removing them needs a `DELETE /Items/{id}` per item or a library scan.
-- **Corrupt NFOs beyond Avatar.** `Breaking bad` has 27 NFOs all declaring `S00E02 "Wedding Day"`, 16 at
-  `S05E05` and 13 at `S03E03` — all inside `Extras/`, so its specials are scrambled in Jellyfin the same way
-  Avatar's episodes were. `Dinosauriernas Planet`, `Krigets Unga Hjärtan` and
-  `Walking with... Monsters, Dinosaurs, Beasts, Cavemen` have NFOs carrying raw release names and no
-  `<season>` tag at all.
+- **`Pan(2015)[720p]` has no movie** — only a subtitle archive. Needs re-downloading.
 - **3 Sonarr entries with no folder**: `Andor`, `Taskmaster`, `Avatar: The Last Airbender (2024)`.
   Two Radarr entries likewise (`Cloudy with a Chance of Meatballs`, `Sagan Om(2003)[DVD]`).
+- **Duplicate collections** from mixed-language metadata: `Harry Potter (samling)` alongside
+  `Harry Potter Collection`, same for `Kung Fu Panda`. Two collections hold a single film
+  (`Cloudy with a Chance of Meatballs`, `Planes`).
 
 ## Regenerating
 
@@ -127,19 +131,93 @@ Fixing one entry:
 
 ## The unextracted-archive fault
 
-**54 folders hold `.rar`/`.r00` part sets and no video file — 467 GB.** 49 movies (361 GB) and 5 series
-(105 GB, of which `Heroes` alone is 2121 parts / 29 GB). These are invisible to Jellyfin and fileless in
+**55 folders hold `.rar`/`.r00` part sets and no video file — 471 GB.** 50 movies (366 GB) and 5 series
+(105 GB, of which `Heroes` alone is 2121 parts / 31 GB and `Marvels Daredevil` 895 parts / 44 GB). 236
+archive sets in total, 183 of which contain a video. These are invisible to Jellyfin and fileless in
 Sonarr/Radarr, which is what most of the remaining flags actually are. unpackerr is running but never
 processed them — it watches the download client's queue, and these left the queue long ago.
 
-8 of the 54 carry incomplete-download markers (`~uTorrentPartFile*`, `.!qB`) so they will not extract
-cleanly and need re-downloading instead.
+**They are safe to extract and the archives are safe to remove afterwards.** Cross-checked against all 320
+torrents in qBittorrent (`admin:adminadmin` on `:8080`; the stored PBKDF2 hash is the well-known default):
+every torrent seeds from a `.torrents` subdirectory, **none** from the library folders holding these
+archives, and **no RAR part has `nlink > 1`**, so no hardlink elsewhere depends on them either. These
+predate the current download-into-`.torrents`-then-hardlink workflow.
 
-`unrar` is present at `/usr/bin/unrar` on the host. Extracting in place roughly doubles the footprint of
-each folder until the archives are deleted; `/storage/movies` had 3.4 TB free at time of writing.
+8 of the 55 carry incomplete-download markers (`~uTorrentPartFile*`, `.!qB`) and must be treated as suspect
+until an integrity check passes.
+
+### Use the qBittorrent container's unrar, never the host's
+
+`/usr/bin/unrar` on the host is **`unrar-free` 0.3.1, which silently corrupts this job**: it cannot follow a
+multi-volume set. On a 522 MB / 11-volume archive it wrote only the first 50 MB volume, printed
+`Truncated RAR file data` and `Failed` — **and still exited 0**. A naive `unrar x && rm *.rar` would have
+destroyed the archives after a failed extraction.
+
+The **qbittorrent container has real `UNRAR 7.20` and `7z 26.00`**, and already mounts `/storage` at
+`/media`. It spans volumes correctly, and `unrar t` does a full CRC check with a truthful exit code:
+
+```bash
+docker exec qbittorrent unrar t "/media/movies/<folder>/<name>.rar"   # verify (reads every volume)
+docker exec qbittorrent unrar x -o- "/media/movies/<folder>/<name>.rar" "/media/movies/<folder>/"
+```
+
+Three folders do not yield a normal video file: `Law Abiding Citizen(2009)[DVD]` contains `wk-repack.lac.img`
+and `The Da Vinci Code(2006)[DVD]` contains `dv-innsyn.iso` (both DVD images), while `Pan(2015)[720p]` holds
+**only a subtitle archive** — the movie's own RAR set is absent, so that title is simply missing.
 
 A release's `Sample/` clip is not the feature — the disk scan excludes any path matching `sample`, which is
-what exposed `Heroes` as 80 sample clips rather than 80 episodes.
+what exposed `Heroes` as 80 sample clips rather than 80 episodes, and `Marvels Daredevil` as having no video
+at all.
+
+## Pack folders break Jellyfin's movie matching
+
+Where several films live in subfolders under one library-level folder, Jellyfin mis-assigns their identities
+— and not randomly, but **rotated**, which makes it look plausible at a glance:
+
+| Folder on disk | Jellyfin thinks it is |
+|---|---|
+| `…/Star Wars Episode IV A New Hope(1977)` | Episode I – The Phantom Menace |
+| `…/Star Wars Episode I The Phantom Menace(1999)` | Episode II – Attack of the Clones |
+| `…/Star Wars Episode II Attack Of The Clones(2002)` | Episode III – Revenge of the Sith |
+| `…/Star Wars Episode III Revenge Of The Sith(2005)` | The Empire Strikes Back |
+| `…/Star Wars Episode V The Empire Strikes Back(1980)` | Return of the Jedi |
+| `…/Star Wars Episode VI Return Of The Jedi(1983)` | Star Wars (1977) |
+
+All six wrong. `Harry Potter Collection[1080p]` is shifted by one the same way; `Terminator Trilogy[1080p]`
+has T1, T2 and T3 all identified as *Terminator Salvation* (a film not even present);
+`The Lord of the Rings Trilogy[1080p]` has *The Two Towers* labelled *The Return of the King*.
+`Resident Evil Collection[720p]` and `Underworld Trilogy[720p]` happen to be correct.
+
+Jellyfin expects `movies/<Title (Year)>/<file>`. A nested pack folder violates that, and Radarr cannot track
+one either — it binds a single movie per folder. **Flattening each film's subfolder up to the top level of
+`/storage/movies` fixes both at once.** Collections themselves work fine (90 box sets, correctly populated);
+their membership is only wrong where the underlying film is misidentified. Note `/Items?ParentId=<boxset>`
+returns 0 without `Recursive=true` — that is a query artifact, not an empty collection.
+
+## Corrupt NFOs are widespread, and Jellyfin is following them
+
+`LocalMetadataReaderOrder: ["Nfo"]` means a bad NFO beats correct filenames. Ten series are affected, and
+Jellyfin's episode numbering matches the corruption exactly:
+
+| Series | NFOs claim | Jellyfin shows |
+|---|---|---|
+| `Band Of Brothers [720p]` | all 10 → `S20E01` | 10 episodes in season 20 |
+| `Planet Dinosaur(2011)[720p]` | all 6 → `S20E11` | 6 episodes in season 20 |
+| `Pixar Short Film Collection [1080p]` | `S20E13`, `S19E…` | seasons 19 and 20 |
+| `BBC Planet Earth II` | all 6 → season 1, no episode | 6 episodes with no index |
+| `Spartacus Blood and Sand(2010)` | all 6 → season 1, no episode | 6 episodes with no index |
+| `Walking with Dinosaurs - Swedish(1999)` | all 7 → season 1, no episode | 7 episodes with no index |
+| `Star Wars - The Clone Wars` | 117 NFOs, season but no episode | **63 of 117** with no index |
+| `Breaking bad` | 27 → `S00E02`, 16 → `S05E05`, 13 → `S03E03` | duplicate index in S1, extras scrambled |
+| `Dinosauriernas Planet (2011)` | no season *or* episode tag | season `null`, no index |
+| `Krigets Unga Hjärtan` | no season *or* episode tag | season `null`, no index |
+
+Season 20 and 19 are not typos in this table — the NFO writer emitted them.
+
+The straightforward repair is to **delete the corrupt episode NFOs** and let Jellyfin fall back to filename
+parsing plus TVDB/TMDB, which is what the healthy series already do. Two exceptions need authored NFOs or a
+rename instead, because their filenames carry no episode marker either: `Dinosauriernas Planet` (files are
+`…Del.3.av.3…`) and `Krigets Unga Hjärtan`.
 
 ## Fixing a mis-identified title in Jellyfin
 

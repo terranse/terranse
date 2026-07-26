@@ -120,10 +120,12 @@ def human(n):
 def load_marks(path):
     """Existing checkbox state, keyed on the backticked folder name.
 
-    Only `x` is carried forward, and only onto entries that still look wrong --
-    that is a human having reviewed a `/` and blessed it. Entries that verify
-    clean are always recomputed to `x`, and anything still failing a check goes
-    back to `/` rather than inheriting a stale tick.
+    Only `x` is read back, and it only survives on entries whose sole remaining
+    flag is `soft` -- a human having reviewed an expected oddity and blessed it.
+    A tick never survives a hard defect: an earlier run ticked `Marvels Daredevil`
+    while miscounting its sample clips as episodes, and that stale tick then hid
+    41 GB of unextracted RAR. A tick recorded before a defect was known is not
+    evidence about that defect.
     """
     marks = {}
     if os.path.exists(path):
@@ -153,17 +155,27 @@ def build(kind, arr, jf, dk):
 
     rows = []
     for d in disk:
-        name, note, unsure = d["name"], [], False
+        name, note = d["name"], []
+        # hard  = machine-verifiable defect. Never inherits a previous tick, because
+        #         a tick recorded before the defect was known is not evidence.
+        # soft  = expected-but-worth-a-look (a pack folder the *arr cannot represent).
+        #         A human tick sticks on these.
+        hard = soft = False
         A, J = by_folder.get(name, []), by_jf.get(name, [])
 
         if not A:
             app_flag = "MISSING"
             note.append("not in %s" % appname)
-            unsure = True
+            # several films in one directory is a pack -- Radarr binds one movie per
+            # folder, so it structurally cannot track these. Jellyfin handles them.
+            if len(J) > 1:
+                soft = True
+            else:
+                hard = True
         elif len(A) > 1:
             app_flag = "DUP x%d" % len(A)
             note.append("%d %s entries share this folder" % (len(A), appname))
-            unsure = True
+            hard = True
         else:
             a = A[0]
             stale = not a["path"].startswith(good + "/")
@@ -174,21 +186,21 @@ def build(kind, arr, jf, dk):
                         % (appname, a["title"], a.get("year"), idkey[:-2], a.get(idkey)))
             if kind == "tv" and not a["files"]:
                 note.append("**0 files in sonarr**")
-                unsure = True
+                hard = True
             if kind == "movies" and not a["hasFile"]:
                 note.append("**no file in radarr**")
-                unsure = True
+                hard = True
             if stale:
-                unsure = True
+                hard = True
 
         if not J:
             jf_flag = "MISSING"
             note.append("not in jellyfin")
-            unsure = True
+            hard = True
         elif len(J) > 1:
             jf_flag = "x%d" % len(J)
             note.append("jellyfin has %d items here (pack folder?)" % len(J))
-            unsure = True
+            soft = True
         else:
             j = J[0]
             jf_flag = "ok"
@@ -200,7 +212,7 @@ def build(kind, arr, jf, dk):
                 if a.get(mine) and j["Prov"].get(theirs) and str(a[mine]) != str(j["Prov"][theirs]):
                     note.append("**ID MISMATCH** %s %s=%s vs jellyfin %s=%s"
                                 % (appname, theirs.lower(), a[mine], theirs.lower(), j["Prov"][theirs]))
-                    unsure = True
+                    hard = True
 
         if not d["nvid"]:
             if d.get("nrar"):
@@ -209,9 +221,9 @@ def build(kind, arr, jf, dk):
                                ", incomplete download" if d.get("partial") else ""))
             else:
                 note.append("**EMPTY on disk**")
-            unsure = True
+            hard = True
 
-        rows.append({"name": name, "unsure": unsure, "app": app_flag, "jf": jf_flag,
+        rows.append({"name": name, "hard": hard, "soft": soft, "app": app_flag, "jf": jf_flag,
                      "disk": "%d vid %s" % (d["nvid"], human(d["size"])),
                      "note": "; ".join(note)})
 
@@ -224,7 +236,17 @@ def write(kind, fname, title, root, arr, jf, disk):
     rows, orphans = build(kind, arr, jf, disk)
     path = os.path.join(OUT, fname)
     marks = load_marks(path)
-    flagged = sum(1 for r in rows if r["unsure"])
+
+    def mark_for(r):
+        if r["hard"]:
+            return "/"                       # evidence of a defect always wins
+        if not r["soft"]:
+            return "x"                       # verifies clean in all three
+        return "x" if marks.get(r["name"]) == "x" else "/"
+
+    for r in rows:
+        r["mark"] = mark_for(r)
+    flagged = sum(1 for r in rows if r["mark"] == "/")
 
     L = ["# %s audit" % title, "",
          "One entry per folder under `%s`. See [README](README.md) for the marker "
@@ -235,8 +257,8 @@ def write(kind, fname, title, root, arr, jf, disk):
          % (len(rows), len(rows) - flagged, flagged), "",
          "## Library", ""]
     for r in rows:
-        mark = "x" if (not r["unsure"] or marks.get(r["name"]) == "x") else "/"
-        L.append("- [%s] `%s` — %s | jf:%s | %s" % (mark, r["name"], r["app"], r["jf"], r["disk"]))
+        L.append("- [%s] `%s` — %s | jf:%s | %s"
+                 % (r["mark"], r["name"], r["app"], r["jf"], r["disk"]))
         if r["note"]:
             L.append("  <sub>%s</sub>" % r["note"])
     if orphans:

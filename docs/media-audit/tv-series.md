@@ -74,7 +74,7 @@ One entry per folder under `/storage/tv_series`. See [README](README.md) for the
   <sub>sonarr="Marvel's Agent Carter (2015)" tvdb=281485; jellyfin="Marvel's Agent Carter (2013)" tmdb=61550 tvdb=281485</sub>
 - [x] `Marvels Agents of SHIELD` — id=26 | jf:ok | 32 vid 22G
   <sub>sonarr="Marvel's Agents of S.H.I.E.L.D. (2013)" tvdb=263365; jellyfin="Marvel's Agents of S.H.I.E.L.D. (2013)" tmdb=1403 tvdb=263365</sub>
-- [x] `Marvels Daredevil` — id=27 | jf:ok | 0 vid 0B
+- [/] `Marvels Daredevil` — id=27 | jf:ok | 0 vid 0B
   <sub>sonarr="Marvel's Daredevil (2015)" tvdb=281662; jellyfin="Marvel's Daredevil (2015)" tmdb=61889 tvdb=281662; **UNEXTRACTED RAR** — 895 parts, 41G</sub>
 - [x] `Marvels Jessica Jones` — id=28 | jf:ok | 4 vid 5G
   <sub>sonarr="Marvel's Jessica Jones (2015)" tvdb=284190; jellyfin="Marvel's Jessica Jones (2015)" tmdb=38472 tvdb=284190</sub>
