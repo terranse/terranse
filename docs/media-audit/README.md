@@ -189,7 +189,20 @@ has T1, T2 and T3 all identified as *Terminator Salvation* (a film not even pres
 
 Jellyfin expects `movies/<Title (Year)>/<file>`. A nested pack folder violates that, and Radarr cannot track
 one either — it binds a single movie per folder. **Flattening each film's subfolder up to the top level of
-`/storage/movies` fixes both at once.** Collections themselves work fine (90 box sets, correctly populated);
+`/storage/movies` fixes both at once.** `flatten_packs.py` moved 28 films; Star Wars (all 6) and LOTR (all 3)
+corrected themselves on the next scan.
+
+Two did not: `Terminator 2` and `Terminator 3` kept the stale *Terminator Salvation* identity through the
+move, because **Radarr had written per-file `.nfo` sidecars** naming Salvation — Radarr had the whole pack
+registered as that one film, and a local NFO beats `RemoteSearch/Apply`. Removing those sidecars and setting
+the identity through `POST /Items/{id}` fixed both. A sweep of all per-file movie NFOs whose title disagrees
+with their folder found 19, of which only these two were genuinely wrong; the other 17 are Swedish folder
+names against English metadata titles (`Flickan Som Lekte Med Elden` → *The Girl Who Played with Fire*),
+which is correct.
+
+> **`/Items?Recursive=true` serves stale data.** After fixing the Terminator pair, that endpoint kept
+> reporting the old identity for more than ten minutes while `GET /Users/{uid}/Items/{id}` already showed the
+> corrected values. Verify a single item by ID; do not trust the list endpoint to confirm a write landed. Collections themselves work fine (90 box sets, correctly populated);
 their membership is only wrong where the underlying film is misidentified. Note `/Items?ParentId=<boxset>`
 returns 0 without `Recursive=true` — that is a query artifact, not an empty collection.
 
