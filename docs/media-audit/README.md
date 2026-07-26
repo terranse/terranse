@@ -59,9 +59,8 @@ Radarr. Every flag is structural.
 The untracked ones are mostly deliberate pack folders (`Harry Potter Collection`, `Star Wars Hexalogy`,
 `The Lord of the Rings Trilogy`, `Underworld Trilogy`, `Resident Evil Collection`, `Asterix`, `Konserter`)
 plus alternate-language duplicates of films Radarr already has. Radarr binds one movie per folder, so it
-cannot track a pack — Jellyfin handles them correctly and finds the individual films. The one genuinely
-broken pack is `Terminator Trilogy[1080p]`: it contains T1, T2 and T3, but Jellyfin labels all three
-*Terminator Salvation* and Radarr has it registered as *Terminator Salvation* too.
+structurally cannot track a pack. Jellyfin does find the individual films inside them, but frequently
+**identifies them wrongly** — see the pack-folder section below.
 
 Split multi-part rips (`CD1`/`CD2` — *Cinderella Man*, *Mrs Doubtfire*, *Its Complicated*,
 *Tusen Gånger Starkare*) show as fileless in Radarr and as two items in Jellyfin. They play fine; stacking
