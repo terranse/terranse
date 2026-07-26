@@ -12,21 +12,30 @@ services:
       - "{{ service_mounts.config }}/prowlarr:/config"
     restart: unless-stopped
 
+  # All traffic goes through the Windscribe tunnel by sharing gluetun's network
+  # namespace. Consequences worth knowing:
+  #   - qbittorrent cannot publish its own ports; 8080 is published on gluetun.
+  #   - it has no DNS name on the docker network any more, so Sonarr and Radarr
+  #     must point their download client at `gluetun:8080`, not `qbittorrent:8080`.
+  #   - if gluetun is unhealthy qbittorrent has no route out, which is the point.
+  # Windscribe does not support port forwarding over WireGuard, so incoming peer
+  # connections will not work and seeding is passive only. Their static-IP port
+  # forwarding needs OpenVPN instead of WireGuard.
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
     extends:
       file: common.yaml
       service: base-service
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
     environment:
       WEB-UI: 8080
     volumes:
       - "{{ service_mounts.config }}/qbittorrent:/config"
       - /storage:/media
-    ports:
-      - 8080:8080
-      - 48094:48094
-      - 48094:48094/udp
     restart: unless-stopped
 
   radarr:
@@ -83,12 +92,6 @@ services:
       - "{{ service_mounts.util }}/Books:/media/books"
     restart: unless-stopped
 
-  # Subtitles. Radarr and Sonarr can only prefer release-name tokens like NORDiC
-  # or SWESUB, which say nothing reliable about what is actually in the file --
-  # of 806 imported films, 434 had any subtitle track and only 183 a Swedish one.
-  # Bazarr fetches per-language subtitles independently, which is the only way to
-  # get Swedish/English coverage across the whole library.
-  #
   # The media paths deliberately match Radarr's and Sonarr's exactly
   # (/media/movies, /media/tv_series) so Bazarr needs no path mapping.
   bazarr:
