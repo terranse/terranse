@@ -213,10 +213,39 @@ Jellyfin's episode numbering matches the corruption exactly:
 
 Season 20 and 19 are not typos in this table — the NFO writer emitted them.
 
-The straightforward repair is to **delete the corrupt episode NFOs** and let Jellyfin fall back to filename
-parsing plus TVDB/TMDB, which is what the healthy series already do. Two exceptions need authored NFOs or a
-rename instead, because their filenames carry no episode marker either: `Dinosauriernas Planet` (files are
-`…Del.3.av.3…`) and `Krigets Unga Hjärtan`.
+Deleting the corrupt NFOs — the obvious repair — would have made it worse. These releases predate `SxxExx`
+naming: the files are `Part06.avi`, `…3of6.Jungles…`, `Planet.Dinosaur.III…`, `…Del.3.av.3…`, and Jellyfin's
+fallback parser gets no episode number from any of them. `fix_nfo.py` instead maps each series' own naming
+scheme to a real season/episode and rewrites the NFOs. 190 written, 289 moved to `.nfo-trash/`.
+
+Breaking Bad is the exception: its episode files are `Season 3 Episode 11 - Abiquiu.avi`, which parses
+natively, so only its 99 cloned `Extras/` NFOs were removed.
+
+### An NFO cannot override Jellyfin's season parse
+
+Applying the NFOs needs `POST /Items/{id}/Refresh?metadataRefreshMode=FullRefresh&replaceAllMetadata=true`.
+With `replaceAllMetadata=false` Jellyfin only fills *gaps*, so a wrong-but-present season survives untouched.
+
+More importantly, **Jellyfin takes season and episode from the filename in preference to the NFO**, and it
+reads a bare four-digit year as `SxxExx`:
+
+| Filename | Jellyfin reads | Truth |
+|---|---|---|
+| `Planet.Dinosaur.III.2011.720p…` | `2011` → S20E11 | S01E03 |
+| `luxo.jr.1986.1080p…` | `1986` → S19E86 | S01E02 |
+| `Band.Of.Brothers.2001.E03…` | `E03` wins → S01E03 | S01E03 ✓ |
+| `…Walking with Beasts (3-6) - Land of Giants.avi` | `(3-6)` → S03E03 | S03E03 ✗ season right by luck, wrong pattern |
+
+This is almost certainly where the corrupt NFOs came from in the first place — some tool wrote them out of
+exactly this misparse, which is why Band of Brothers' NFOs said `S20E01` (`2001`) and Planet Dinosaur's said
+`S20E11` (`2011`).
+
+The NFO title and episode number *are* honoured; only the season is overridden. Where the filename contains
+no season-like token the rewritten NFO applies cleanly — 8 of the 10 series are fully correct now. Three
+groups cannot be fixed by NFO at all and need the ambiguity removed from the filename:
+`Planet Dinosaur(2011)[720p]` (6 files), `Pixar Short Film Collection` (13), and the `3 - Beasts` subfolder
+of `Walking with…` (6). Moving them into a real `Season 01/` folder does **not** help — the filename parse
+still wins.
 
 ## Fixing a mis-identified title in Jellyfin
 
