@@ -37,7 +37,19 @@ SKIP_DIRS = ('.torrents', 'System Volume Information', TRASH)
 RARANY = re.compile(r'\.(rar|r\d\d|s\d\d|\d{3})$', re.I)
 PARTVOL = re.compile(r'\.part\d+\.rar$', re.I)
 PARTONE = re.compile(r'\.part0*1\.rar$', re.I)
-INCOMPLETE = ('uTorrentPartFile', '.!qB', '.part')
+
+
+def is_incomplete_marker(name):
+    """A leftover from an aborted download, meaning the archive set is suspect.
+
+    Matched precisely, not by substring: an earlier version tested `'.part' in
+    name`, which flagged every `*.part01.rar` volume and so falsely blocked
+    `Die Hard Collection` and `The Hunger Games Mockingjay Part 2` -- the second
+    only because the film's title contains the word "part".
+    """
+    return ("uTorrentPartFile" in name
+            or name.endswith(".!qB")
+            or name.endswith(".part"))
 
 
 # ---------------------------------------------------------------- unrar (in qb)
@@ -113,7 +125,7 @@ def find_sets(folder):
         for f in files:
             p = os.path.join(root, f)
             low = f.lower()
-            if any(m in f for m in INCOMPLETE):
+            if is_incomplete_marker(f):
                 partial.append(p)
             if RARANY.search(f):
                 rars.append(p)
@@ -159,7 +171,7 @@ def qb_paths():
 
 # ---------------------------------------------------------------------- phases
 
-def process(lib, name, phases, commit, seeding, log):
+def process(lib, name, phases, commit, seeding, log, allow_extracted=False):
     base = LIBS[lib]
     folder = os.path.join(base, name)
     mains, rars, vids, partial = find_sets(folder)
@@ -169,7 +181,11 @@ def process(lib, name, phases, commit, seeding, log):
     if not rars:
         rep["skipped"] = "no rar parts"
         return rep
-    if vids:
+    if vids and not allow_extracted:
+        # Default: only act on folders with no video, i.e. genuinely unextracted.
+        # --allow-extracted is the cleanup pass for folders that already
+        # extracted but still hold their parts; the gates below still apply, so
+        # a set is only retired once its own output is present and byte-exact.
         rep["skipped"] = "already has %d video file(s)" % len(vids)
         return rep
 
@@ -230,9 +246,23 @@ def process(lib, name, phases, commit, seeding, log):
 
         if "trash" in phases:
             gates = s["gates"]
-            need = ("listable", "crc", "sizes_match", "no_hardlink",
-                    "not_seeding", "no_incomplete_marker")
-            if all(gates.get(g) for g in need) and (gates.get("extract_rc0") or not commit):
+            # `no_incomplete_marker` is intentionally NOT required. It is a proxy
+            # for "the archive set may be truncated", and a passing `unrar t`
+            # plus byte-exact output is direct proof that it is not. The markers
+            # that tripped it in practice were stale ~uTorrentPartFile*.dat left
+            # by unrelated aborted downloads in the same folder; all 28 sets it
+            # blocked had verified clean and extracted byte-exact. It stays in
+            # the report because it is worth seeing, just not worth blocking on.
+            need = ["listable", "crc", "sizes_match", "no_hardlink", "not_seeding"]
+            # Only demand a successful extract when this invocation actually ran
+            # one. An earlier version required `extract_rc0` unconditionally, so a
+            # `--phases verify,trash` cleanup pass could never retire anything --
+            # the key is simply absent, reads as falsy, and every set was kept with
+            # an empty reason. `sizes_match` already proves the output is present
+            # and byte-exact regardless of which run produced it.
+            if "extract" in phases and commit:
+                need.append("extract_rc0")
+            if all(gates.get(g) for g in need):
                 if commit:
                     for p in vols:
                         rel = os.path.relpath(p, base)
@@ -261,6 +291,9 @@ def main():
     ap.add_argument("--phases", default="verify,extract,trash")
     ap.add_argument("--commit", action="store_true",
                     help="actually extract and move. without it, nothing is written")
+    ap.add_argument("--allow-extracted", action="store_true",
+                    help="also visit folders that already hold a video, to retire "
+                         "parts left behind by an earlier run")
     ap.add_argument("--log", default="/storage/movies/.rar-trash/reclaim.log")
     a = ap.parse_args()
 
@@ -278,7 +311,7 @@ def main():
             if n in SKIP_DIRS or not os.path.isdir(fp):
                 continue
             mains, rars, vids, _ = find_sets(fp)
-            if rars and not vids:
+            if rars and (not vids or a.allow_extracted):
                 targets.append((lib, n))
     print("targets: %d" % len(targets), file=sys.stderr)
 
@@ -288,7 +321,8 @@ def main():
     reports = []
     for lib, n in targets:
         print("  -> %s/%s" % (lib, n), file=sys.stderr)
-        reports.append(process(lib, n, phases, a.commit, seeding, log))
+        reports.append(process(lib, n, phases, a.commit, seeding, log,
+                               allow_extracted=a.allow_extracted))
     log.close()
     print(json.dumps(reports))
 
