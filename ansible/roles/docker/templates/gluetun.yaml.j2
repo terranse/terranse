@@ -31,10 +31,8 @@ services:
       # Let the LAN reach the WebUI. Without this the firewall drops replies to
       # anything that did not originate inside the tunnel, including a browser.
       FIREWALL_OUTBOUND_SUBNETS: 192.168.1.0/24,172.18.0.0/16
-    healthcheck:
-      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+    # No healthcheck block on purpose. The image already defines exactly the check
+    # we want -- `/gluetun-entrypoint healthcheck` on a 5s interval -- and it is
+    # more responsive than anything worth hand-writing here. qbittorrent's
+    # `depends_on: condition: service_healthy` uses it.
     restart: unless-stopped
