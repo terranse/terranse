@@ -145,6 +145,24 @@ predate the current download-into-`.torrents`-then-hardlink workflow.
 8 of the 55 carry incomplete-download markers (`~uTorrentPartFile*`, `.!qB`) and must be treated as suspect
 until an integrity check passes.
 
+### A folder with *some* video can still be mostly archived
+
+`unrar_reclaim.py` skips any folder that already contains a video, on the reasoning
+that it was never archived. That is right for movies — one folder, one film — and
+badly wrong for series, where extracted and still-archived episodes sit side by side.
+
+It hid **~320 GB**: Game of Thrones had 12 extracted episodes and **61 archived
+sets** (84.7 GB), Agents of SHIELD 32 against 51 sets, Big Bang Theory 129 against
+98. Every one was quietly skipped as "already has N video file(s)".
+
+`--allow-extracted` visits them anyway. Note it only helps if the run *includes*
+the extract phase — a `--phases verify,trash` pass over these correctly refuses
+every set on `sizes_match`, because there is no extracted output to compare
+against yet, which reads deceptively like "leftovers I declined to remove".
+
+To tell the two cases apart, check whether each directory that holds a RAR set also
+holds a video. All of them → genuine leftovers. None → still archived.
+
 ### Use the qBittorrent container's unrar, never the host's
 
 `/usr/bin/unrar` on the host is **`unrar-free` 0.3.1, which silently corrupts this job**: it cannot follow a
