@@ -25,11 +25,18 @@ services:
       VPN_SERVICE_PROVIDER: windscribe
       VPN_TYPE: wireguard
       # Without a filter gluetun picks any of Windscribe's ~390 WireGuard servers
-      # at random -- the first connection landed in Yogyakarta, Indonesia, which is
-      # a poor exit from Sweden. Copenhagen matches the credential this uses;
-      # Stockholm (`SERVER_REGIONS: Sweden`) is the nearer alternative.
-      SERVER_REGIONS: Denmark
-      SERVER_CITIES: Copenhagen
+      # at random -- the first connection after wiring this up landed in Yogyakarta,
+      # Indonesia. Verifiably tunnelled, but a terrible exit from Sweden.
+      #
+      # Stockholm rather than Copenhagen despite the credential being named for the
+      # latter: gluetun's server list only knows dk-005/dk-006, whose WireGuard
+      # server keys differ from the cph-429-wg endpoint the credential was issued
+      # against, so Denmark connects at the WireGuard layer and then passes no
+      # traffic at all (PMTUD fails, DNS times out, health never goes green).
+      # Stockholm works and is nearer. Windscribe's WireGuard private key is
+      # account-wide, so it is not tied to the city in the item's name.
+      SERVER_REGIONS: Sweden
+      SERVER_CITIES: Stockholm
       WIREGUARD_PRIVATE_KEY: "{{ lookup('community.general.onepassword', 'Windscribe Wireguard Copenhagen', vault= 'HomeNetwork', section= 'Interface', field= 'PrivateKey') }}"
       WIREGUARD_ADDRESSES: "{{ lookup('community.general.onepassword', 'Windscribe Wireguard Copenhagen', vault= 'HomeNetwork', section= 'Interface', field= 'Address') }}"
       WIREGUARD_PRESHARED_KEY: "{{ lookup('community.general.onepassword', 'Windscribe Wireguard Copenhagen', vault= 'HomeNetwork', section= 'Peer', field= 'PreSharedKey') }}"
