@@ -110,8 +110,13 @@ class TestJellyfinTemplate:
 
         assert "8096" in port_str
 
-    def test_jellyseerr_included(self, jinja_env, mock_service_mounts, mock_item):
-        """Test that jellyseerr is also defined in the template."""
+    def test_seerr_included(self, jinja_env, mock_service_mounts, mock_item):
+        """Test that the request manager is also defined in the template.
+
+        Jellyseerr was replaced by its Seerr fork in 0754b04; assert on the
+        image too, so a rename back to an unmaintained upstream is caught
+        rather than silently passing on the service name alone.
+        """
         template = jinja_env.get_template("jellyfin.yaml.j2")
         rendered = template.render(
             service_mounts=mock_service_mounts,
@@ -119,7 +124,8 @@ class TestJellyfinTemplate:
         )
         parsed = yaml.safe_load(rendered)
 
-        assert "jellyseerr" in parsed["services"]
+        assert "seerr" in parsed["services"]
+        assert "seerr-team/seerr" in parsed["services"]["seerr"]["image"]
 
 
 class TestGluetunTemplate:
