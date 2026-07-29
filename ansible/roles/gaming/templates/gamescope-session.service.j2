@@ -16,6 +16,31 @@ Documentation=https://github.com/ValveSoftware/gamescope
 #
 # -e enables Steam's gamescope integration, which is also what provides the on-screen
 # keyboard — without it there is no way to type a password into the EA App from a couch.
+#
+# --xwayland-count 2 / STEAM_MULTIPLE_XWAYLANDS=1 ask for the Steam UI and games to
+# live on SEPARATE X servers, as the Steam Deck's own gamescope-session does.
+#
+# The problem being chased: with a single Xwayland the game and the full-screen Big
+# Picture window are siblings on one display, and gamescope shows whichever holds
+# focus. Anything that makes Steam take focus (a controller reconnecting, an
+# achievement toast) therefore REPLACES the game with Big Picture for as long as it
+# holds it — measured at 7.5s of black showing nothing but Big Picture's controller
+# footer, while the game carried on rendering underneath. Big Picture reports
+# STEAM_OVERLAY=0 and STEAM_NOTIFICATION=0, so it never asks to be composited *over*
+# the game; gamescope has no reason to layer it, only to swap to it.
+#
+# HONEST STATUS (2026-07-27): this only fixes Steam's half. Verified on the running
+# guest that Steam now does the right thing — STEAM_MULTIPLE_XWAYLANDS=1 is set,
+# STEAM_GAME_DISPLAY_0 becomes :2, and the game process really is handed DISPLAY=:2.
+# But across two clean launches the game's WINDOW still mapped on :1 beside Big
+# Picture, and :2 stayed empty with no GAMESCOPE_* root atoms on it at all — i.e.
+# gamescope 3.16.20 (the only version Ubuntu 26.04 ships) is not managing the second
+# server as a game display. The sibling arrangement that causes the blackout is
+# therefore UNCHANGED, and the bug is expected to persist.
+#
+# Kept anyway because it is the prerequisite half and costs nothing measurable: a
+# game launches and runs normally under it. Set gamescope_xwayland_count: 1 to revert.
+# The remaining suspect is gamescope itself, which would mean building from source.
 After=sway-gaming.service
 BindsTo=sway-gaming.service
 
@@ -29,7 +54,8 @@ ExecStart={{ gamescope_bin | default('/usr/games/gamescope') }} \
     -H {{ gaming_height | default(1080) }} \
     -r {{ gaming_refresh | default(60) }} \
     -f -e \
-    -- env -u WAYLAND_DISPLAY /opt/sunshine/launch-steam.sh -gamepadui
+    --xwayland-count {{ gamescope_xwayland_count | default(2) }} \
+    -- env -u WAYLAND_DISPLAY STEAM_MULTIPLE_XWAYLANDS=1 /opt/sunshine/launch-steam.sh -gamepadui
 Restart=on-failure
 RestartSec=5
 

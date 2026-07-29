@@ -118,6 +118,13 @@ steam_game_dxvk_conf:
     options:
       d3d9.maxFrameRate: 60
 
+# Number of X servers gamescope runs. 2 asks for the Steam UI and games to be kept
+# apart, to stop Steam replacing a running game with Big Picture when it takes focus.
+# Steam honours it (games get DISPLAY=:2) but gamescope 3.16.20 does not put the game
+# window there, so this does NOT fix the blackout on its own — see the status note in
+# gamescope-session.service.j2. Set to 1 to revert to a single server.
+gamescope_xwayland_count: 2
+
 # Give the headless session a launcher and a terminal, so Moonlight's "Desktop"
 # is usable rather than a black screen with nothing running on it.
 gaming_desktop_launcher: true
