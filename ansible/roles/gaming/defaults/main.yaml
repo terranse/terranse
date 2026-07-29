@@ -125,6 +125,26 @@ steam_game_dxvk_conf:
 # gamescope-session.service.j2. Set to 1 to revert to a single server.
 gamescope_xwayland_count: 2
 
+# Vulkan shader pre-caching. See tasks/shader-cache.yaml for the measurements
+# behind these numbers.
+shader_cache_tuning: true
+
+# Threads handed to fossilize_replay. Steam picks this itself otherwise, and that
+# choice can collapse to one core no matter how many the guest has.
+steam_shader_threads: "{{ ansible_processor_vcpus | default(4) }}"
+
+# NVIDIA shader disk cache budget, in bytes. The driver default is 1 GiB, and a
+# single large title here produces a 2.06 GiB cache — over budget, so the driver
+# prunes it and the whole 5-minute replay runs again next launch. 8 GiB clears the
+# biggest thing the library has produced with room to spare.
+nvidia_shader_cache_size: 8589934592
+
+# Removes the size limit entirely rather than raising it. Some reports say the
+# limit above is not always honoured and only this works. Left off because it lets
+# the cache grow without bound, and the generic cache sits on the VM's 61 GB root
+# disk — turn it on only if the replay still repeats with the budget raised.
+nvidia_shader_cache_skip_cleanup: false
+
 # Give the headless session a launcher and a terminal, so Moonlight's "Desktop"
 # is usable rather than a black screen with nothing running on it.
 gaming_desktop_launcher: true

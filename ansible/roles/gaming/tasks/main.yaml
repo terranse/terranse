@@ -106,6 +106,19 @@
   ansible.builtin.include_tasks: steam.yaml
   when: steam_enabled | bool
 
+# Tagged so it can be applied on its own. A full gaming-role run bounces Sunshine
+# and the session, which is not something to do to a guest that is mid-stream;
+# this include only writes config files and restarts nothing.
+- name: Tune Vulkan shader pre-caching
+  ansible.builtin.include_tasks:
+    file: shader-cache.yaml
+    apply:
+      tags: [shader-cache]
+  tags: [shader-cache]
+  when:
+    - shader_cache_tuning | bool
+    - gpu_type == "nvidia_vgpu"
+
 - name: Setup RetroArch emulators
   ansible.builtin.include_tasks: retroarch.yaml
   when: retroarch_enabled | bool
