@@ -167,15 +167,26 @@
 # Set capabilities for Sunshine — cap_sys_admin is required for KMS capture and
 # lets Sunshine run as an unprivileged user service (no AmbientCapabilities in
 # the unit).
+#
+# cap_sys_nice is what lets Sunshine actually prioritise its own work. Without it
+# the log fills with "setpriority failed for nice -10: Permission denied" and
+# "EGL: context priority set to HIGH but CAP_SYS_NICE capability is missing", and
+# the capture/encode threads then compete with the game at plain nice 0 on both
+# the CPU run queue and the GPU context queue. That is invisible while a game
+# paces itself to the 60 Hz output, and very visible the moment one does not:
+# an uncapped title starves the encoder and the stream picks up input-to-photon
+# jitter that reads as steering lag. Capabilities are read at exec(), so this
+# only takes effect after Sunshine restarts.
 - name: Set capabilities for Sunshine
   community.general.capabilities:
     path: /usr/bin/sunshine
-    # `=ep`, not `+ep`: getcap reports "cap_sys_admin=ep", and the module compares
-    # against that string — so `+ep` never matches and the task reports changed on
-    # every single run.
-    capability: cap_sys_admin=ep
+    # `=ep`, not `+ep`: getcap reports "cap_sys_admin,cap_sys_nice=ep", and the
+    # module compares against that string — so `+ep` never matches and the task
+    # reports changed on every single run.
+    capability: cap_sys_admin,cap_sys_nice=ep
     state: present
   failed_when: false
+  notify: Restart sunshine
 
 # -----------------------------------------------------------------------------
 # Input: Sunshine injects the Moonlight client's mouse/keyboard/gamepad via

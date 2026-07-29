@@ -97,6 +97,27 @@ steam_library_path: /mnt/games/pc
 _steam_root: "/home/{{ gaming_user }}/.var/app/com.valvesoftware.Steam/.local/share/Steam"
 _steam_libraryfolders: "{{ _steam_root }}/steamapps/libraryfolders.vdf"
 
+# Per-game DXVK overrides, keyed by Steam `installdir` (the folder name under
+# steamapps/common). Written as a `dxvk.conf` beside the game exe; see steam.yaml
+# for why that beats a Steam launch option here.
+#
+# Frame caps matter more than usual on this host: the stream is a fixed 60 Hz
+# pipeline, so a game that renders far above it does not get a smoother picture,
+# it gets frame-pacing jitter — the frame the encoder samples is of arbitrary age.
+# Games that vsync or cap themselves need no entry.
+steam_game_dxvk_conf:
+  "FlatOut 2":
+    comment: |
+      #
+      # The ZOOM re-release ships dxwrapper with EnableVSync = 0 and
+      # ForceVsyncMode = 0, and gamescope runs without --framerate-limit, so
+      # nothing caps this 2006 D3D9 title at all — it renders many hundreds of fps
+      # on the A5000. Uncapped, it also busy-loops a vCPU next to Sunshine's
+      # capture/encode threads, which is exactly the contention that reads as
+      # steering lag in a fast-paced racer.
+    options:
+      d3d9.maxFrameRate: 60
+
 # Give the headless session a launcher and a terminal, so Moonlight's "Desktop"
 # is usable rather than a black screen with nothing running on it.
 gaming_desktop_launcher: true
