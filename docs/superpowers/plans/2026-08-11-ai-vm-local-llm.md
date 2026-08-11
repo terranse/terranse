@@ -35,7 +35,7 @@
 - Produces: `drivers` role task entry points `tasks_from: nvidia-guest` (installs the guest driver, then internally includes `nvlts-license.yaml` and notifies `Restart nvidia-gridd` / `Reboot for NVIDIA driver`) — Task 2's `llm` role consumes this exact `include_role` call.
 - Produces: `drivers` role defaults `vgpu_product_name`, `vgpu_feature_name`, `vgpu_feature_version`, `vgpu_feature_type`, `nvlts_repo_url`, `nvlts_vendored_commit`, `nvlts_fallback_driver_version`.
 
-- [ ] **Step 1: Move the task files, keeping git history**
+- [x] **Step 1: Move the task files, keeping git history**
 
 ```bash
 git mv ansible/roles/gaming/tasks/nvidia-guest.yaml ansible/roles/drivers/tasks/nvidia-guest.yaml
@@ -45,7 +45,7 @@ git mv ansible/roles/gaming/templates/nvlts-generate-license.sh.j2 ansible/roles
 git mv ansible/roles/gaming/templates/gridd-guest.conf.j2 ansible/roles/drivers/templates/gridd-guest.conf.j2
 ```
 
-- [ ] **Step 2: Update the "managed by" comments in the moved files to say `drivers` instead of `gaming`**
+- [x] **Step 2: Update the "managed by" comments in the moved files to say `drivers` instead of `gaming`**
 
 In `ansible/roles/drivers/templates/nvlts-generate-license.sh.j2`, change:
 ```
@@ -65,7 +65,7 @@ to:
       # Managed by Ansible (terranse drivers role)
 ```
 
-- [ ] **Step 3: Move the vGPU-licensing vars from `gaming/defaults` to `drivers/defaults`**
+- [x] **Step 3: Move the vGPU-licensing vars from `gaming/defaults` to `drivers/defaults`**
 
 Delete from `ansible/roles/gaming/defaults/main.yaml` (the block currently near the end of the file):
 ```yaml
@@ -110,7 +110,7 @@ vgpu_feature_version: "5.0"
 vgpu_feature_type: 2
 ```
 
-- [ ] **Step 4: Point the `gaming` role at the moved tasks**
+- [x] **Step 4: Point the `gaming` role at the moved tasks**
 
 In `ansible/roles/gaming/tasks/main.yaml`, find:
 ```yaml
@@ -127,7 +127,7 @@ Replace with:
   when: gpu_type == "nvidia_vgpu"
 ```
 
-- [ ] **Step 5: Add the guest-side reboot handler to the `drivers` role**
+- [x] **Step 5: Add the guest-side reboot handler to the `drivers` role**
 
 Append to `ansible/roles/drivers/handlers/main.yaml`:
 ```yaml
@@ -139,7 +139,7 @@ Append to `ansible/roles/drivers/handlers/main.yaml`:
       Run: sudo reboot
 ```
 
-- [ ] **Step 6: Lint and syntax-check**
+- [x] **Step 6: Lint and syntax-check**
 
 Run:
 ```bash
@@ -148,7 +148,7 @@ ansible-playbook --syntax-check ansible/playbooks/edholm.yaml
 ```
 Expected: both succeed with no errors. (`just lint` runs yamllint + ansible-lint + tflint; the syntax-check confirms the `include_role` change and moved template/file paths resolve.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add ansible/roles/gaming ansible/roles/drivers
@@ -171,13 +171,13 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Produces: role variables `llm_user` (default `llm`), `llm_ollama_bind` (default `0.0.0.0:11434`), `llm_ollama_models` (list, default `["qwen3.6:27b-q4_K_M", "devstral-small2:24b-q4_K_M"]`), `llm_default_model` (default `llm_ollama_models[0]`) — consumed by Task 3 and Task 4.
 - Produces: `ansible/roles/llm/tasks/main.yaml` includes `ollama.yaml` and `hermes.yaml` (Tasks 3 and 4 create those files) via relative `include_tasks`.
 
-- [ ] **Step 1: Create the role directories**
+- [x] **Step 1: Create the role directories**
 
 ```bash
 mkdir -p ansible/roles/llm/{defaults,tasks,handlers,templates}
 ```
 
-- [ ] **Step 2: Write the role defaults**
+- [x] **Step 2: Write the role defaults**
 
 Create `ansible/roles/llm/defaults/main.yaml`:
 ```yaml
@@ -207,7 +207,7 @@ llm_ollama_models:
 llm_default_model: "{{ llm_ollama_models[0] }}"
 ```
 
-- [ ] **Step 3: Write the role's main task list**
+- [x] **Step 3: Write the role's main task list**
 
 Create `ansible/roles/llm/tasks/main.yaml`:
 ```yaml
@@ -265,7 +265,7 @@ Create `ansible/roles/llm/tasks/main.yaml`:
   ansible.builtin.include_tasks: hermes.yaml
 ```
 
-- [ ] **Step 4: Write the role's handlers**
+- [x] **Step 4: Write the role's handlers**
 
 Create `ansible/roles/llm/handlers/main.yaml`:
 ```yaml
@@ -282,7 +282,7 @@ Create `ansible/roles/llm/handlers/main.yaml`:
     state: restarted
 ```
 
-- [ ] **Step 5: Lint (task/handler files reference `ollama.yaml`/`hermes.yaml`, which don't exist yet — syntax-check is deferred to Task 4)**
+- [x] **Step 5: Lint (task/handler files reference `ollama.yaml`/`hermes.yaml`, which don't exist yet — syntax-check is deferred to Task 4)**
 
 Run:
 ```bash
@@ -290,7 +290,7 @@ yamllint -c tests/static/.yamllint.yaml ansible/roles/llm/defaults/main.yaml ans
 ```
 Expected: no errors (this only checks YAML syntax/style of the files that exist so far — full `ansible-lint`/`--syntax-check` runs at the end of Task 4, once `ollama.yaml` and `hermes.yaml` exist).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add ansible/roles/llm/defaults ansible/roles/llm/tasks/main.yaml ansible/roles/llm/handlers
@@ -311,7 +311,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Consumes: `llm_ollama_bind`, `llm_ollama_models` (Task 2 defaults).
 - Produces: running `ollama` systemd service bound to `llm_ollama_bind`, with every tag in `llm_ollama_models` pulled — consumed by Task 4 (Hermes points at `http://localhost:11434/v1`) and Task 6 (verification).
 
-- [ ] **Step 1: Write the systemd drop-in template**
+- [x] **Step 1: Write the systemd drop-in template**
 
 Create `ansible/roles/llm/templates/ollama-bind.conf.j2`:
 ```jinja
@@ -320,7 +320,7 @@ Create `ansible/roles/llm/templates/ollama-bind.conf.j2`:
 Environment="OLLAMA_HOST={{ llm_ollama_bind }}"
 ```
 
-- [ ] **Step 2: Write the Ollama install/config/pull tasks**
+- [x] **Step 2: Write the Ollama install/config/pull tasks**
 
 Create `ansible/roles/llm/tasks/ollama.yaml`:
 ```yaml
@@ -377,7 +377,7 @@ Create `ansible/roles/llm/tasks/ollama.yaml`:
   poll: 30
 ```
 
-- [ ] **Step 3: Lint**
+- [x] **Step 3: Lint**
 
 Run:
 ```bash
@@ -385,7 +385,7 @@ yamllint -c tests/static/.yamllint.yaml ansible/roles/llm/tasks/ollama.yaml ansi
 ```
 Expected: no errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add ansible/roles/llm/tasks/ollama.yaml ansible/roles/llm/templates/ollama-bind.conf.j2
@@ -406,7 +406,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Consumes: `llm_user` (Task 2), `llm_default_model` (Task 2), Ollama's OpenAI-compatible endpoint on `localhost:11434` (Task 3 — Hermes always talks to it over localhost regardless of `llm_ollama_bind`).
 - Produces: `hermes` CLI on PATH for `llm_user`, environment-configured to use the local Ollama endpoint — consumed by Task 6's verification.
 
-- [ ] **Step 1: Write the environment drop-in template**
+- [x] **Step 1: Write the environment drop-in template**
 
 Hermes documents environment-variable configuration but its exact on-disk
 config schema for custom OpenAI-compatible providers isn't published — per
@@ -424,7 +424,7 @@ export OPENAI_API_KEY="ollama"
 export HERMES_MODEL="{{ llm_default_model }}"
 ```
 
-- [ ] **Step 2: Write the Hermes install/config tasks**
+- [x] **Step 2: Write the Hermes install/config tasks**
 
 Create `ansible/roles/llm/tasks/hermes.yaml`:
 ```yaml
@@ -463,7 +463,7 @@ Create `ansible/roles/llm/tasks/hermes.yaml`:
   failed_when: false
 ```
 
-- [ ] **Step 3: Full lint + syntax-check now that the role is complete**
+- [x] **Step 3: Full lint + syntax-check now that the role is complete**
 
 Run:
 ```bash
@@ -472,7 +472,7 @@ ansible-playbook --syntax-check ansible/playbooks/edholm.yaml
 ```
 Expected: both succeed with no errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add ansible/roles/llm/tasks/hermes.yaml ansible/roles/llm/templates/hermes-llm.sh.j2
@@ -492,7 +492,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Consumes: `RTX-A5000` PCI mapping (existing), `llm` ansible role (Task 2-4), `ubuntu-2604-base` clone template (existing).
 - Produces: tofu resource that creates VM `ai-vm` on `workstation` — consumed by Task 6's `tofu apply`.
 
-- [ ] **Step 1: Add the `ai-vm` block**
+- [x] **Step 1: Add the `ai-vm` block**
 
 In `tofu/deployments/edholm/configurations.tfvars`, inside `workstation.vms`, change:
 ```hcl
@@ -537,7 +537,7 @@ to:
 ```
 (leave the existing `gaming = { ... }` block exactly as-is; only add the new `ai-vm` entry alongside it).
 
-- [ ] **Step 2: Validate**
+- [x] **Step 2: Validate**
 
 Run:
 ```bash
@@ -545,7 +545,7 @@ just validate-tofu
 ```
 Expected: `Validating tofu/deployments/edholm/...` followed by `Success! The configuration is valid.` with no errors, for every deployment.
 
-- [ ] **Step 3: Plan (no apply yet — this is a dry run to confirm the resource graph)**
+- [x] **Step 3: Plan (no apply yet — this is a dry run to confirm the resource graph)**
 
 Run:
 ```bash
@@ -553,7 +553,7 @@ cd tofu/deployments/edholm && tofu plan -var-file=configurations.tfvars -out=/tm
 ```
 Expected: plan shows exactly one new resource to add (the `ai-vm` VM under `module.proxmox-vm["workstation"]`), plus the two `local_file` resources (`ansible_playbook`, `ansible_inventory`) updating in-place to include it. No changes to the existing `gaming` VM.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tofu/deployments/edholm/configurations.tfvars
@@ -576,7 +576,7 @@ GPU. Confirm with the user immediately before Step 1 if there is any chance
 **Interfaces:**
 - Consumes: everything from Tasks 1-5.
 
-- [ ] **Step 1: Stop the gaming VM to free the GPU slice**
+- [x] **Step 1: Stop the gaming VM to free the GPU slice**
 
 ```bash
 ssh root@workstation.netbird.cloud "qm shutdown 111"
@@ -587,7 +587,7 @@ ssh root@workstation.netbird.cloud "qm status 111"
 ```
 Expected: `status: stopped`.
 
-- [ ] **Step 2: Apply the tofu plan from Task 5**
+- [x] **Step 2: Apply the tofu plan from Task 5**
 
 ```bash
 cd tofu/deployments/edholm && tofu apply -auto-approve /tmp/ai-vm-plan
@@ -595,28 +595,28 @@ cd tofu/deployments/edholm && tofu apply -auto-approve /tmp/ai-vm-plan
 (If Task 5's plan file has gone stale — e.g. this runs in a new session — regenerate first with `tofu plan -var-file=configurations.tfvars -out=/tmp/ai-vm-plan` before applying.)
 Expected: `Apply complete!` with 1 resource added, 2 changed (the regenerated `local_file`s), 0 destroyed.
 
-- [ ] **Step 3: Confirm the VM exists and is running**
+- [x] **Step 3: Confirm the VM exists and is running**
 
 ```bash
 ssh root@workstation.netbird.cloud "qm status \$(qm list | awk '/ai-vm/{print \$1}')"
 ```
 Expected: `status: running`.
 
-- [ ] **Step 4: Run the ansible play against `ai-vm`**
+- [x] **Step 4: Run the ansible play against `ai-vm`**
 
 ```bash
 just setup ai-vm
 ```
 Expected: play completes with `failed=0`. (If the VM was just created and cloud-init hasn't finished registering DNS yet, wait ~30s and retry — `gaming.edholm.cc` needed the same settling time historically.)
 
-- [ ] **Step 5: Verify the vGPU is licensed inside the guest**
+- [x] **Step 5: Verify the vGPU is licensed inside the guest**
 
 ```bash
 ssh ubuntu@ai-vm.edholm.cc "nvidia-smi -q | grep -A2 'License Status'"
 ```
 Expected: `Licensed` (not `Unlicensed`).
 
-- [ ] **Step 6: Verify Ollama is serving both models**
+- [x] **Step 6: Verify Ollama is serving both models**
 
 ```bash
 ssh ubuntu@ai-vm.edholm.cc "ollama list"
@@ -624,14 +624,14 @@ curl -s http://ai-vm.edholm.cc:11434/v1/models | jq .
 ```
 Expected: `ollama list` shows both `qwen3.6:27b-q4_K_M` and `devstral-small2:24b-q4_K_M`; the `curl` against the LAN-bound endpoint returns the same models over HTTP (confirms `OLLAMA_HOST=0.0.0.0:11434` took effect). If either model tag 404s on pull (per the Global Constraints caveat), check the live Ollama library for the current tag name, fix `llm_ollama_models` in `ansible/roles/llm/defaults/main.yaml`, and re-run `just setup ai-vm`.
 
-- [ ] **Step 7: Verify Hermes is installed and wired to the local endpoint**
+- [x] **Step 7: Verify Hermes is installed and wired to the local endpoint**
 
 ```bash
 ssh ubuntu@ai-vm.edholm.cc "sudo -u llm bash -lc 'hermes doctor'"
 ```
 Expected: reports Hermes installed and able to reach a model provider. If it reports no provider configured, SSH in as the `llm` user and run `hermes setup` interactively once to confirm/finish the custom-endpoint wiring against `http://localhost:11434/v1`, then note the actual working config back into `ansible/roles/llm/templates/hermes-llm.sh.j2` / `tasks/hermes.yaml` so a fresh deploy doesn't need the manual step again.
 
-- [ ] **Step 8: Confirm `gaming` still comes back cleanly (mutual exclusivity check)**
+- [x] **Step 8: Confirm `gaming` still comes back cleanly (mutual exclusivity check)**
 
 ```bash
 ssh root@workstation.netbird.cloud "qm shutdown \$(qm list | awk '/ai-vm/{print \$1}')"
@@ -641,7 +641,7 @@ ssh root@workstation.netbird.cloud "qm status 111"
 ```
 Expected: `status: running`, with no manual mdev intervention — confirming the spec's "no reset needed" claim under real conditions. Leave whichever VM (`gaming` or `ai-vm`) the user actually wants running right now as the final state.
 
-- [ ] **Step 9: Commit anything Step 7 changed**
+- [x] **Step 9: Commit anything Step 7 changed**
 
 ```bash
 git status
@@ -651,3 +651,43 @@ git commit -m "fix(ansible): correct Hermes provider wiring based on live verifi
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
+
+---
+
+## Deployment notes (2026-08-11)
+
+All six tasks are done and `ai-vm` (VMID 114, 192.168.1.37) is serving both
+models on a licensed 24Q slice. Four things did not go as written:
+
+1. **`devstral-small2:24b-q4_K_M` does not exist.** The real tag is
+   `devstral:24b-small-2505-q4_K_M` — Devstral is published as `devstral`,
+   with the release date in the tag rather than a "small 2" suffix. The
+   `qwen3.6:27b-q4_K_M` guess was correct as written.
+
+2. **tofu wanted to start `gaming` as part of this apply.** The provider
+   defaults `vm_state` to `running`, so every plan tried to start each
+   declared VM — including the one deliberately stopped to free the GPU.
+   Applying as-planned would have started `gaming` *and* created `ai-vm`
+   on the same 24Q profile. `vm_state` is now in the module's
+   `ignore_changes`, so power state is operational, not declarative.
+
+3. **The host play must run before the guest play.** The guest driver is
+   read off the `nvidia-guest-drivers` virtiofs share, which the *host*
+   play attaches via the `gpu-manager` role. Task 6 Step 4 runs only
+   `just setup ai-vm`, so the share was absent, no driver was found, and
+   Ollama's installer then apt-installed a stock `nvidia-driver` that
+   refuses to probe a vGPU — leaving the guest with no GPU while the play
+   still reported `failed=0`. The `llm` role now asserts a built guest
+   driver before Ollama runs. Correct order is:
+   `just setup workstation` → `just setup ai-vm` → reboot the guest.
+
+4. **A new VM registers in DNS under `ubuntu`, not its own name.** The
+   DHCP request races cloud-init's hostname rename, so the first lease is
+   registered as `ubuntu.edholm.cc`. `/etc/hostname` persists correctly, so
+   one reboot fixes it permanently. A `networkctl renew` does not — the
+   binding is kept and the hostname is not re-sent.
+
+Mutual exclusivity was verified live in both directions: stopping either VM
+releases the mdev and the other starts cleanly with no manual reset. The
+`error writing '0' to ... current_vgpu_type: Operation not permitted` printed
+on shutdown is benign — the mdev is torn down by the VM stop regardless.
