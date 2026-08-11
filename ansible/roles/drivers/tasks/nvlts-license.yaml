@@ -56,7 +56,7 @@
   # `ExecStartPre=-` so a generation hiccup never blocks the daemon from starting.
   ansible.builtin.copy:
     content: |
-      # Managed by Ansible (terranse gaming role)
+      # Managed by Ansible (terranse drivers role)
       [Service]
       ExecStartPre=-/opt/nvlts/generate-license.sh
     dest: /etc/systemd/system/nvidia-gridd.service.d/nvlts.conf

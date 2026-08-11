@@ -75,7 +75,9 @@
 # GPU driver setup (guest side)
 # =============================================================================
 - name: Include NVIDIA vGPU guest driver setup
-  ansible.builtin.include_tasks: nvidia-guest.yaml
+  ansible.builtin.include_role:
+    name: drivers
+    tasks_from: nvidia-guest
   when: gpu_type == "nvidia_vgpu"
 
 - name: Include Intel graphics driver setup
