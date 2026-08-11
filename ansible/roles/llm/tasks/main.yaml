@@ -1,0 +1,52 @@
+---
+# llm role - local LLM inference (Ollama) + Hermes agentic coding CLI
+#
+# Required variables:
+#   gpu_type: "nvidia_vgpu" | "intel_sriov" | "none"
+#
+# Optional variables: see defaults/main.yaml
+
+- name: Validate gpu_type variable
+  ansible.builtin.assert:
+    that:
+      - gpu_type is defined
+      - gpu_type in ['nvidia_vgpu', 'intel_sriov', 'none']
+    fail_msg: "gpu_type must be one of: nvidia_vgpu, intel_sriov, none"
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - git
+      - htop
+      - jq
+      - build-essential
+      - qemu-guest-agent
+    state: present
+    update_cache: true
+
+- name: Ensure llm user exists
+  ansible.builtin.user:
+    name: "{{ llm_user }}"
+    shell: /bin/bash
+    groups: video,render
+    append: true
+    create_home: true
+
+- name: Enable qemu-guest-agent
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+
+- name: Install NVIDIA vGPU guest driver + licensing
+  ansible.builtin.include_role:
+    name: drivers
+    tasks_from: nvidia-guest
+  when: gpu_type == "nvidia_vgpu"
+
+- name: Set up Ollama
+  ansible.builtin.include_tasks: ollama.yaml
+
+- name: Set up Hermes agent CLI
+  ansible.builtin.include_tasks: hermes.yaml
