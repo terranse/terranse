@@ -246,6 +246,31 @@ hosts = {
           }
         }]
       }
+
+      ai-vm = {
+        cores     = 8
+        memory    = 32768
+        disk_size = "150G"
+        clone     = "ubuntu-2604-base"
+
+        # Same full-24Q claim as `gaming`. The A5000 only allows one
+        # homogeneous slice across the whole card, so ai-vm and gaming are
+        # mutually exclusive — stop one before starting the other.
+        pci_devices = [{
+          mapping_id    = "RTX-A5000"
+          vgpu_slice_gb = 24
+          pcie          = true
+          # primary_gpu (x-vga) MUST stay false — see the same note on the
+          # gaming VM's pci_devices block above; a headless render node keeps
+          # the emulated VGA as console.
+          primary_gpu = false
+          rombar      = false
+        }]
+
+        roles = [{
+          name = "llm"
+        }]
+      }
     }
   }
 }
