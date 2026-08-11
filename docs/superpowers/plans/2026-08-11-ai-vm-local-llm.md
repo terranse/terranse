@@ -687,6 +687,22 @@ models on a licensed 24Q slice. Four things did not go as written:
    one reboot fixes it permanently. A `networkctl renew` does not — the
    binding is kept and the hostname is not re-sent.
 
+5. **Hermes ignores `OPENAI_BASE_URL` / `OPENAI_API_KEY`.** It reads its
+   provider from `~/.hermes/config.yaml`, so the templated `/etc/profile.d`
+   env file left it on its default provider — `hermes -z` answered
+   `HTTP 401: Missing Authentication header`. Exporting `OPENAI_API_KEY`
+   globally was a hazard besides: that is the variable the `openrouter`
+   provider keys off. The role now runs `hermes config set` for
+   `model.provider` (`ollama`, an alias for `custom`), `model.base_url` and
+   `model.default`, and the env file is removed. Verified: `hermes -z`
+   returns correct code from the local model.
+
+6. **The play was not idempotent.** `ollama pull` prints a success line
+   whether or not it downloaded anything, so the plan's `changed_when`
+   reported `changed` on every run and re-verified ~30GB of weights each
+   time. It now asks `ollama list` what is missing. Two consecutive runs
+   of `just setup ai-vm` now report `changed=0`.
+
 Mutual exclusivity was verified live in both directions: stopping either VM
 releases the mdev and the other starts cleanly with no manual reset. The
 `error writing '0' to ... current_vgpu_type: Operation not permitted` printed
