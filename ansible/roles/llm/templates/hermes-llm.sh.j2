@@ -1,8 +1,0 @@
-# Managed by Ansible (terranse llm role) — DO NOT EDIT.
-#
-# Points Hermes at the local Ollama OpenAI-compatible endpoint. Ollama needs
-# no real API key; "ollama" is a non-empty placeholder since most
-# OpenAI-compatible clients reject an empty one.
-export OPENAI_BASE_URL="http://localhost:11434/v1"
-export OPENAI_API_KEY="ollama"
-export HERMES_MODEL="{{ llm_default_model }}"
