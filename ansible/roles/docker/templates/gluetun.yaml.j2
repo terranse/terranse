@@ -3,11 +3,6 @@ services:
   # namespace (`network_mode: service:gluetun` in serverarr.yaml.j2), so all of its
   # traffic leaves through the tunnel and gluetun's firewall acts as the killswitch:
   # if the tunnel drops, qBittorrent has no route out at all.
-  #
-  # This was previously defined but wired to nothing. gluetun had no restart policy,
-  # so it exited and stayed exited for three months, while qBittorrent ran on the
-  # default bridge with its own published ports. Its egress IP was identical to the
-  # host's, meaning every torrent went out over the bare connection.
   gluetun:
     image: qmcgaw/gluetun
     container_name: gluetun
@@ -24,17 +19,6 @@ services:
       # Generate Windscribe credentials: https://windscribe.com/getconfig/wireguard
       VPN_SERVICE_PROVIDER: windscribe
       VPN_TYPE: wireguard
-      # Without a filter gluetun picks any of Windscribe's ~390 WireGuard servers
-      # at random -- the first connection after wiring this up landed in Yogyakarta,
-      # Indonesia. Verifiably tunnelled, but a terrible exit from Sweden.
-      #
-      # Stockholm rather than Copenhagen despite the credential being named for the
-      # latter: gluetun's server list only knows dk-005/dk-006, whose WireGuard
-      # server keys differ from the cph-429-wg endpoint the credential was issued
-      # against, so Denmark connects at the WireGuard layer and then passes no
-      # traffic at all (PMTUD fails, DNS times out, health never goes green).
-      # Stockholm works and is nearer. Windscribe's WireGuard private key is
-      # account-wide, so it is not tied to the city in the item's name.
       SERVER_REGIONS: Sweden
       SERVER_CITIES: Stockholm
       WIREGUARD_PRIVATE_KEY: "{{ lookup('community.general.onepassword', 'Windscribe Wireguard Copenhagen', vault= 'HomeNetwork', section= 'Interface', field= 'PrivateKey') }}"
@@ -44,8 +28,4 @@ services:
       # Let the LAN reach the WebUI. Without this the firewall drops replies to
       # anything that did not originate inside the tunnel, including a browser.
       FIREWALL_OUTBOUND_SUBNETS: 192.168.1.0/24,172.18.0.0/16
-    # No healthcheck block on purpose. The image already defines exactly the check
-    # we want -- `/gluetun-entrypoint healthcheck` on a 5s interval -- and it is
-    # more responsive than anything worth hand-writing here. qbittorrent's
-    # `depends_on: condition: service_healthy` uses it.
     restart: unless-stopped
