@@ -118,6 +118,35 @@ steam_game_dxvk_conf:
     options:
       d3d9.maxFrameRate: 60
 
+# Per-game Source-engine cvars, keyed by Steam `installdir` (the folder name
+# under steamapps/common). `mod_dir` is the game directory INSIDE that install
+# (Portal's is `portal`), because that is where the engine reads cfg/ from.
+# Written as `cfg/autoexec.cfg`; see steam.yaml for why config.cfg and launch
+# options were both measured and both rejected.
+steam_game_source_cvars:
+  "Portal":
+    mod_dir: portal
+    comment: |
+      // (ASCII only on purpose: this file is parsed by a 2007 engine.)
+      //
+      // Portal segfaults while loading a level - reliably, 4 launches out of 4.
+      // The crash is on the MatQueue0 thread, i.e. Source's threaded material
+      // queue: materialsystem -> studiorender -> shaderapidx9 -> a corrupted
+      // pointer in libc. Portal's GL translation layer (ToGL/shaderapidx9) is
+      // not safe to drive from that queue.
+      //
+      // mat_queue_mode -1 means "auto", and auto turns threading ON because
+      // this guest has 12 cores - so the crash is a property of the VM's core
+      // count, not of the install. 0 forces the synchronous path: measured 4/4
+      // crashes at -1 against 4/4 clean runs at 0, and 3/3 clean with this file
+      // in place while config.cfg was forced back to -1 between runs.
+      //
+      // This is the "Multicore Rendering" toggle in the game's advanced video
+      // options. Other pre-Portal-2 Source titles on the pool are likely to
+      // need the same entry.
+    cvars:
+      mat_queue_mode: 0
+
 # Number of X servers gamescope runs. 2 asks for the Steam UI and games to be kept
 # apart, to stop Steam replacing a running game with Big Picture when it takes focus.
 # Steam honours it (games get DISPLAY=:2) but gamescope 3.16.20 does not put the game
