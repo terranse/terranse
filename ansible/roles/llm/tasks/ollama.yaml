@@ -1,0 +1,53 @@
+---
+# Ollama install, network bind, and model pull.
+#
+# The upstream installer (https://ollama.com/install.sh) creates the `ollama`
+# system user, the systemd unit, and detects the NVIDIA GPU via nvidia-smi —
+# so this must run after the vGPU guest driver task in main.yaml.
+
+- name: Check whether Ollama is already installed
+  ansible.builtin.command: ollama --version
+  register: ollama_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Ollama
+  ansible.builtin.shell: curl -fsSL https://ollama.com/install.sh | sh
+  args:
+    executable: /bin/bash
+  when: ollama_check.rc != 0
+
+- name: Ensure the ollama systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/ollama.service.d
+    state: directory
+    mode: '0755'
+
+- name: Configure Ollama's network bind
+  ansible.builtin.template:
+    src: ollama-bind.conf.j2
+    dest: /etc/systemd/system/ollama.service.d/bind.conf
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart ollama
+
+- name: Enable and start Ollama
+  ansible.builtin.systemd:
+    name: ollama
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Flush handlers so the bind takes effect before pulling models
+  ansible.builtin.meta: flush_handlers
+
+- name: Pull configured models
+  ansible.builtin.command: "ollama pull {{ item }}"
+  loop: "{{ llm_ollama_models }}"
+  register: ollama_pull
+  changed_when: >-
+    'success' in ollama_pull.stdout | default('') | lower or
+    'up to date' not in ollama_pull.stdout | default('') | lower
+  async: 3600
+  poll: 30
