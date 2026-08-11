@@ -45,6 +45,33 @@
     tasks_from: nvidia-guest
   when: gpu_type == "nvidia_vgpu"
 
+# Ollama's install.sh probes for an NVIDIA GPU and, finding one with no driver
+# bound, apt-installs a stock `nvidia-driver` to be helpful. That driver refuses
+# to probe a vGPU ("GPU ... is not supported by the NVIDIA <ver> driver release")
+# and leaves the guest with no GPU at all — while the play still reports success,
+# because installing Ollama did succeed. The guest driver above only installs if
+# it can find the .run/.deb on the `nvidia-guest-drivers` virtiofs share, which
+# the HOST play attaches, so running the guest play alone silently lands here.
+# Stop at the real cause instead of letting Ollama paper over it.
+- name: Check whether the vGPU guest driver built
+  ansible.builtin.command: dkms status
+  register: llm_dkms_status
+  changed_when: false
+  failed_when: false
+  when: gpu_type == "nvidia_vgpu"
+
+- name: Require the vGPU guest driver before installing Ollama
+  ansible.builtin.assert:
+    that:
+      - "'nvidia/' in (llm_dkms_status.stdout | default(''))"
+    fail_msg: >-
+      No NVIDIA guest driver is built on this VM, so Ollama's installer would
+      apt-install a stock driver that cannot drive a vGPU. The guest driver is
+      read from the `nvidia-guest-drivers` virtiofs share — check it is attached
+      (`qm config {{ ansible_hostname }}` should list a virtiofs entry) by running
+      the Proxmox host play before this one.
+  when: gpu_type == "nvidia_vgpu"
+
 - name: Set up Ollama
   ansible.builtin.include_tasks: ollama.yaml
 
