@@ -58,6 +58,20 @@ game_sync_wheel: game_sync_service-0.1.0-py3-none-any.whl
 # remote backed by a deploy key. Empty means "use the vendored wheel".
 game_sync_package_url: ""
 
+# --- headless installs (couch install) ---------------------------------------
+# Off by default: enabling it without a seeded steamcmd Guard token produces
+# installs that fail on every attempt.
+game_sync_install_enabled: false
+steamcmd_cmd: steamcmd
+legendary_cmd: legendary
+# The Steam account steamcmd logs in as. Empty means Steam installs are simply
+# not offered, which is better than offering an Install button that cannot work.
+steam_username: ""
+op_steam_api_item: "Steam Web API"
+# Installer credentials (steamcmd Guard token, legendary auth) live on the
+# shared pool so a host rebuild does not throw the logins away.
+game_sync_state_dir: /mnt/games/config
+
 # Sunshine web UI credentials (1Password item). Home Player reads the same item
 # to post pairing PINs to Sunshine's API, so Moonlight clients pair without
 # anyone typing a PIN. Empty values leave whatever credentials Sunshine already
@@ -207,6 +221,10 @@ sunshine_force_creds: false
 igdb_client_id: "{{ lookup('community.general.onepassword', op_igdb_item, vault='Infrastructure', field='client_id', errors='warn') | default('', true) }}"
 igdb_client_secret: "{{ lookup('community.general.onepassword', op_igdb_item, vault='Infrastructure', field='client_secret', errors='warn') | default('', true) }}"
 steamgriddb_api_key: "{{ lookup('community.general.onepassword', op_steamgriddb_item, vault='Infrastructure', field='api_key', errors='warn') | default('', true) }}"
+# Owned-catalogue credentials. Fail-soft like the others: a missing 1Password
+# item disables the catalogue rather than aborting the play.
+steam_web_api_key: "{{ lookup('community.general.onepassword', op_steam_api_item, vault='Infrastructure', field='api_key', errors='warn') | default('', true) }}"
+steam_id: "{{ lookup('community.general.onepassword', op_steam_api_item, vault='Infrastructure', field='steam_id', errors='warn') | default('', true) }}"
 
 # GPU Manager API (if running)
 # gpu_manager_url: http://192.168.1.x:8080

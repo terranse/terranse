@@ -32,6 +32,11 @@ game_profiles_path = /etc/gpu-manager/game-profiles.json
 data_dir = /var/lib/game-sync
 
 [stores]
+# Steam libraries scanned directly for installed games (colon-separated; each
+# is the directory *containing* steamapps). This is what makes installed games
+# visible without Lutris — which has never successfully synced on this VM — and
+# it reads a shared pool, so it works with the gaming VM powered off.
+steam_library_paths = {{ steam_library_path }}
 epic_enabled = {{ epic_enabled | lower }}
 gog_enabled = {{ gog_enabled | lower }}
 steam_enabled = {{ steam_enabled | lower }}
@@ -45,3 +50,21 @@ retroarch_rom_path = /mnt/games/emulation/roms
 igdb_client_id = {{ igdb_client_id }}
 igdb_client_secret = {{ igdb_client_secret }}
 steamgriddb_api_key = {{ steamgriddb_api_key }}
+# Owned Steam catalogue. Needs BOTH a Web API key and the 64-bit SteamID;
+# either alone disables it. Reading it is a network call, so the catalogue is
+# browsable while the gaming box is asleep.
+steam_web_api_key = {{ steam_web_api_key }}
+steam_id = {{ steam_id }}
+
+[install]
+# Headless installs via steamcmd/legendary. Off by default: the endpoints
+# answer 503 rather than 500 when this is unset.
+enabled = {{ game_sync_install_enabled | lower }}
+steamcmd_cmd = {{ steamcmd_cmd }}
+legendary_cmd = {{ legendary_cmd }}
+# Required for Steam installs. steamcmd logs in non-interactively only once a
+# Guard refresh token is cached on disk — seed it BY HAND, once, as the service
+# user: `steamcmd +login {{ steam_username | default('<user>') }}` and enter the
+# Steam Guard code. The token expires after some months; when it does, jobs
+# fail with "Steam login expired — reseed the steamcmd token on the worker".
+steam_username = {{ steam_username }}
