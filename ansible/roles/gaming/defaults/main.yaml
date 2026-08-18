@@ -67,7 +67,9 @@ legendary_cmd: legendary
 # The Steam account steamcmd logs in as. Empty means Steam installs are simply
 # not offered, which is better than offering an Install button that cannot work.
 steam_username: ""
+# Lives in the HomeNetwork vault, not Infrastructure (verified 2026-08-18).
 op_steam_api_item: "Steam Web API"
+op_steam_api_vault: "HomeNetwork"
 # Installer credentials (steamcmd Guard token, legendary auth) live on the
 # shared pool so a host rebuild does not throw the logins away.
 game_sync_state_dir: /mnt/games/config
@@ -223,8 +225,8 @@ igdb_client_secret: "{{ lookup('community.general.onepassword', op_igdb_item, va
 steamgriddb_api_key: "{{ lookup('community.general.onepassword', op_steamgriddb_item, vault='Infrastructure', field='api_key', errors='warn') | default('', true) }}"
 # Owned-catalogue credentials. Fail-soft like the others: a missing 1Password
 # item disables the catalogue rather than aborting the play.
-steam_web_api_key: "{{ lookup('community.general.onepassword', op_steam_api_item, vault='Infrastructure', field='api_key', errors='warn') | default('', true) }}"
-steam_id: "{{ lookup('community.general.onepassword', op_steam_api_item, vault='Infrastructure', field='steam_id', errors='warn') | default('', true) }}"
+steam_web_api_key: "{{ lookup('community.general.onepassword', op_steam_api_item, vault=op_steam_api_vault, field='api_key', errors='warn') | default('', true) }}"
+steam_id: "{{ lookup('community.general.onepassword', op_steam_api_item, vault=op_steam_api_vault, field='steam_id', errors='warn') | default('', true) }}"
 
 # GPU Manager API (if running)
 # gpu_manager_url: http://192.168.1.x:8080
