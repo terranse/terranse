@@ -72,6 +72,10 @@
       the Proxmox host play before this one.
   when: gpu_type == "nvidia_vgpu"
 
+- name: Set up Docker and the NVIDIA Container Toolkit
+  ansible.builtin.include_tasks: docker.yaml
+  when: llm_docker_enabled | bool
+
 - name: Set up Ollama
   ansible.builtin.include_tasks: ollama.yaml
 

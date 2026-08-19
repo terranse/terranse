@@ -43,3 +43,7 @@ llm_ollama_models:
 
 # Model Hermes defaults to on first run.
 llm_default_model: "{{ llm_ollama_models[0] }}"
+
+# Docker + NVIDIA Container Toolkit. Required by the ninfer backend, and by the
+# planned Open WebUI / ComfyUI containers regardless of which backend wins.
+llm_docker_enabled: true

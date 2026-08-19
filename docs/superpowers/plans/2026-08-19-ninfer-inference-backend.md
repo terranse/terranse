@@ -63,7 +63,7 @@ Cheap wins that stand on their own, independent of whether NInfer ever ships. Fl
 
 - Produces: `llm_ollama_keep_alive`, `llm_ollama_flash_attention`, `llm_ollama_kv_cache_type` defaults, and a drop-in at `/etc/systemd/system/ollama.service.d/env.conf` (replacing `bind.conf`). Nothing downstream reads these — `-1` is safe even when NInfer is the active backend, because Task 5 *stops* Ollama rather than relying on it to release VRAM.
 
-- [ ] **Step 1: Add the new defaults**
+- [x] **Step 1: Add the new defaults**
 
 In `ansible/roles/llm/defaults/main.yaml`, after the `llm_ollama_bind` block, add:
 
@@ -106,7 +106,7 @@ ollama rm qwen3.6:27b-q4_K_M
 
 `llm_default_model` already reads `{{ llm_ollama_models[0] }}`, so it follows automatically. Leave that line alone.
 
-- [ ] **Step 2: Create the replacement drop-in template**
+- [x] **Step 2: Create the replacement drop-in template**
 
 Create `ansible/roles/llm/templates/ollama-env.conf.j2`:
 
@@ -119,13 +119,13 @@ Environment="OLLAMA_FLASH_ATTENTION={{ llm_ollama_flash_attention }}"
 Environment="OLLAMA_KV_CACHE_TYPE={{ llm_ollama_kv_cache_type }}"
 ```
 
-- [ ] **Step 3: Delete the old template**
+- [x] **Step 3: Delete the old template**
 
 ```bash
 git rm ansible/roles/llm/templates/ollama-bind.conf.j2
 ```
 
-- [ ] **Step 4: Point the task at the new template and clean up the stale drop-in**
+- [x] **Step 4: Point the task at the new template and clean up the stale drop-in**
 
 In `ansible/roles/llm/tasks/ollama.yaml`, replace the "Configure Ollama's network bind" task (lines 26-33) with:
 
@@ -151,21 +151,25 @@ In `ansible/roles/llm/tasks/ollama.yaml`, replace the "Configure Ollama's networ
     - Restart ollama
 ```
 
-- [ ] **Step 5: Lint**
+- [x] **Step 5: Lint**
+
+Every `just` recipe depends on `_python-venv`, which fails with `VIRTUAL_ENV: unbound variable` when you are not inside the venv (`set -u` firing before its friendly error message can print). Activate it first:
 
 ```bash
-just install-test   # only needed once; yamllint/ansible-lint are not installed yet
-just lint
+source .venv/bin/activate
+just install-test   # once; yamllint/ansible-lint are not installed by default
 ```
 
-Expected: clean. If `just lint` dies with `VIRTUAL_ENV: unbound variable`, that is a pre-existing recipe bug unrelated to this change — run the linters directly instead:
+**Do not run bare `just lint`** and expect it to pass. The wider `ansible/` tree has extensive pre-existing failures — long lines, missing `---`, padded braces — across `docker`, `drivers`, `network`, `proxmox`, `borgmatic` and others. Cleaning those up is not this plan's job. Lint the role you are changing, with the repo's config:
 
 ```bash
-.venv/bin/yamllint ansible/roles/llm/
-.venv/bin/ansible-lint ansible/roles/llm/
+.venv/bin/yamllint -c tests/static/.yamllint.yaml ansible/roles/llm/
+.venv/bin/ansible-lint -c tests/static/.ansible-lint ansible/roles/llm/
 ```
 
-- [ ] **Step 6: Commit**
+Expected: `yamllint` silent, `ansible-lint` reporting 0 failures. Note the `-c` flags — without them yamllint applies its 80-column default instead of the repo's 120 and reports false positives.
+
+- [x] **Step 6: Commit**
 
 ```bash
 git add ansible/roles/llm/
@@ -190,7 +194,7 @@ Needed by NInfer, and by Open WebUI and ComfyUI later. Gated behind its own vari
 - Consumes: the `gpu_type == "nvidia_vgpu"` guard and the `llm_dkms_status` assert already in `main.yaml`.
 - Produces: a working `docker` with the `nvidia` runtime registered, and `llm_user` in the `docker` group. Tasks 3-5 rely on `docker run --gpus all` working for `llm_user` without sudo.
 
-- [ ] **Step 1: Add the default**
+- [x] **Step 1: Add the default**
 
 In `ansible/roles/llm/defaults/main.yaml`, append:
 
@@ -200,7 +204,7 @@ In `ansible/roles/llm/defaults/main.yaml`, append:
 llm_docker_enabled: true
 ```
 
-- [ ] **Step 2: Write the tasks file**
+- [x] **Step 2: Write the tasks file**
 
 Create `ansible/roles/llm/tasks/docker.yaml`:
 
@@ -270,7 +274,7 @@ Create `ansible/roles/llm/tasks/docker.yaml`:
   failed_when: "'A5000' not in llm_docker_gpu.stdout"
 ```
 
-- [ ] **Step 3: Add the `Restart docker` handler**
+- [x] **Step 3: Add the `Restart docker` handler**
 
 Append to `ansible/roles/llm/handlers/main.yaml`:
 
@@ -281,7 +285,7 @@ Append to `ansible/roles/llm/handlers/main.yaml`:
     state: restarted
 ```
 
-- [ ] **Step 4: Wire it into the role**
+- [x] **Step 4: Wire it into the role**
 
 In `ansible/roles/llm/tasks/main.yaml`, insert between the guest-driver assert and `- name: Set up Ollama`:
 
@@ -291,10 +295,20 @@ In `ansible/roles/llm/tasks/main.yaml`, insert between the guest-driver assert a
   when: llm_docker_enabled | bool
 ```
 
-- [ ] **Step 5: Lint, then deploy just this change**
+- [ ] **Step 5: Install the galaxy dependency, then deploy**
+
+`docker.yaml` includes `geerlingguy.docker`, which is a Galaxy role — it lives at `ansible/roles/geerlingguy.docker` and is **gitignored** (`.gitignore:15`). A fresh worktree therefore does not have it, and the play will fail on the `include_role` with "the role was not found". Install it first:
 
 ```bash
-.venv/bin/ansible-lint ansible/roles/llm/
+source .venv/bin/activate
+just install-ansible
+ls ansible/roles/geerlingguy.docker   # must exist before deploying
+```
+
+Then:
+
+```bash
+.venv/bin/ansible-lint -c tests/static/.ansible-lint ansible/roles/llm/
 just setup ai-vm
 ```
 

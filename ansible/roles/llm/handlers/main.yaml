@@ -9,3 +9,8 @@
   ansible.builtin.systemd:
     name: ollama
     state: restarted
+
+- name: Restart docker
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted

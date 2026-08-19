@@ -1,0 +1,69 @@
+---
+# Docker engine + NVIDIA Container Toolkit, so containers can use the vGPU.
+#
+# The toolkit's apt repo is distribution-agnostic (stable/deb/$arch) — it does
+# NOT carry an Ubuntu codename, so this keeps working across base-image bumps.
+# The toolkit ships no driver of its own; it wires the *guest* driver's
+# libraries into containers, which is why this must run after the guest-driver
+# assert in main.yaml rather than before it.
+
+- name: Install Docker engine
+  ansible.builtin.include_role:
+    name: geerlingguy.docker
+  vars:
+    docker_users:
+      - "{{ llm_user }}"
+
+- name: Ensure the apt keyring directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Add the NVIDIA Container Toolkit apt key
+  ansible.builtin.get_url:
+    url: https://nvidia.github.io/libnvidia-container/gpgkey
+    dest: /etc/apt/keyrings/nvidia-container-toolkit.asc
+    mode: '0644'
+
+- name: Add the NVIDIA Container Toolkit apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/nvidia-container-toolkit.asc]
+      https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+    filename: nvidia-container-toolkit
+    state: present
+
+- name: Install the NVIDIA Container Toolkit
+  ansible.builtin.apt:
+    name: nvidia-container-toolkit
+    state: present
+    update_cache: true
+  notify: Restart docker
+
+# nvidia-ctk rewrites /etc/docker/daemon.json unconditionally and reports no
+# useful changed state, so ask Docker whether the runtime is already registered
+# rather than letting the play report changed on every run.
+- name: Check whether the nvidia runtime is already registered
+  ansible.builtin.command: docker info --format '{% raw %}{{json .Runtimes}}{% endraw %}'
+  register: llm_docker_runtimes
+  changed_when: false
+
+- name: Register the nvidia runtime with Docker
+  ansible.builtin.command: nvidia-ctk runtime configure --runtime=docker
+  when: "'nvidia' not in llm_docker_runtimes.stdout"
+  changed_when: true
+  notify: Restart docker
+
+- name: Flush handlers so Docker restarts before the GPU smoke test
+  ansible.builtin.meta: flush_handlers
+
+# A container that cannot see the GPU still starts and still exits 0, so assert
+# on the output rather than the return code.
+- name: Verify a container can see the vGPU
+  ansible.builtin.command: >-
+    docker run --rm --gpus all
+    nvidia/cuda:13.1.2-runtime-ubuntu24.04 nvidia-smi
+  register: llm_docker_gpu
+  changed_when: false
+  failed_when: "'A5000' not in llm_docker_gpu.stdout"
