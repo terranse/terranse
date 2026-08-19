@@ -1,0 +1,897 @@
+# NInfer Inference Backend Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Make `ai-vm` able to serve local inference through either Ollama (today) or NInfer (a native SM86 CUDA engine claiming ~2x decode throughput), selectable with one tfvars variable, and measure the difference on real hardware before committing to either.
+
+**Architecture:** Extend the existing `llm` ansible role rather than adding a new one — both backends serve the same OpenAI-compatible API to the same clients, so they are two implementations of one role responsibility, not two roles. A new `llm_backend` variable (`ollama` | `ninfer`) decides which systemd unit is enabled at boot and where Hermes points; the other backend stays installed but stopped, so A/B testing is a variable flip plus a re-run, not a rebuild. NInfer runs as a container built on-box from a pinned upstream ref, which also brings Docker + the NVIDIA Container Toolkit to `ai-vm` — prerequisites the planned Open WebUI / ComfyUI work needs regardless of which backend wins.
+
+**Tech Stack:** OpenTofu (Proxmox provider), Ansible, Ollama, NInfer (C++20/CUDA, Apache-2.0), Docker + NVIDIA Container Toolkit, Hermes agent CLI, systemd.
+
+**Spec:** This plan is self-specifying — the design rationale and the upstream research it rests on are in "Design basis" below. There is no separate spec doc; the ai-vm design doc it builds on is `docs/superpowers/specs/2026-08-11-ai-vm-local-llm-design.md`.
+
+---
+
+## Design basis
+
+Verified against upstream on 2026-08-19, before writing this plan:
+
+| Question | Finding | Source |
+|---|---|---|
+| Will NInfer run on an A5000 at all? | Yes. A5000 is GA102 / compute capability **8.6**, identical to the 3090. `CMakeLists.txt:6-13` defaults `CMAKE_CUDA_ARCHITECTURES` to `86` and accepts only `86` or `89`. | repo |
+| Is there device gating that would reject a non-3090? | **No.** `src/core/device.cu` reads `cudaGetDeviceProperties` and derives `sm()` from `major*10+minor`; there is no check on device name or PCI ID anywhere in the file. The README's "requires an RTX 3090" is a support statement, not an enforced one. | repo |
+| Does it fit the 24Q slice? | C1 (single user) peaks at **19,641 MiB**. C8 peaks at 22,138–23,207 MiB. C1 fits with room; C8 does not, if ECC reduces the guest framebuffer. **Use C1.** | README perf tables |
+| What speed should we actually expect? | Their 70.19 tok/s is on a 3090. Decode is bandwidth-bound: A5000 768 GB/s vs 3090 936 GB/s = 0.82 → **~57 tok/s**. Prefill is compute-bound: 27.8 vs 35.6 TFLOPS = 0.78 → **~670 tok/s**. Arithmetic, not measurement. | derived |
+| Pinned upstream ref | Default branch `release/v0.6.0-rtx3090`, commit **`403fc56d71576aa1feddb771cfed3264e7378b20`** (2026-08-18). | GitHub API |
+| Model artifact | `qwen3_8_27b.ninfer`, **18,210,531,328 bytes** (16.96 GiB), SHA256 **`eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e`**. | HuggingFace `x-linked-size` / `x-linked-etag` |
+| Does Ollama carry Qwen3.8-27B, so both backends can serve the *same* model? | **Yes.** `qwen3.8:27b-q4_K_M` and `qwen3.8:27b-mtp-q4_K_M` both exist at 18GB. This makes Task 7 an engine-only comparison rather than a confounded engine+model one. The other mtp variants (`q8_0` 30GB, `bf16` 56GB) are too large for the slice. | ollama.com/library/qwen3.8/tags |
+
+**Known risks, stated up front:**
+
+- Nobody has run NInfer on a vGPU-sliced GPU. Q-profiles support CUDA and CUDA Graphs and the full card's bandwidth is available (nothing else shares it), but this is unproven until Task 3.
+- Upstream's v0.6.0 validation gate was **Windows**. The Linux doc says plainly: "A successful compile does not qualify Linux performance."
+- NInfer's vision is image *understanding*, not generation. ComfyUI + Flux remains separately needed.
+
+---
+
+## Global Constraints
+
+- Role variables passed from tfvars are **strings only** — `tofu/modules/proxmox-vm/variables.tf:79` declares `vars = optional(map(string), {})`. Booleans must be written `"true"` / `"false"`, matching the existing `sunshine_enabled = "true"` pattern in `configurations.tfvars`.
+- `ai-vm` and `gaming` are mutually exclusive on the GPU — only one may run at a time. Do not start `gaming` while testing.
+- **Never bypass the guest-driver assert** in `ansible/roles/llm/tasks/main.yaml:63-73`. It exists because Ollama's installer apt-installs a stock driver that cannot drive a vGPU, while the play still reports success.
+- Ollama and NInfer must **never both hold VRAM**. Enforced by `Conflicts=` in the systemd unit plus `llm_backend` gating which unit is enabled.
+- Everything binds `0.0.0.0`, not localhost, so exposing over ipid later needs no change.
+- Hermes is configured with `hermes config set`, **never** via `OPENAI_BASE_URL` / `OPENAI_API_KEY` env vars — it reads `~/.hermes/config.yaml`, and a stray `OPENAI_API_KEY` is what the `openrouter` provider keys off. See the comment at `ansible/roles/llm/tasks/hermes.yaml:22-27`.
+- Any `hermes` invocation in a task must `export PATH="$HOME/.local/bin:$PATH"` first — the installer puts it there and ansible tasks do not get a login shell.
+- yamllint in this repo rejects inline dicts with padded braces. Write loop entries in block style (`- key: x` / `  value: y`), not `- { key: x, value: y }`.
+- Verify every model tag against the live library before adding it — `ollama pull` 404s on a nonexistent tag, and this bit us once already with `devstral-small2`.
+
+---
+
+## Task 1: Tune the existing Ollama backend
+
+Cheap wins that stand on their own, independent of whether NInfer ever ships. Flash attention plus a quantised KV cache cuts KV memory roughly in half; `OLLAMA_KEEP_ALIVE` removes the model-reload stall that likely accounts for much of the "Hermes feels slow" complaint (default is 5 minutes, after which the next prompt waits for ~18 GB to page off disk).
+
+**Files:**
+
+- Modify: `ansible/roles/llm/defaults/main.yaml`
+- Create: `ansible/roles/llm/templates/ollama-env.conf.j2`
+- Delete: `ansible/roles/llm/templates/ollama-bind.conf.j2`
+- Modify: `ansible/roles/llm/tasks/ollama.yaml:20-33`
+
+**Interfaces:**
+
+- Produces: `llm_ollama_keep_alive`, `llm_ollama_flash_attention`, `llm_ollama_kv_cache_type` defaults, and a drop-in at `/etc/systemd/system/ollama.service.d/env.conf` (replacing `bind.conf`). Nothing downstream reads these — `-1` is safe even when NInfer is the active backend, because Task 5 *stops* Ollama rather than relying on it to release VRAM.
+
+- [ ] **Step 1: Add the new defaults**
+
+In `ansible/roles/llm/defaults/main.yaml`, after the `llm_ollama_bind` block, add:
+
+```yaml
+# Keep the model resident instead of unloading after Ollama's default 5 minutes.
+# Reloading a ~18GB model off disk is a multi-second stall on the first prompt
+# after any idle period, which reads as "the agent is slow" far more than decode
+# speed does. "-1" = never unload; "0" = unload immediately (see llm_backend).
+llm_ollama_keep_alive: "-1"
+
+# Flash attention is a prerequisite for a quantised KV cache — setting
+# llm_ollama_kv_cache_type without it silently leaves the cache at f16.
+llm_ollama_flash_attention: "1"
+llm_ollama_kv_cache_type: "q8_0"
+```
+
+Then move `llm_ollama_models` from Qwen3.6 to **Qwen3.8** and add the MTP variant as the default. Two reasons: 3.8 is simply the newer model, and it is the same generation NInfer serves — so the Task 7 A/B compares engines rather than confounding engine with model.
+
+Multi-token prediction is a decode speedup at identical weights and quantisation; keeping the plain tag alongside it makes the A/B a one-line model swap rather than a re-download.
+
+```yaml
+# Tags verified against https://ollama.com/library/qwen3.8/tags on 2026-08-19.
+# `ollama pull` 404s on a tag that doesn't exist — re-check before editing.
+# The -mtp- variant uses multi-token prediction: same weights and quantisation,
+# faster decode. Kept alongside the plain tag so they can be compared directly.
+# Qwen3.8 (not 3.6) so this matches the generation NInfer serves.
+llm_ollama_models:
+  - "qwen3.8:27b-mtp-q4_K_M"
+  - "qwen3.8:27b-q4_K_M"
+  - "devstral:24b-small-2505-q4_K_M"
+```
+
+Disk check: 18 + 18 + 14 GB of Ollama blobs plus NInfer's 17 GiB artifact is ~67 GB against ai-vm's 150 GB disk. Comfortable.
+
+The old `qwen3.6:*` blobs are **not** removed automatically — `ollama list` will still show them after this change. Clean them up by hand once Task 7 is settled:
+
+```bash
+ollama rm qwen3.6:27b-q4_K_M
+```
+
+`llm_default_model` already reads `{{ llm_ollama_models[0] }}`, so it follows automatically. Leave that line alone.
+
+- [ ] **Step 2: Create the replacement drop-in template**
+
+Create `ansible/roles/llm/templates/ollama-env.conf.j2`:
+
+```jinja
+# Managed by Ansible (terranse llm role) — DO NOT EDIT.
+[Service]
+Environment="OLLAMA_HOST={{ llm_ollama_bind }}"
+Environment="OLLAMA_KEEP_ALIVE={{ llm_ollama_keep_alive }}"
+Environment="OLLAMA_FLASH_ATTENTION={{ llm_ollama_flash_attention }}"
+Environment="OLLAMA_KV_CACHE_TYPE={{ llm_ollama_kv_cache_type }}"
+```
+
+- [ ] **Step 3: Delete the old template**
+
+```bash
+git rm ansible/roles/llm/templates/ollama-bind.conf.j2
+```
+
+- [ ] **Step 4: Point the task at the new template and clean up the stale drop-in**
+
+In `ansible/roles/llm/tasks/ollama.yaml`, replace the "Configure Ollama's network bind" task (lines 26-33) with:
+
+```yaml
+# Renamed from bind.conf: this drop-in now carries tuning as well as the bind
+# address, and systemd merges every *.conf in the directory — a leftover
+# bind.conf would keep setting a stale OLLAMA_HOST alongside the new file.
+- name: Remove the superseded bind-only drop-in
+  ansible.builtin.file:
+    path: /etc/systemd/system/ollama.service.d/bind.conf
+    state: absent
+  notify:
+    - Reload systemd
+    - Restart ollama
+
+- name: Configure Ollama's bind address and tuning
+  ansible.builtin.template:
+    src: ollama-env.conf.j2
+    dest: /etc/systemd/system/ollama.service.d/env.conf
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart ollama
+```
+
+- [ ] **Step 5: Lint**
+
+```bash
+just install-test   # only needed once; yamllint/ansible-lint are not installed yet
+just lint
+```
+
+Expected: clean. If `just lint` dies with `VIRTUAL_ENV: unbound variable`, that is a pre-existing recipe bug unrelated to this change — run the linters directly instead:
+
+```bash
+.venv/bin/yamllint ansible/roles/llm/
+.venv/bin/ansible-lint ansible/roles/llm/
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add ansible/roles/llm/
+git commit -m "perf(ansible): keep Ollama models resident and quantise its KV cache"
+```
+
+---
+
+## Task 2: Docker + NVIDIA Container Toolkit on ai-vm
+
+Needed by NInfer, and by Open WebUI and ComfyUI later. Gated behind its own variable so it can be turned on independently of any NInfer work.
+
+**Files:**
+
+- Create: `ansible/roles/llm/tasks/docker.yaml`
+- Modify: `ansible/roles/llm/defaults/main.yaml`
+- Modify: `ansible/roles/llm/handlers/main.yaml`
+- Modify: `ansible/roles/llm/tasks/main.yaml` (after the guest-driver assert, before Ollama)
+
+**Interfaces:**
+
+- Consumes: the `gpu_type == "nvidia_vgpu"` guard and the `llm_dkms_status` assert already in `main.yaml`.
+- Produces: a working `docker` with the `nvidia` runtime registered, and `llm_user` in the `docker` group. Tasks 3-5 rely on `docker run --gpus all` working for `llm_user` without sudo.
+
+- [ ] **Step 1: Add the default**
+
+In `ansible/roles/llm/defaults/main.yaml`, append:
+
+```yaml
+# Docker + NVIDIA Container Toolkit. Required by the ninfer backend, and by the
+# planned Open WebUI / ComfyUI containers regardless of which backend wins.
+llm_docker_enabled: true
+```
+
+- [ ] **Step 2: Write the tasks file**
+
+Create `ansible/roles/llm/tasks/docker.yaml`:
+
+```yaml
+---
+# Docker engine + NVIDIA Container Toolkit, so containers can use the vGPU.
+#
+# The toolkit's apt repo is distribution-agnostic (stable/deb/$arch) — it does
+# NOT carry an Ubuntu codename, so this keeps working across base-image bumps.
+# The toolkit does not ship a driver; it wires the *guest* driver's libraries
+# into containers, which is why this must run after the guest-driver assert.
+
+- name: Install Docker engine
+  ansible.builtin.include_role:
+    name: geerlingguy.docker
+  vars:
+    docker_users:
+      - "{{ llm_user }}"
+
+- name: Ensure the apt keyring directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Add the NVIDIA Container Toolkit apt key
+  ansible.builtin.get_url:
+    url: https://nvidia.github.io/libnvidia-container/gpgkey
+    dest: /etc/apt/keyrings/nvidia-container-toolkit.asc
+    mode: '0644'
+
+- name: Add the NVIDIA Container Toolkit apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/nvidia-container-toolkit.asc]
+      https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+    filename: nvidia-container-toolkit
+    state: present
+
+- name: Install the NVIDIA Container Toolkit
+  ansible.builtin.apt:
+    name: nvidia-container-toolkit
+    state: present
+    update_cache: true
+  notify: Restart docker
+
+- name: Check whether the nvidia runtime is already registered
+  ansible.builtin.command: docker info --format '{% raw %}{{json .Runtimes}}{% endraw %}'
+  register: llm_docker_runtimes
+  changed_when: false
+
+- name: Register the nvidia runtime with Docker
+  ansible.builtin.command: nvidia-ctk runtime configure --runtime=docker
+  when: "'nvidia' not in llm_docker_runtimes.stdout"
+  changed_when: true
+  notify: Restart docker
+
+- name: Flush handlers so Docker restarts before the GPU smoke test
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify a container can see the vGPU
+  ansible.builtin.command: >-
+    docker run --rm --gpus all
+    nvidia/cuda:13.1.2-runtime-ubuntu24.04 nvidia-smi
+  register: llm_docker_gpu
+  changed_when: false
+  failed_when: "'A5000' not in llm_docker_gpu.stdout"
+```
+
+- [ ] **Step 3: Add the `Restart docker` handler**
+
+Append to `ansible/roles/llm/handlers/main.yaml`:
+
+```yaml
+- name: Restart docker
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted
+```
+
+- [ ] **Step 4: Wire it into the role**
+
+In `ansible/roles/llm/tasks/main.yaml`, insert between the guest-driver assert and `- name: Set up Ollama`:
+
+```yaml
+- name: Set up Docker and the NVIDIA Container Toolkit
+  ansible.builtin.include_tasks: docker.yaml
+  when: llm_docker_enabled | bool
+```
+
+- [ ] **Step 5: Lint, then deploy just this change**
+
+```bash
+.venv/bin/ansible-lint ansible/roles/llm/
+just setup ai-vm
+```
+
+Expected: the "Verify a container can see the vGPU" task passes, printing an A5000 from inside the container. If it fails with `could not select device driver`, the runtime registration did not take — check that `docker info | grep -i runtime` lists `nvidia`.
+
+- [ ] **Step 6: Confirm idempotency**
+
+```bash
+just setup ai-vm
+```
+
+Expected: `changed=0`. A non-zero `changed` here almost always means the `nvidia-ctk` guard is wrong — fix it rather than accepting the noise.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add ansible/roles/llm/
+git commit -m "feat(ansible): add Docker and the NVIDIA Container Toolkit to the llm role"
+```
+
+---
+
+## Task 3: Manual spike — prove NInfer runs on the vGPU
+
+**Do this before writing any more automation.** If a vGPU-sliced A5000 cannot run these kernels, Tasks 4-7 are wasted work, and the honest answer is "it doesn't work here". This task is deliberately manual and throwaway; nothing it produces is committed except the findings.
+
+**Files:**
+
+- Modify: this plan document (record the measured result in "Spike results" below)
+
+**Interfaces:**
+
+- Consumes: Docker with the nvidia runtime from Task 2.
+- Produces: a go/no-go decision, a measured single-user tok/s figure, and the exact model ID string the server advertises — Task 6 needs that string verbatim for `llm_ninfer_model_id`.
+
+- [ ] **Step 1: Confirm the guest reports enough VRAM and a new enough CUDA**
+
+```bash
+ssh ubuntu@ai-vm.edholm.cc nvidia-smi
+```
+
+Record `CUDA Version` (must be >= 13.1 for the runtime image) and total memory. **If total is below ~20,500 MiB, stop** — the C1 profile needs 19,641 MiB and there would be no headroom. Report the number rather than trying a smaller profile blindly.
+
+- [ ] **Step 2: Build the image at the pinned ref**
+
+```bash
+ssh ubuntu@ai-vm.edholm.cc
+git clone https://github.com/Don-Chad/ninfer-3090 /tmp/ninfer-spike
+cd /tmp/ninfer-spike
+git checkout 403fc56d71576aa1feddb771cfed3264e7378b20
+time docker build --tag ninfer-3090:spike .
+```
+
+Expected: 45-90 minutes on 8 cores. The Dockerfile deliberately does not pass `-DCMAKE_CUDA_ARCHITECTURES` — `CMakeLists.txt` defaults to `86`, which is the value we want.
+
+- [ ] **Step 3: Fetch the artifact**
+
+```bash
+mkdir -p /tmp/ninfer-spike/models
+curl -L -C - --fail -o /tmp/ninfer-spike/models/qwen3_8_27b.ninfer \
+  https://huggingface.co/neroued/Qwen3.8-27B-NInfer/resolve/main/qwen3_8_27b.ninfer
+sha256sum /tmp/ninfer-spike/models/qwen3_8_27b.ninfer
+```
+
+Expected checksum: `eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e`
+
+- [ ] **Step 4: Stop Ollama so the VRAM is free, then serve**
+
+```bash
+sudo systemctl stop ollama
+docker run --rm --gpus all -p 8080:8080 \
+  -v /tmp/ninfer-spike/models:/workspace/models:ro \
+  ninfer-3090:spike \
+  ninfer-serve models/qwen3_8_27b.ninfer \
+  --host 0.0.0.0 --port 8080 \
+  --max-context 65536 --kv-capacity 65536 \
+  --max-concurrency 1 --max-pending-requests 16 \
+  --prefill-chunk 1024 --kv-dtype int8 \
+  --spec mtp --draft-tokens 3 --lm-head-draft
+```
+
+- [ ] **Step 5: Record the model ID and measure decode speed**
+
+From another shell:
+
+```bash
+curl -s http://ai-vm.edholm.cc:8080/v1/models
+```
+
+Write down the `id` field verbatim — Task 6 needs it. Then, substituting that id:
+
+```bash
+curl -s http://ai-vm.edholm.cc:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"<id from above>","messages":[{"role":"user","content":"Write a 400-word explanation of how a B-tree index works."}],"max_tokens":512}' \
+  -w '\ntotal: %{time_total}s\n' -o /tmp/ninfer-result.json
+```
+
+Divide `usage.completion_tokens` from the response by `time_total`. Also run `nvidia-smi` while it serves and record peak VRAM.
+
+- [ ] **Step 6: Record the findings in this document**
+
+Fill in the "Spike results" table at the bottom of this plan: CUDA version, total VRAM, build time, measured tok/s, peak VRAM, the model ID string, and anything that broke.
+
+```bash
+git add docs/superpowers/plans/2026-08-19-ninfer-inference-backend.md
+git commit -m "docs: record NInfer vGPU spike results"
+```
+
+- [ ] **Step 7: Decision gate**
+
+- Measured tok/s comfortably above Ollama's, and peak VRAM under the slice → continue to Task 4.
+- Runs but is no faster, or VRAM does not fit → **stop**. Clean up (`docker rmi ninfer-3090:spike`, `rm -rf /tmp/ninfer-spike`), restart Ollama, and report. Tasks 1 and 2 still stand on their own.
+
+---
+
+## Task 4: Codify the NInfer build and artifact download
+
+Only start this once Task 3's gate says go.
+
+**Files:**
+
+- Create: `ansible/roles/llm/tasks/ninfer.yaml`
+- Modify: `ansible/roles/llm/defaults/main.yaml`
+- Modify: `ansible/roles/llm/tasks/main.yaml`
+- Modify: `tofu/deployments/edholm/configurations.tfvars:270-272`
+
+**Interfaces:**
+
+- Consumes: Docker with the nvidia runtime from Task 2.
+- Produces: image `ninfer-3090:{{ llm_ninfer_ref }}` and artifact at `{{ llm_ninfer_model_dir }}/qwen3_8_27b.ninfer` — Task 5's systemd unit references both by exactly these names.
+
+- [ ] **Step 1: Add the defaults**
+
+Append to `ansible/roles/llm/defaults/main.yaml`:
+
+```yaml
+# NInfer — a native SM86 CUDA inference engine (Apache-2.0). Faster than Ollama
+# on this hardware but single-model and single-purpose, so it does not replace
+# Ollama; llm_backend picks which one is live. The A5000 is GA102/sm_86, the
+# same as the RTX 3090 this fork targets, and upstream has no device gating.
+llm_ninfer_enabled: false
+llm_ninfer_repo: "https://github.com/Don-Chad/ninfer-3090"
+
+# Pinned commit, not a branch: the default branch is a release branch that
+# upstream force-updates, and a silently different build is the last thing we
+# want between two benchmark runs.
+llm_ninfer_ref: "403fc56d71576aa1feddb771cfed3264e7378b20"
+
+llm_ninfer_src_dir: /opt/ninfer/src
+llm_ninfer_model_dir: /opt/ninfer/models
+llm_ninfer_model_url: "https://huggingface.co/neroued/Qwen3.8-27B-NInfer/resolve/main/qwen3_8_27b.ninfer"
+llm_ninfer_model_sha256: "eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e"
+llm_ninfer_port: 8080
+
+# Empty means the server runs without auth, which is fine on the LAN. Set this
+# from the vault before exposing the port over ipid.
+llm_ninfer_api_key: ""
+```
+
+- [ ] **Step 2: Write the tasks file**
+
+Create `ansible/roles/llm/tasks/ninfer.yaml`:
+
+```yaml
+---
+# Build the NInfer engine and fetch its model artifact.
+#
+# Upstream publishes no Linux binary, so the image is built on-box from a
+# pinned commit. That build is 45-90 minutes on 8 cores, hence the async block
+# and the "is this image already here" guard in front of it.
+
+- name: Ensure the NInfer directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ llm_user }}"
+    group: "{{ llm_user }}"
+    mode: '0755'
+  loop:
+    - /opt/ninfer
+    - "{{ llm_ninfer_src_dir }}"
+    - "{{ llm_ninfer_model_dir }}"
+
+- name: Check out the pinned NInfer source
+  ansible.builtin.git:
+    repo: "{{ llm_ninfer_repo }}"
+    dest: "{{ llm_ninfer_src_dir }}"
+    version: "{{ llm_ninfer_ref }}"
+  become: true
+  become_user: "{{ llm_user }}"
+
+- name: Read the images already built
+  ansible.builtin.command: docker images --format '{% raw %}{{.Repository}}:{{.Tag}}{% endraw %}'
+  register: llm_ninfer_images
+  changed_when: false
+
+- name: Build the NInfer image
+  ansible.builtin.command: "docker build --tag ninfer-3090:{{ llm_ninfer_ref }} ."
+  args:
+    chdir: "{{ llm_ninfer_src_dir }}"
+  become: true
+  become_user: "{{ llm_user }}"
+  when: "'ninfer-3090:' ~ llm_ninfer_ref not in llm_ninfer_images.stdout"
+  changed_when: true
+  async: 7200
+  poll: 60
+
+- name: Download the Qwen3.8-27B artifact
+  ansible.builtin.get_url:
+    url: "{{ llm_ninfer_model_url }}"
+    dest: "{{ llm_ninfer_model_dir }}/qwen3_8_27b.ninfer"
+    checksum: "sha256:{{ llm_ninfer_model_sha256 }}"
+    owner: "{{ llm_user }}"
+    group: "{{ llm_user }}"
+    mode: '0644'
+  async: 3600
+  poll: 30
+```
+
+`get_url` with a `checksum` is idempotent by itself: it skips the download when the existing file already matches, and re-fetches a truncated one. No separate guard is needed.
+
+- [ ] **Step 3: Wire it into the role**
+
+In `ansible/roles/llm/tasks/main.yaml`, after the "Set up Ollama" include, add:
+
+```yaml
+- name: Set up the NInfer inference engine
+  ansible.builtin.include_tasks: ninfer.yaml
+  when: llm_ninfer_enabled | bool
+```
+
+- [ ] **Step 4: Enable it in tfvars**
+
+In `tofu/deployments/edholm/configurations.tfvars`, change the `ai-vm` roles block (currently `roles = [{ name = "llm" }]`) to:
+
+```hcl
+        roles = [{
+          name = "llm"
+          vars = {
+            # Strings, not booleans — the module declares vars as map(string).
+            llm_ninfer_enabled = "true"
+            llm_backend        = "ollama"
+          }
+        }]
+```
+
+`llm_backend` stays `ollama` here deliberately: this task installs NInfer but does not make it live. Task 5 introduces the switch and Task 7 flips it.
+
+- [ ] **Step 5: Apply and deploy**
+
+```bash
+just apply-tofu edholm
+just setup ai-vm
+```
+
+Expected: `tofu plan` shows only `local_file` changes (the regenerated playbook), **no VM changes**. If it wants to touch the VM, stop and investigate — `vm_state` is in `ignore_changes` precisely to prevent this.
+
+- [ ] **Step 6: Confirm idempotency**
+
+```bash
+just setup ai-vm
+```
+
+Expected: `changed=0`. The build task must not re-run.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add ansible/roles/llm/ tofu/deployments/edholm/configurations.tfvars
+git commit -m "feat(ansible): build the NInfer engine and fetch its model artifact"
+```
+
+---
+
+## Task 5: The backend switch
+
+**Files:**
+
+- Create: `ansible/roles/llm/templates/ninfer.service.j2`
+- Create: `ansible/roles/llm/tasks/backend.yaml`
+- Modify: `ansible/roles/llm/defaults/main.yaml`
+- Modify: `ansible/roles/llm/handlers/main.yaml`
+- Modify: `ansible/roles/llm/tasks/main.yaml`
+
+**Interfaces:**
+
+- Consumes: the image and artifact from Task 4.
+- Produces: `llm_backend` (`ollama` | `ninfer`), a `ninfer.service` unit, and the guarantee that exactly one backend is enabled at boot — Task 6 reads `llm_backend` to decide Hermes's `base_url` and model.
+
+- [ ] **Step 1: Add the default**
+
+Append to `ansible/roles/llm/defaults/main.yaml`:
+
+```yaml
+# Which inference backend owns the GPU. Both stay installed; only the selected
+# one is enabled and started. They cannot coexist — Ollama holds ~18GB and
+# NInfer ~19.6GB of a 24GB slice — so the unit file also declares Conflicts=.
+llm_backend: ollama
+```
+
+- [ ] **Step 2: Write the unit template**
+
+Create `ansible/roles/llm/templates/ninfer.service.j2`:
+
+```jinja
+# Managed by Ansible (terranse llm role) — DO NOT EDIT.
+[Unit]
+Description=NInfer inference server (Qwen3.8-27B, sm_86)
+After=docker.service
+Requires=docker.service
+# Ollama and NInfer cannot share the 24GB slice. Starting this stops Ollama.
+Conflicts=ollama.service
+
+[Service]
+User={{ llm_user }}
+# --rm plus an explicit ExecStartPre: if the unit is killed uncleanly the
+# container name would otherwise linger and block the next start.
+ExecStartPre=-/usr/bin/docker rm -f ninfer
+ExecStart=/usr/bin/docker run --rm --name ninfer \
+  --gpus all \
+  --publish {{ llm_ninfer_port }}:8080 \
+  --volume {{ llm_ninfer_model_dir }}:/workspace/models:ro \
+  ninfer-3090:{{ llm_ninfer_ref }} \
+  ninfer-serve models/qwen3_8_27b.ninfer \
+  --host 0.0.0.0 --port 8080 \
+{% if llm_ninfer_api_key | length > 0 %}
+  --api-key {{ llm_ninfer_api_key }} \
+{% endif %}
+  --max-context 65536 --kv-capacity 65536 \
+  --max-concurrency 1 --max-pending-requests 16 \
+  --prefill-chunk 1024 --kv-dtype int8 \
+  --spec mtp --draft-tokens 3 --lm-head-draft
+ExecStop=/usr/bin/docker stop ninfer
+ExecStopPost=-/usr/bin/docker rm -f ninfer
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+C1 (`--max-concurrency 1`) is deliberate: upstream's C8 profile peaks at 22-23 GiB, which does not fit a 24Q slice once ECC overhead is counted.
+
+- [ ] **Step 3: Write the switch tasks**
+
+Create `ansible/roles/llm/tasks/backend.yaml`:
+
+```yaml
+---
+# Enable exactly one inference backend. The loser is stopped and disabled but
+# left installed, so switching back is a variable flip and a re-run.
+
+- name: Validate llm_backend
+  ansible.builtin.assert:
+    that:
+      - llm_backend in ['ollama', 'ninfer']
+    fail_msg: "llm_backend must be 'ollama' or 'ninfer', got '{{ llm_backend }}'"
+
+- name: Require NInfer to be installed before selecting it
+  ansible.builtin.assert:
+    that:
+      - llm_ninfer_enabled | bool
+    fail_msg: >-
+      llm_backend is 'ninfer' but llm_ninfer_enabled is false, so no image or
+      artifact was built. Set llm_ninfer_enabled = "true" in the ai-vm role
+      vars as well.
+  when: llm_backend == 'ninfer'
+
+- name: Install the NInfer systemd unit
+  ansible.builtin.template:
+    src: ninfer.service.j2
+    dest: /etc/systemd/system/ninfer.service
+    mode: '0644'
+  when: llm_ninfer_enabled | bool
+  notify:
+    - Reload systemd
+    - Restart ninfer
+
+- name: Flush handlers so the unit is registered before it is enabled
+  ansible.builtin.meta: flush_handlers
+
+# Stop the loser first: starting the winner while the loser still holds VRAM
+# fails with an allocation error rather than a useful message.
+- name: Stop and disable the unselected backend
+  ansible.builtin.systemd:
+    name: "{{ 'ollama' if llm_backend == 'ninfer' else 'ninfer' }}"
+    enabled: false
+    state: stopped
+  failed_when: false
+
+- name: Enable and start the selected backend
+  ansible.builtin.systemd:
+    name: "{{ 'ninfer' if llm_backend == 'ninfer' else 'ollama' }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+```
+
+`failed_when: false` on the stop task is deliberate — on a first run `ninfer.service` may not exist yet, and "cannot stop a unit that was never installed" is not worth failing a play over.
+
+- [ ] **Step 4: Add the `Restart ninfer` handler**
+
+Append to `ansible/roles/llm/handlers/main.yaml`:
+
+```yaml
+- name: Restart ninfer
+  ansible.builtin.systemd:
+    name: ninfer
+    state: restarted
+  when: llm_backend == 'ninfer'
+```
+
+- [ ] **Step 5: Wire it in**
+
+In `ansible/roles/llm/tasks/main.yaml`, add after the NInfer include and **before** the Hermes include — Hermes must be configured against a backend that is already up:
+
+```yaml
+- name: Select the active inference backend
+  ansible.builtin.include_tasks: backend.yaml
+```
+
+- [ ] **Step 6: Deploy and verify Ollama is still the live backend**
+
+```bash
+just setup ai-vm
+ssh ubuntu@ai-vm.edholm.cc systemctl is-enabled ollama ninfer
+```
+
+Expected: `enabled` then `disabled`. Nothing has switched yet.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add ansible/roles/llm/
+git commit -m "feat(ansible): select the active inference backend with llm_backend"
+```
+
+---
+
+## Task 6: Point Hermes at whichever backend is live
+
+**Files:**
+
+- Modify: `ansible/roles/llm/tasks/hermes.yaml:33-58`
+- Modify: `ansible/roles/llm/defaults/main.yaml`
+
+**Interfaces:**
+
+- Consumes: `llm_backend` from Task 5, and the model ID string recorded in Task 3 Step 5.
+- Produces: a Hermes config on `ai-vm` that follows the backend automatically.
+
+- [ ] **Step 1: Add the model ID default**
+
+Append to `ansible/roles/llm/defaults/main.yaml`, substituting the string recorded in Task 3:
+
+```yaml
+# NInfer advertises the artifact's own identity.model_id and rejects any other
+# value in a request's "model" field. Confirm with:
+#   curl -s http://ai-vm.edholm.cc:8080/v1/models
+llm_ninfer_model_id: "<record from Task 3 Step 5>"
+```
+
+- [ ] **Step 2: Make the Hermes wiring backend-aware**
+
+In `ansible/roles/llm/tasks/hermes.yaml`, rename the task "Point Hermes at the local Ollama endpoint" to "Point Hermes at the active inference backend", and replace its `loop:` block with:
+
+```yaml
+  loop:
+    - key: model.provider
+      value: ollama
+    - key: model.base_url
+      value: "{{ 'http://localhost:' ~ llm_ninfer_port ~ '/v1' if llm_backend == 'ninfer' else 'http://localhost:11434/v1' }}"
+    - key: model.default
+      value: "{{ llm_ninfer_model_id if llm_backend == 'ninfer' else llm_default_model }}"
+```
+
+`model.provider` stays `ollama` for both: it is Hermes's alias for the generic OpenAI-compatible provider, and NInfer serves that same API.
+
+- [ ] **Step 3: Leave the API-key open item in the code**
+
+Add this comment directly above the loop, so it is not forgotten when the port is exposed:
+
+```yaml
+# TODO: when llm_ninfer_api_key is set (i.e. once this is exposed over ipid),
+# Hermes needs the matching bearer token. The config key for that is NOT yet
+# verified — run `hermes config list` on-box to find its name, then add it
+# to the loop below guarded on llm_backend == 'ninfer'.
+```
+
+- [ ] **Step 4: Deploy and verify**
+
+```bash
+just setup ai-vm
+ssh ubuntu@ai-vm.edholm.cc "sudo cat /home/llm/.hermes/config.yaml"
+```
+
+Expected: `base_url` still points at `11434` (backend is still `ollama`), proving the conditional defaults correctly.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add ansible/roles/llm/
+git commit -m "feat(ansible): follow llm_backend when wiring Hermes"
+```
+
+---
+
+## Task 7: A/B the two backends and decide
+
+**Files:**
+
+- Modify: `tofu/deployments/edholm/configurations.tfvars`
+- Modify: this plan document ("Benchmark results")
+
+- [ ] **Step 1: Benchmark Ollama with the MTP model**
+
+```bash
+ssh ubuntu@ai-vm.edholm.cc
+curl -s http://localhost:11434/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3.8:27b-mtp-q4_K_M","messages":[{"role":"user","content":"Write a 400-word explanation of how a B-tree index works."}],"max_tokens":512}' \
+  -w '\ntotal: %{time_total}s\n' -o /tmp/ab-ollama-mtp.json
+```
+
+Record `usage.completion_tokens` divided by `time_total`. Run it twice and keep the second number — the first includes model load.
+
+- [ ] **Step 2: Benchmark the plain (non-MTP) model for reference**
+
+Same command with `"model":"qwen3.8:27b-q4_K_M"`. This isolates how much of any gain is MTP versus the engine itself.
+
+- [ ] **Step 3: Switch to NInfer**
+
+In `tofu/deployments/edholm/configurations.tfvars`, change the ai-vm role vars:
+
+```hcl
+            llm_backend = "ninfer"
+```
+
+```bash
+just apply-tofu edholm
+just setup ai-vm
+```
+
+- [ ] **Step 4: Benchmark NInfer with the identical prompt**
+
+```bash
+curl -s http://localhost:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"<llm_ninfer_model_id>","messages":[{"role":"user","content":"Write a 400-word explanation of how a B-tree index works."}],"max_tokens":512}' \
+  -w '\ntotal: %{time_total}s\n' -o /tmp/ab-ninfer.json
+```
+
+- [ ] **Step 5: Use it for real for a day**
+
+Numbers are not the whole story. Point local Hermes at whichever won and do actual work through it. Both backends now serve Qwen3.8-27B, so any quality difference is down to quantisation and sampling rather than the model — watch instead for whether tool calls parse correctly, how it handles long agent sessions, and whether the single-model limitation bites (NInfer serves one model per process, so Devstral is unavailable while it runs).
+
+- [ ] **Step 6: Record results and set the winner**
+
+Fill in "Benchmark results" below, set `llm_backend` to the winner in tfvars, apply, and commit.
+
+```bash
+git add tofu/deployments/edholm/configurations.tfvars docs/superpowers/plans/2026-08-19-ninfer-inference-backend.md
+git commit -m "docs: record the Ollama/NInfer A/B result and set the winning backend"
+```
+
+---
+
+## Spike results
+
+*Filled in by Task 3.*
+
+| Measurement | Value |
+|---|---|
+| Guest CUDA version | |
+| Guest total VRAM | |
+| Image build time | |
+| Model ID advertised | |
+| Decode speed (C1) | |
+| Peak VRAM while serving | |
+| Problems hit | |
+
+## Benchmark results
+
+*Filled in by Task 7.*
+
+All three serve Qwen3.8-27B, so this isolates the engine.
+
+| Backend / model | tok/s | Peak VRAM | Notes |
+|---|---|---|---|
+| Ollama, `qwen3.8:27b-q4_K_M` | | | baseline |
+| Ollama, `qwen3.8:27b-mtp-q4_K_M` | | | MTP gain over baseline |
+| NInfer, Qwen3.8-27B artifact | | | expected ~57 tok/s |
+
+## Open items
+
+- **Hermes API-key config key** is unverified (Task 6 Step 3). Needed only when the port is exposed over ipid.
+- **Open WebUI and ComfyUI** are out of scope here but depend on Task 2. Whichever backend wins, both speak the OpenAI API, so Open WebUI needs only a base-URL change to follow.
+- **Devstral availability**: NInfer serves one model per process. If `llm_backend = ninfer` wins, Devstral is no longer reachable on `ai-vm`. Decide then whether that matters.
+- **Client compatibility**: anything speaking Ollama's *native* API (`/api/tags`, `/api/chat`) breaks under NInfer, which serves only the OpenAI and Anthropic shapes. Phone and desktop clients should point at Open WebUI rather than at the engine directly, so the backend can change underneath them.
