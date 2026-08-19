@@ -23,10 +23,21 @@
     state: directory
     mode: '0755'
 
-- name: Configure Ollama's network bind
+# Renamed from bind.conf: this drop-in now carries tuning as well as the bind
+# address, and systemd merges every *.conf in the directory — a leftover
+# bind.conf would keep setting a stale OLLAMA_HOST alongside the new file.
+- name: Remove the superseded bind-only drop-in
+  ansible.builtin.file:
+    path: /etc/systemd/system/ollama.service.d/bind.conf
+    state: absent
+  notify:
+    - Reload systemd
+    - Restart ollama
+
+- name: Configure Ollama's bind address and tuning
   ansible.builtin.template:
-    src: ollama-bind.conf.j2
-    dest: /etc/systemd/system/ollama.service.d/bind.conf
+    src: ollama-env.conf.j2
+    dest: /etc/systemd/system/ollama.service.d/env.conf
     mode: '0644'
   notify:
     - Reload systemd
