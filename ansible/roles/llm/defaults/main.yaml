@@ -25,6 +25,13 @@ llm_ollama_keep_alive: "-1"
 llm_ollama_flash_attention: "1"
 llm_ollama_kv_cache_type: "q8_0"
 
+# Minimum Ollama release. Model manifests declare an engine floor, so an old
+# Ollama cannot pull a newly published model — it fails with HTTP 412
+# "requires a newer version of Ollama". Raise this when adding a model that
+# needs a newer engine; the role upgrades in place to satisfy it.
+# 0.32.9 could not pull Qwen3.8 (verified on ai-vm, 2026-08-20).
+llm_ollama_min_version: "0.32.15"
+
 # Models to `ollama pull` on deploy. Tags verified against the live Ollama
 # library on 2026-08-19 — `ollama pull` 404s on a tag that doesn't exist, so
 # re-check https://ollama.com/library/<model>/tags before editing these.

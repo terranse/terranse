@@ -295,7 +295,7 @@ In `ansible/roles/llm/tasks/main.yaml`, insert between the guest-driver assert a
   when: llm_docker_enabled | bool
 ```
 
-- [ ] **Step 5: Install the galaxy dependency, then deploy**
+- [x] **Step 5: Install the galaxy dependency, then deploy**
 
 `docker.yaml` includes `geerlingguy.docker`, which is a Galaxy role — it lives at `ansible/roles/geerlingguy.docker` and is **gitignored** (`.gitignore:15`). A fresh worktree therefore does not have it, and the play will fail on the `include_role` with "the role was not found". Install it first:
 
@@ -314,7 +314,7 @@ just setup ai-vm
 
 Expected: the "Verify a container can see the vGPU" task passes, printing an A5000 from inside the container. If it fails with `could not select device driver`, the runtime registration did not take — check that `docker info | grep -i runtime` lists `nvidia`.
 
-- [ ] **Step 6: Confirm idempotency**
+- [x] **Step 6: Confirm idempotency**
 
 ```bash
 just setup ai-vm
@@ -322,7 +322,7 @@ just setup ai-vm
 
 Expected: `changed=0`. A non-zero `changed` here almost always means the `nvidia-ctk` guard is wrong — fix it rather than accepting the noise.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add ansible/roles/llm/
@@ -824,7 +824,7 @@ git commit -m "feat(ansible): follow llm_backend when wiring Hermes"
 - Modify: `tofu/deployments/edholm/configurations.tfvars`
 - Modify: this plan document ("Benchmark results")
 
-- [ ] **Step 1: Benchmark Ollama with the MTP model**
+- [x] **Step 1: Benchmark Ollama with the MTP model**
 
 ```bash
 ssh ubuntu@ai-vm.edholm.cc
@@ -836,7 +836,7 @@ curl -s http://localhost:11434/v1/chat/completions \
 
 Record `usage.completion_tokens` divided by `time_total`. Run it twice and keep the second number — the first includes model load.
 
-- [ ] **Step 2: Benchmark the plain (non-MTP) model for reference**
+- [x] **Step 2: Benchmark the plain (non-MTP) model for reference**
 
 Same command with `"model":"qwen3.8:27b-q4_K_M"`. This isolates how much of any gain is MTP versus the engine itself.
 
@@ -897,11 +897,27 @@ git commit -m "docs: record the Ollama/NInfer A/B result and set the winning bac
 
 All three serve Qwen3.8-27B, so this isolates the engine.
 
+Method: 512-token generation (`finish_reason: length`, so token count is fixed and comparable), identical prompt, model already resident. **Discard the first request after any model load** — it runs 20-40% slow and reading it as a result made MTP look slower than baseline until it was re-measured.
+
 | Backend / model | tok/s | Peak VRAM | Notes |
 |---|---|---|---|
-| Ollama, `qwen3.8:27b-q4_K_M` | | | baseline |
-| Ollama, `qwen3.8:27b-mtp-q4_K_M` | | | MTP gain over baseline |
-| NInfer, Qwen3.8-27B artifact | | | expected ~57 tok/s |
+| Ollama, `qwen3.8:27b-q4_K_M` | **28.0** (27.9 / 28.0) | 19,121 MiB | baseline, measured 2026-08-20 |
+| Ollama, `qwen3.8:27b-mtp-q4_K_M` | **31.8** (30.1 / 33.6) | 19,121 MiB | +14% over baseline; noisier run-to-run |
+| NInfer, Qwen3.8-27B artifact | | | expected ~57 tok/s → would be ~1.8x MTP |
+
+Cold-load cost is ~15-20 s for a 17 GB model, which `OLLAMA_KEEP_ALIVE=-1` now removes entirely (`ollama ps` shows `UNTIL: Forever`).
+
+## Deployment notes (2026-08-20)
+
+Tasks 1 and 2 are deployed to `ai-vm` and verified. Four things came up that the plan as written did not anticipate:
+
+1. **The role never upgraded Ollama.** `Install Ollama` only ran `when: ollama_check.rc != 0`, i.e. when the binary was absent — so `ai-vm` sat on 0.32.9 from its original build. Ollama model manifests carry an engine floor, and both Qwen3.8 pulls failed with `412: The model you are attempting to pull requires a newer version of Ollama`. Verifying that a tag *exists* is not enough; the engine has to be new enough to fetch it. Fixed with `llm_ollama_min_version` (0.32.15) and a version comparison, which upgrades in place.
+
+2. **Two fixes from the previous session were never actually committed.** Commit `e62b0e5` ("wire Hermes through its own config, not OPENAI_* env vars") has a message describing changes to `hermes.yaml` and `ollama.yaml`, but its diff contains **only** the deletion of `templates/hermes-llm.sh.j2`. `main` therefore still had the old env-var Hermes wiring and the non-idempotent model pull, and the deploy failed on a template the same commit had deleted. Both fixes are restored here. Worth remembering: a commit message is not evidence the change landed — `git show --stat` is.
+
+3. **The guest reports the full 24,576 MiB**, with no ECC reduction. NInfer's C1 profile (19,641 MiB) fits comfortably; the plan's worry that ECC overhead might squeeze it was unfounded. C8 at 22-23 GiB is plausible too, though C1 remains the right choice for single-user latency.
+
+4. **Deploying from a worktree needs manual wiring.** `ansible/playbooks/edholm.yaml` and `ansible/inventory/edholm.yaml` are tofu-generated and gitignored, and `terraform.tfstate` lives only in the main checkout — so `tofu apply` from a worktree would see empty state and try to recreate every VM. Do not run it. Instead copy the generated playbook in, and write an inventory whose `project_path` is the **absolute** path to the main checkout's deployment dir (the generated one uses a relative path that would resolve to the worktree's stateless copy). This is only safe while the branch leaves `tofu/` untouched — Task 4 changes tfvars, so it must be applied from the main checkout after merging.
 
 ## Open items
 

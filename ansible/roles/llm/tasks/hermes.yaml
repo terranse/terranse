@@ -19,15 +19,40 @@
   become_user: "{{ llm_user }}"
   when: hermes_check.rc != 0
 
-- name: Deploy Hermes environment configuration
-  ansible.builtin.template:
-    src: hermes-llm.sh.j2
-    dest: "/etc/profile.d/hermes-llm.sh"
-    mode: '0644'
+# Hermes reads its provider from ~/.hermes/config.yaml, NOT from OPENAI_BASE_URL
+# / OPENAI_API_KEY — pointing it with those env vars leaves it on its default
+# provider, which answers "HTTP 401: Missing Authentication header". Worse,
+# exporting OPENAI_API_KEY globally is what the `openrouter` provider keys off,
+# so a placeholder value there can send traffic somewhere unintended. `ollama`
+# is an alias for the `custom` OpenAI-compatible provider.
+- name: Remove the superseded Hermes environment file
+  ansible.builtin.file:
+    path: /etc/profile.d/hermes-llm.sh
+    state: absent
 
-- name: Select the default Hermes model (best-effort; verify manually per plan Task 6)
-  ansible.builtin.command: bash -lc "source /etc/profile.d/hermes-llm.sh && hermes model custom:{{ llm_default_model }}"
+- name: Point Hermes at the local Ollama endpoint
+  ansible.builtin.shell: |
+    set -euo pipefail
+    # The installer puts hermes in ~/.local/bin, which only a login shell adds
+    # to PATH; this task does not get one.
+    export PATH="$HOME/.local/bin:$PATH"
+    current="$(hermes config get {{ item.key }} 2>/dev/null | tail -1)"
+    if [ "$current" != "{{ item.value }}" ]; then
+      hermes config set {{ item.key }} "{{ item.value }}"
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
   become: true
   become_user: "{{ llm_user }}"
-  changed_when: false
-  failed_when: false
+  loop:
+    - key: model.provider
+      value: ollama
+    - key: model.base_url
+      value: "http://localhost:11434/v1"
+    - key: model.default
+      value: "{{ llm_default_model }}"
+  loop_control:
+    label: "{{ item.key }} = {{ item.value }}"
+  register: hermes_config_set
+  changed_when: "'CHANGED' in hermes_config_set.stdout"

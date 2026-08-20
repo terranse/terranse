@@ -11,11 +11,24 @@
   changed_when: false
   failed_when: false
 
-- name: Install Ollama
+# "ollama version is X.Y.Z" when present; rc != 0 when the binary is missing,
+# in which case 0.0.0 forces the install below.
+- name: Record the installed Ollama version
+  ansible.builtin.set_fact:
+    llm_ollama_installed_version: >-
+      {{ (ollama_check.stdout | regex_search('[0-9]+\.[0-9]+\.[0-9]+'))
+         if ollama_check.rc == 0 else '0.0.0' }}
+
+# Model manifests carry a minimum engine version. Pulling a model newer than the
+# installed Ollama fails with "412 ... requires a newer version of Ollama", and
+# the previous version of this task only ran when the binary was absent — so a VM
+# provisioned months ago would sit on its original release forever and silently
+# lose access to new models. Qwen3.8 hit exactly this against 0.32.9.
+- name: Install or upgrade Ollama
   ansible.builtin.shell: curl -fsSL https://ollama.com/install.sh | sh
   args:
     executable: /bin/bash
-  when: ollama_check.rc != 0
+  when: llm_ollama_installed_version is version(llm_ollama_min_version, '<')
 
 - name: Ensure the ollama systemd drop-in directory exists
   ansible.builtin.file:
@@ -53,12 +66,19 @@
 - name: Flush handlers so the bind takes effect before pulling models
   ansible.builtin.meta: flush_handlers
 
+- name: Read the models already present
+  ansible.builtin.command: ollama list
+  register: ollama_installed
+  changed_when: false
+
+# Ask which models are missing rather than pulling unconditionally and trying to
+# read "did anything download" back out of the progress output: `ollama pull`
+# prints a success line either way, so any changed_when over its stdout reports
+# changed on every run and re-verifies ~50GB of weights each time.
 - name: Pull configured models
   ansible.builtin.command: "ollama pull {{ item }}"
   loop: "{{ llm_ollama_models }}"
-  register: ollama_pull
-  changed_when: >-
-    'success' in ollama_pull.stdout | default('') | lower or
-    'up to date' not in ollama_pull.stdout | default('') | lower
+  when: item not in ollama_installed.stdout
+  changed_when: true
   async: 3600
   poll: 30
