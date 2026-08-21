@@ -331,9 +331,18 @@ git commit -m "feat(ansible): add Docker and the NVIDIA Container Toolkit to the
 
 ---
 
-## Task 3: Manual spike — prove NInfer runs on the vGPU
+## Task 3: Manual spike — prove Hermes can drive NInfer on the vGPU
 
-**Do this before writing any more automation.** If a vGPU-sliced A5000 cannot run these kernels, Tasks 4-7 are wasted work, and the honest answer is "it doesn't work here". This task is deliberately manual and throwaway; nothing it produces is committed except the findings.
+**Do this before writing any more automation.** If a vGPU-sliced A5000 cannot run
+these kernels, or if Hermes cannot drive the server, Tasks 4-7 are wasted work
+and the honest answer is "it doesn't work here". This task is deliberately
+manual and throwaway; nothing it produces is committed except the findings.
+
+**Ordered so the cheapest disqualifier runs first.** Speed is the *second*
+question. The first is whether Hermes — an agent that lives or dies on tool
+calls — can talk to this server at all. A backend that is 2x faster and cannot
+call tools is worth nothing here, and finding that out after a 90-minute build
+and a 17 GiB download is the expensive way to learn it.
 
 **Files:**
 
@@ -342,38 +351,128 @@ git commit -m "feat(ansible): add Docker and the NVIDIA Container Toolkit to the
 **Interfaces:**
 
 - Consumes: Docker with the nvidia runtime from Task 2.
-- Produces: a go/no-go decision, a measured single-user tok/s figure, and the exact model ID string the server advertises — Task 6 needs that string verbatim for `llm_ninfer_model_id`.
+- Produces: a go/no-go decision, a captured real Hermes request corpus, a
+  measured single-user tok/s figure, and the exact model ID string the server
+  advertises — Task 6 needs that string verbatim for `llm_ninfer_model_id`.
 
-- [ ] **Step 1: Confirm the guest reports enough VRAM and a new enough CUDA**
+### What is already known about NInfer's API surface
+
+Read off `src/serve/` at the pinned ref on 2026-08-21, so the spike does not
+have to rediscover it:
+
+| Question | Answer |
+|---|---|
+| Endpoints | `/v1/chat/completions`, `/v1/models`, `/v1/responses`, `/v1/messages` (Anthropic) |
+| Modern tool calling | **Supported** — `tools`, `tool_choice` (`none`/`auto`/`required`/named), `tool_calls`, `role: tool`, `tool_call_id`; `src/serve/tool_call_parser.cpp` parses them out of the generated text |
+| Legacy `functions` / `function_call` | **Rejected**, 400 `tools_not_supported` |
+| Streaming | Supported, incl. `stream_options.include_usage` |
+| `response_format` | **Only `{type: text}`** — `json_object` and `json_schema` are 400 `response_format_not_supported` |
+| `n > 1` | Rejected, 400 `n_not_supported` |
+| Reasoning | Accepts `reasoning_effort`, returns `reasoning_content`, honours `chat_template_kwargs.enable_thinking` |
+
+Hermes' chat path does not send `response_format` (checked: only the vendored
+OpenAI SDK types and the image-gen plugin mention it), so the structured-output
+gap looks survivable. **That is a code reading, not a test** — Step 2 is what
+actually proves it.
+
+- [x] **Step 0: Confirm the guest reports enough VRAM** — done 2026-08-20.
+      24,576 MiB total, no ECC reduction, CUDA 13.2 / driver 595.58.03.
+      C1 needs 19,641 MiB, so it fits with headroom.
+
+- [ ] **Step 1: Give the GPU back to one tenant**
+
+The spike needs the whole slice, and the box currently thrashes (see
+"Deployment notes"). Before measuring anything:
 
 ```bash
-ssh ubuntu@ai-vm.edholm.cc nvidia-smi
+ssh ubuntu@ai-vm.edholm.cc 'ollama ps; sudo journalctl -u ollama --since "10 min ago" | grep -c evicting'
 ```
 
-Record `CUDA Version` (must be >= 13.1 for the runtime image) and total memory. **If total is below ~20,500 MiB, stop** — the C1 profile needs 19,641 MiB and there would be no headroom. Report the number rather than trying a smaller profile blindly.
+If anything other than the spike is holding VRAM or a second model is being
+requested, resolve that first — otherwise every number this task produces is
+noise. This is also why Step 5's baseline must be re-measured rather than
+taken from the "Benchmark results" table.
 
-- [ ] **Step 2: Build the image at the pinned ref**
+- [ ] **Step 2: Capture what Hermes actually sends — before building anything**
+
+Sit a logging proxy between Hermes and Ollama, run one real agent turn that
+uses tools, and keep the request bodies. This costs minutes and can kill the
+whole idea on its own.
+
+```bash
+# on ai-vm, as any user
+mkdir -p /tmp/hermes-capture && cd /tmp/hermes-capture
+python3 - <<'PY' &
+import http.server, json, urllib.request, itertools, pathlib
+n = itertools.count()
+class H(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        pathlib.Path(f"req-{next(n):03d}.json").write_bytes(body)
+        r = urllib.request.urlopen(urllib.request.Request(
+            "http://127.0.0.1:11434" + self.path, body,
+            {"Content-Type": "application/json"}))
+        data = r.read()
+        self.send_response(200)
+        self.send_header("Content-Type", r.headers.get("Content-Type", "application/json"))
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+    do_GET = None
+http.server.ThreadingHTTPServer(("127.0.0.1", 11999), H).serve_forever()
+PY
+sudo -u llm bash -lc 'hermes config set model.base_url http://localhost:11999/v1'
+# run one real task that forces tool use, e.g.
+sudo -u llm bash -lc 'hermes -p "List the files in /etc that were modified today, then tell me how many there are."'
+sudo -u llm bash -lc 'hermes config set model.base_url http://localhost:11434/v1'
+```
+
+Then check the captures against the table above:
+
+```bash
+jq -r 'keys[]' /tmp/hermes-capture/req-*.json | sort -u
+jq -e 'has("functions") or has("function_call")' /tmp/hermes-capture/req-*.json   # must be false everywhere
+jq -e '.response_format.type // "text" | . != "text"' /tmp/hermes-capture/req-*.json  # must be false everywhere
+jq -e '(.n // 1) > 1' /tmp/hermes-capture/req-*.json                              # must be false everywhere
+```
+
+**Gate A — if Hermes sends `functions`, `function_call`, a non-text
+`response_format`, or `n > 1` on its main chat path, stop here.** NInfer 400s
+on all four and no amount of build time changes that. Note it in "Spike
+results" and close the idea out; Tasks 1 and 2 still stand on their own.
+
+Keep `/tmp/hermes-capture/` — Step 5 replays it.
+
+- [ ] **Step 3: Build the image and fetch the artifact concurrently**
+
+They are independent; running them in series wastes an hour. Start the
+download first so it runs while the compiler works.
 
 ```bash
 ssh ubuntu@ai-vm.edholm.cc
-git clone https://github.com/Don-Chad/ninfer-3090 /tmp/ninfer-spike
-cd /tmp/ninfer-spike
+mkdir -p /tmp/ninfer-spike/models
+nohup curl -L -C - --fail -o /tmp/ninfer-spike/models/qwen3_8_27b.ninfer \
+  https://huggingface.co/neroued/Qwen3.8-27B-NInfer/resolve/main/qwen3_8_27b.ninfer \
+  > /tmp/ninfer-spike/download.log 2>&1 &
+
+git clone https://github.com/Don-Chad/ninfer-3090 /tmp/ninfer-spike/src
+cd /tmp/ninfer-spike/src
 git checkout 403fc56d71576aa1feddb771cfed3264e7378b20
 time docker build --tag ninfer-3090:spike .
 ```
 
-Expected: 45-90 minutes on 8 cores. The Dockerfile deliberately does not pass `-DCMAKE_CUDA_ARCHITECTURES` — `CMakeLists.txt` defaults to `86`, which is the value we want.
+Expected: 45-90 minutes on 8 cores for the build; 16.96 GiB for the artifact.
+The Dockerfile deliberately does not pass `-DCMAKE_CUDA_ARCHITECTURES` —
+`CMakeLists.txt` defaults to `86`, which is the value we want.
 
-- [ ] **Step 3: Fetch the artifact**
+Verify the download before serving:
 
 ```bash
-mkdir -p /tmp/ninfer-spike/models
-curl -L -C - --fail -o /tmp/ninfer-spike/models/qwen3_8_27b.ninfer \
-  https://huggingface.co/neroued/Qwen3.8-27B-NInfer/resolve/main/qwen3_8_27b.ninfer
 sha256sum /tmp/ninfer-spike/models/qwen3_8_27b.ninfer
 ```
 
-Expected checksum: `eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e`
+Expected: `eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e`
 
 - [ ] **Step 4: Stop Ollama so the VRAM is free, then serve**
 
@@ -390,38 +489,93 @@ docker run --rm --gpus all -p 8080:8080 \
   --spec mtp --draft-tokens 3 --lm-head-draft
 ```
 
-- [ ] **Step 5: Record the model ID and measure decode speed**
+Record the `id` from `curl -s http://ai-vm.edholm.cc:8080/v1/models` verbatim —
+Task 6 needs it. Run `nvidia-smi` while it serves and record peak VRAM.
 
-From another shell:
+- [ ] **Step 5: Replay the captured Hermes requests — the real compat gate**
+
+Static checks proved nothing about the tool-call *parser*. Replay every
+captured body against NInfer with only the model id swapped:
 
 ```bash
-curl -s http://ai-vm.edholm.cc:8080/v1/models
+ID=$(curl -s http://localhost:8080/v1/models | jq -r '.data[0].id')
+for f in /tmp/hermes-capture/req-*.json; do
+  echo "--- $f"
+  jq --arg id "$ID" '.model = $id' "$f" \
+    | curl -s http://localhost:8080/v1/chat/completions \
+        -H 'Content-Type: application/json' -d @- \
+    | jq '{status: (.error.code // "ok"),
+           msg: .error.message,
+           finish: .choices[0].finish_reason,
+           tool_calls: (.choices[0].message.tool_calls | length? // 0)}'
+done
 ```
 
-Write down the `id` field verbatim — Task 6 needs it. Then, substituting that id:
+**Gate B — every request must return `ok`.** A request that Ollama answered and
+NInfer 400s is a blocker; record the `code` and `message` verbatim, because
+that string is the whole finding.
+
+Then check that tool calls actually *parse*: for the captured requests that
+carried a `tools` array and got a tool call back from Ollama, NInfer must also
+return a well-formed `tool_calls` entry with a non-empty `id`, a `function.name`
+matching a supplied tool, and `function.arguments` that is parseable JSON. A
+model that emits its tool call as prose and gets `tool_calls: 0` is a fail —
+that is precisely what `tool_call_parser.cpp` exists to prevent, and precisely
+what a prompt-rendered (rather than grammar-constrained) implementation gets
+wrong.
+
+- [ ] **Step 6: Drive it with the real Hermes, end to end**
+
+Static replay can still miss streaming behaviour and multi-turn tool loops.
 
 ```bash
-curl -s http://ai-vm.edholm.cc:8080/v1/chat/completions \
+sudo -u llm bash -lc 'hermes config set model.base_url http://localhost:8080/v1'
+sudo -u llm bash -lc 'hermes config set model.default <id from Step 4>'
+sudo -u llm bash -lc 'hermes -p "Create /tmp/spike-proof.txt containing the current kernel version, then read it back to me."'
+```
+
+**Gate C — Hermes must complete a multi-step tool-using task.** If it hangs on
+the stream, loops on a malformed tool call, or trips its own
+`tool_loop_guardrails`, that is the answer.
+
+Revert with `hermes config set model.base_url http://localhost:11434/v1` and
+the Ollama model id when done.
+
+- [ ] **Step 7: Only now, measure speed**
+
+Discard the first request after any model load — it runs 20-40% slow and
+already produced one wrong conclusion in this project. Take at least three
+timed runs and report the range, not a single number.
+
+```bash
+curl -s http://localhost:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"<id from above>","messages":[{"role":"user","content":"Write a 400-word explanation of how a B-tree index works."}],"max_tokens":512}' \
+  -d "{\"model\":\"$ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Write a 400-word explanation of how a B-tree index works.\"}],\"max_tokens\":512}" \
   -w '\ntotal: %{time_total}s\n' -o /tmp/ninfer-result.json
 ```
 
-Divide `usage.completion_tokens` from the response by `time_total`. Also run `nvidia-smi` while it serves and record peak VRAM.
+Divide `usage.completion_tokens` by `time_total`. Compare against a
+**freshly re-measured** Ollama baseline taken on an otherwise idle GPU, not
+against the table below.
 
-- [ ] **Step 6: Record the findings in this document**
+- [ ] **Step 8: Record the findings and decide**
 
-Fill in the "Spike results" table at the bottom of this plan: CUDA version, total VRAM, build time, measured tok/s, peak VRAM, the model ID string, and anything that broke.
+Fill in "Spike results": CUDA version, total VRAM, build time, Gate A/B/C
+outcomes, measured tok/s, peak VRAM, the model ID string, and anything that
+broke.
 
 ```bash
 git add docs/superpowers/plans/2026-08-19-ninfer-inference-backend.md
 git commit -m "docs: record NInfer vGPU spike results"
 ```
 
-- [ ] **Step 7: Decision gate**
+Decision gate:
 
-- Measured tok/s comfortably above Ollama's, and peak VRAM under the slice → continue to Task 4.
-- Runs but is no faster, or VRAM does not fit → **stop**. Clean up (`docker rmi ninfer-3090:spike`, `rm -rf /tmp/ninfer-spike`), restart Ollama, and report. Tasks 1 and 2 still stand on their own.
+- Gates A, B and C all pass **and** tok/s is comfortably above a clean Ollama
+  baseline **and** peak VRAM fits the slice → continue to Task 4.
+- Any gate fails, or it runs but is no faster → **stop**. Clean up
+  (`docker rmi ninfer-3090:spike`, `rm -rf /tmp/ninfer-spike /tmp/hermes-capture`),
+  restart Ollama, and report. Tasks 1 and 2 still stand on their own.
 
 ---
 
@@ -918,6 +1072,51 @@ Tasks 1 and 2 are deployed to `ai-vm` and verified. Four things came up that the
 3. **The guest reports the full 24,576 MiB**, with no ECC reduction. NInfer's C1 profile (19,641 MiB) fits comfortably; the plan's worry that ECC overhead might squeeze it was unfounded. C8 at 22-23 GiB is plausible too, though C1 remains the right choice for single-user latency.
 
 4. **Deploying from a worktree needs manual wiring.** `ansible/playbooks/edholm.yaml` and `ansible/inventory/edholm.yaml` are tofu-generated and gitignored, and `terraform.tfstate` lives only in the main checkout — so `tofu apply` from a worktree would see empty state and try to recreate every VM. Do not run it. Instead copy the generated playbook in, and write an inventory whose `project_path` is the **absolute** path to the main checkout's deployment dir (the generated one uses a relative path that would resolve to the worktree's stateless copy). This is only safe while the branch leaves `tofu/` untouched — Task 4 changes tfvars, so it must be applied from the main checkout after merging.
+
+## Follow-up findings (2026-08-21)
+
+1. **`tofu plan` on the main checkout reports "No changes. Your infrastructure
+   matches the configuration."** Nothing this branch has done so far touches
+   `tofu/`, and no VM is at risk of replacement. The recreate-everything hazard
+   is specific to running tofu *from a worktree*, where state is absent — see
+   Deployment note 4.
+
+2. **`OLLAMA_KEEP_ALIVE=-1` is set and honoured, but the model still does not
+   stay resident** — because two clients are asking `ai-vm` for two different
+   17 GB models on a 24 GB slice. `daniel-x1` (192.168.1.151) requests
+   `qwen3.6:27b-q4_K_M` while Hermes on-box requests `qwen3.8:27b-mtp-q4_K_M`,
+   and Ollama logs `llama-server model predicted to exceed available memory,
+   evicting` on nearly every alternation. Observed request latencies of 20 s to
+   1 m 35 s, plus 500s at the 30 s mark, all reload stalls rather than slow
+   decode.
+
+   This reframes the whole premise. "Hermes is slow" was measured against a GPU
+   that was reloading a 17 GB model on most requests. The **first** thing to fix
+   is one model per GPU; only then is a decode-speed comparison meaningful.
+   Concretely: repoint whatever on `daniel-x1` still targets Qwen3.6 at
+   `qwen3.8:27b-mtp-q4_K_M`, then `ollama rm qwen3.6:27b-q4_K_M` so it cannot be
+   loaded by accident. The role does not remove models it no longer lists, which
+   is why the stale tag is still pullable.
+
+   The same constraint applies to the NInfer plan: NInfer and Ollama cannot both
+   hold a model on this slice, which is why Task 3 stops Ollama and why Task 5's
+   backend switch has to be exclusive rather than side-by-side.
+
+3. **Hermes' reasoning effort is already `medium`.** `hermes config get
+   agent.reasoning_effort` returns `medium`, which is also Hermes' documented
+   fallback when unset (`hermes_constants.py`: "Unknown reasoning_effort '%s',
+   using default (medium)"). Valid levels are `none`, `minimal`, `low`, `medium`,
+   `high`, `xhigh`, `max`, `ultra`. Per-model overrides live under
+   `agent.reasoning_overrides` and must be edited in `config.yaml` directly —
+   `hermes config set` cannot address those keys because model names contain
+   dots.
+
+4. **Ollama does map `reasoning_effort` onto Qwen3.8's thinking budget.**
+   `qwen3.8:27b-mtp-q4_K_M` advertises a `thinking` capability; `/api/chat`
+   accepts `think: low|medium|high` and `/v1/chat/completions` accepts
+   `reasoning_effort`, with the thinking text returned separately from
+   `content`. So effort is controllable per-request at the API, not only
+   globally in Hermes' config.
 
 ## Open items
 
