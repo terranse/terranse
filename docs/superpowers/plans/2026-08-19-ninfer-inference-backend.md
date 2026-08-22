@@ -401,7 +401,7 @@ whole idea on its own.
 
 ```bash
 # on ai-vm, as any user
-mkdir -p /tmp/hermes-capture && cd /tmp/hermes-capture
+mkdir -p /var/lib/hermes-capture && cd /var/lib/hermes-capture
 python3 - <<'PY' &
 import http.server, json, urllib.request, itertools, pathlib
 n = itertools.count()
@@ -424,17 +424,17 @@ http.server.ThreadingHTTPServer(("127.0.0.1", 11999), H).serve_forever()
 PY
 sudo -u llm bash -lc 'hermes config set model.base_url http://localhost:11999/v1'
 # run one real task that forces tool use, e.g.
-sudo -u llm bash -lc 'hermes -p "List the files in /etc that were modified today, then tell me how many there are."'
+sudo -u llm bash -lc 'hermes --yolo -z "List the files in /etc that were modified today, then tell me how many there are."'
 sudo -u llm bash -lc 'hermes config set model.base_url http://localhost:11434/v1'
 ```
 
 Then check the captures against the table above:
 
 ```bash
-jq -r 'keys[]' /tmp/hermes-capture/req-*.json | sort -u
-jq -e 'has("functions") or has("function_call")' /tmp/hermes-capture/req-*.json   # must be false everywhere
-jq -e '.response_format.type // "text" | . != "text"' /tmp/hermes-capture/req-*.json  # must be false everywhere
-jq -e '(.n // 1) > 1' /tmp/hermes-capture/req-*.json                              # must be false everywhere
+jq -r 'keys[]' /var/lib/hermes-capture/req-*.json | sort -u
+jq -e 'has("functions") or has("function_call")' /var/lib/hermes-capture/req-*.json   # must be false everywhere
+jq -e '.response_format.type // "text" | . != "text"' /var/lib/hermes-capture/req-*.json  # must be false everywhere
+jq -e '(.n // 1) > 1' /var/lib/hermes-capture/req-*.json                              # must be false everywhere
 ```
 
 **Gate A — if Hermes sends `functions`, `function_call`, a non-text
@@ -442,7 +442,7 @@ jq -e '(.n // 1) > 1' /tmp/hermes-capture/req-*.json                            
 on all four and no amount of build time changes that. Note it in "Spike
 results" and close the idea out; Tasks 1 and 2 still stand on their own.
 
-Keep `/tmp/hermes-capture/` — Step 5 replays it.
+Keep `/var/lib/hermes-capture/` — Step 5 replays it.
 
 - [ ] **Step 3: Build the image and fetch the artifact concurrently**
 
@@ -451,13 +451,13 @@ download first so it runs while the compiler works.
 
 ```bash
 ssh ubuntu@ai-vm.edholm.cc
-mkdir -p /tmp/ninfer-spike/models
-nohup curl -L -C - --fail -o /tmp/ninfer-spike/models/qwen3_8_27b.ninfer \
+mkdir -p /var/lib/ninfer-spike/models
+nohup curl -L -C - --fail -o /var/lib/ninfer-spike/models/qwen3_8_27b.ninfer \
   https://huggingface.co/neroued/Qwen3.8-27B-NInfer/resolve/main/qwen3_8_27b.ninfer \
-  > /tmp/ninfer-spike/download.log 2>&1 &
+  > /var/lib/ninfer-spike/download.log 2>&1 &
 
-git clone https://github.com/Don-Chad/ninfer-3090 /tmp/ninfer-spike/src
-cd /tmp/ninfer-spike/src
+git clone https://github.com/Don-Chad/ninfer-3090 /var/lib/ninfer-spike/src
+cd /var/lib/ninfer-spike/src
 git checkout 403fc56d71576aa1feddb771cfed3264e7378b20
 time docker build --tag ninfer-3090:spike .
 ```
@@ -469,7 +469,7 @@ The Dockerfile deliberately does not pass `-DCMAKE_CUDA_ARCHITECTURES` —
 Verify the download before serving:
 
 ```bash
-sha256sum /tmp/ninfer-spike/models/qwen3_8_27b.ninfer
+sha256sum /var/lib/ninfer-spike/models/qwen3_8_27b.ninfer
 ```
 
 Expected: `eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e`
@@ -479,7 +479,7 @@ Expected: `eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e`
 ```bash
 sudo systemctl stop ollama
 docker run --rm --gpus all -p 8080:8080 \
-  -v /tmp/ninfer-spike/models:/workspace/models:ro \
+  -v /var/lib/ninfer-spike/models:/workspace/models:ro \
   ninfer-3090:spike \
   ninfer-serve models/qwen3_8_27b.ninfer \
   --host 0.0.0.0 --port 8080 \
@@ -499,7 +499,7 @@ captured body against NInfer with only the model id swapped:
 
 ```bash
 ID=$(curl -s http://localhost:8080/v1/models | jq -r '.data[0].id')
-for f in /tmp/hermes-capture/req-*.json; do
+for f in /var/lib/hermes-capture/req-*.json; do
   echo "--- $f"
   jq --arg id "$ID" '.model = $id' "$f" \
     | curl -s http://localhost:8080/v1/chat/completions \
@@ -531,7 +531,7 @@ Static replay can still miss streaming behaviour and multi-turn tool loops.
 ```bash
 sudo -u llm bash -lc 'hermes config set model.base_url http://localhost:8080/v1'
 sudo -u llm bash -lc 'hermes config set model.default <id from Step 4>'
-sudo -u llm bash -lc 'hermes -p "Create /tmp/spike-proof.txt containing the current kernel version, then read it back to me."'
+sudo -u llm bash -lc 'hermes --yolo -z "Create /tmp/spike-proof.txt containing the current kernel version, then read it back to me."'
 ```
 
 **Gate C — Hermes must complete a multi-step tool-using task.** If it hangs on
@@ -574,7 +574,7 @@ Decision gate:
 - Gates A, B and C all pass **and** tok/s is comfortably above a clean Ollama
   baseline **and** peak VRAM fits the slice → continue to Task 4.
 - Any gate fails, or it runs but is no faster → **stop**. Clean up
-  (`docker rmi ninfer-3090:spike`, `rm -rf /tmp/ninfer-spike /tmp/hermes-capture`),
+  (`docker rmi ninfer-3090:spike`, `rm -rf /var/lib/ninfer-spike /var/lib/hermes-capture`),
   restart Ollama, and report. Tasks 1 and 2 still stand on their own.
 
 ---
@@ -1031,6 +1031,162 @@ git commit -m "docs: record the Ollama/NInfer A/B result and set the winning bac
 
 ---
 
+## Task 8: Open WebUI as the chat front end for the agent
+
+The point is to chat with **Hermes**, not with the raw model. Hermes ships an
+OpenAI-compatible API server inside its gateway for exactly this, and Open WebUI
+is a documented client of it
+(`website/docs/user-guide/messaging/open-webui.md`).
+
+```
+browser ──▶ Open WebUI :3000 ──▶ Hermes gateway API server :8642 ──▶ backend :11434 / :8080
+```
+
+This also solves the "Client compatibility" open item below: Open WebUI talks to
+Hermes, Hermes talks to the engine, so switching Ollama ↔ NInfer never touches
+the phone or the browser.
+
+**Tools run on the API-server host.** Per the upstream docs: "if a laptop points
+Open WebUI or another OpenAI-compatible client at a Hermes API server on a
+remote machine, `pwd`, file tools, browser tools, local MCP tools, and other
+workspace tools run on the remote API-server host". That is what we want here —
+`ai-vm` is the workspace — but it means the chat box is a shell on `ai-vm` for
+anyone who reaches it. Bind and authenticate accordingly.
+
+**Files:**
+
+- Create: `ansible/roles/llm/tasks/webui.yaml`
+- Create: `ansible/roles/llm/templates/hermes-gateway.service.j2`
+- Create: `ansible/roles/llm/templates/open-webui.compose.yaml.j2`
+- Modify: `ansible/roles/llm/defaults/main.yaml`, `tasks/main.yaml`, `handlers/main.yaml`
+- Modify: `ansible/secrets.yaml` (vaulted `llm_hermes_api_key`)
+
+**Interfaces:**
+
+- Consumes: Docker + NVIDIA runtime from Task 2; the live backend from Task 5.
+- Produces: `http://ai-vm.edholm.cc:3000` chatting with the agent.
+
+- [ ] **Step 1: Turn on the Hermes API server**
+
+```yaml
+llm_hermes_api_server_enabled: true
+llm_hermes_api_server_port: 8642
+# llm_hermes_api_key comes from ansible-vault, never a default.
+```
+
+`hermes config set API_SERVER_ENABLED true` writes the flag to `config.yaml`;
+`hermes config set API_SERVER_KEY <secret>` writes the secret to `~/.hermes/.env`
+instead. Reuse the idempotent `hermes config set` loop already in `hermes.yaml`
+rather than templating either file — Hermes owns their layout.
+
+Generate the key once and store it vaulted:
+
+```bash
+just vault-edit   # add llm_hermes_api_key
+```
+
+- [ ] **Step 2: Run the gateway as a service**
+
+The API server only listens while `hermes gateway` runs, so it needs a unit
+rather than a login shell. Template `hermes-gateway.service.j2`:
+`User={{ llm_user }}`, `ExecStart=%h/.local/bin/hermes gateway`,
+`Restart=on-failure`, `After=ollama.service`.
+
+Verify before moving on:
+
+```bash
+curl -s http://127.0.0.1:8642/health
+curl -s -H "Authorization: Bearer <key>" http://127.0.0.1:8642/v1/models
+```
+
+`/v1/models` returning 401 means the key does not match; `/health` failing means
+the gateway did not pick up `API_SERVER_ENABLED`.
+
+- [ ] **Step 3: Run Open WebUI**
+
+Template a compose file rather than a bare `docker run` — the container needs a
+named volume to survive, and compose keeps that declarative:
+
+```yaml
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports: ["3000:8080"]
+    volumes: ["open-webui:/app/backend/data"]
+    environment:
+      - OPENAI_API_BASE_URL=http://host.docker.internal:{{ llm_hermes_api_server_port }}/v1
+      - OPENAI_API_KEY={{ llm_hermes_api_key }}
+      - ENABLE_OLLAMA_API=false
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    restart: always
+volumes:
+  open-webui:
+```
+
+`ENABLE_OLLAMA_API=false` hides the empty Ollama backend from the model picker.
+
+**The trap:** those environment variables are read **only on Open WebUI's first
+launch**. After that the connection lives in its internal SQLite database, and
+Ansible re-templating the compose file will silently not change anything. So
+when the API key or port changes, the play must either reconfigure through the
+admin API or recreate the volume. Write that down in the task, and do not let
+the role report `changed` on a setting that did not actually take.
+
+First start takes 15-30 s while it downloads ~150 MB of embedding models.
+
+- [ ] **Step 4: Decide how it is exposed**
+
+Port 3000 is a shell on `ai-vm` behind a login form. First user to register
+becomes admin, so an unattended open port is a real exposure, not a theoretical
+one. Either bind it to the Netbird interface only, or put it behind the existing
+reverse proxy with auth — and register the account immediately after first
+start, before anything else can. Record which was chosen.
+
+Note `hermes dashboard` (port 9119) exists too and is a different thing: config,
+API keys and session management, not a chat client. Since the June 2026
+hardening a non-loopback bind always requires a password or OAuth provider —
+`--insecure` is documented as a no-op. Out of scope here; use the CLI or a
+tunnel.
+
+---
+
+## Task 9: ComfyUI + Flux
+
+**The GPU cannot hold both.** Qwen3.8 occupies ~17 GiB of the 24 GiB slice and is
+pinned resident by `OLLAMA_KEEP_ALIVE=-1`; Flux dev at fp8 wants roughly
+12-17 GiB. Running them together reproduces exactly the eviction thrash that
+Follow-up finding 2 diagnosed — except a diffusion model reloading is worse,
+because it has no keep-alive to protect it.
+
+Pick one before writing any tasks:
+
+| Option | Cost |
+|---|---|
+| **On-demand ComfyUI** — a `comfyui.service` whose `ExecStartPre` sets `OLLAMA_KEEP_ALIVE=0` and unloads the LLM, and whose `ExecStopPost` restores it | Image generation and chat are mutually exclusive; the LLM reloads (~15-20 s) after each session. Simple and predictable. |
+| **Coexist on a small quant** — Flux GGUF Q4 (~6.5 GiB) plus a reduced LLM context | Both stay resident; image quality drops and the LLM loses context headroom. Needs measurement to confirm it actually fits. |
+| **Neither on this box** — ComfyUI moves to the gaming VM's vGPU slice | No contention, but that slice is doing something else and its own profile would need checking. |
+
+Recommendation: **on-demand**, because it degrades in a way that is obvious
+(you wait) rather than one that is invisible (everything is mysteriously slow),
+and because it does not compromise the LLM setup we just finished tuning.
+
+Do not start this task until the Task 7 decision is made — the winning backend
+determines how the LLM gets unloaded (Ollama has an API for it; NInfer would
+need the container stopped).
+
+**Files (once the option is chosen):**
+
+- Create: `ansible/roles/llm/tasks/comfyui.yaml`, `templates/comfyui.service.j2`
+- Modify: `ansible/roles/llm/defaults/main.yaml`, `tasks/main.yaml`
+
+Sketch: `llm_comfyui_enabled` (default `false` until Task 7 lands), a pinned
+ComfyUI image with `--gpus all`, models on a host bind-mount under
+`/var/lib/comfyui/models` (**not** `/tmp` — see Follow-up finding 5), and the
+Flux weights fetched by a `get_url` with a checksum, like the NInfer artifact in
+Task 4.
+
+---
+
 ## Spike results
 
 *Filled in by Task 3.*
@@ -1117,6 +1273,51 @@ Tasks 1 and 2 are deployed to `ai-vm` and verified. Four things came up that the
    `reasoning_effort`, with the thinking text returned separately from
    `content`. So effort is controllable per-request at the API, not only
    globally in Hermes' config.
+
+5. **`/tmp` on `ai-vm` is tmpfs, sized 15.7 GiB — and I filled it, wedging the
+   VM.** The spike text in this very document said to download the 16.96 GiB
+   artifact to `/tmp/ninfer-spike/models/`. It reached 13.4 GiB, consumed that
+   much RAM as shared memory, and the box stopped accepting TCP while still
+   answering ping. It did not self-heal for hours: the OOM killer cannot reclaim
+   tmpfs pages while the file exists. `rm` freed it instantly (shared 12 GiB ->
+   138 MiB) and no reboot was needed.
+
+   The artifact could never have fit — 16.96 GiB into a 15.7 GiB tmpfs. Every
+   spike path in this plan now points at `/var/lib/`, and Task 9's ComfyUI
+   weights carry the same warning. Check `findmnt /tmp` before writing anything
+   large to it on any host.
+
+6. **Gate A ran against a real Hermes agent turn, and found two incompatibilities
+   the code reading missed.** 11 requests captured through a transparent relay
+   while Hermes completed a multi-step tool task (it correctly answered "16 files
+   in /etc modified in the last 7 days"):
+
+   | Request | Shape | NInfer |
+   |---|---|---|
+   | main agent loop (x3) | `stream=true`, 25 tools, incl. one continuation carrying `role: tool` + assistant `tool_calls` | **accepted** |
+   | session title (x2) | `response_format: {type: json_schema, strict: true}` | **400 `response_format_not_supported`** |
+   | `/api/show` (x6) | Ollama-native capability probe | **404 — endpoint does not exist** |
+
+   So the earlier claim that "Hermes' chat path does not send `response_format`"
+   was wrong. Grepping `*.py` found only vendored SDK types; the
+   `title_generation` auxiliary task sends json_schema at runtime. This is
+   exactly the failure mode Gate A exists to catch, and it is why a static read
+   is not a test.
+
+   Neither blocker is fatal, and both have a fix that belongs in Task 6:
+
+   - `auxiliary.title_generation.enabled: false` stops the json_schema request.
+     Manual titles still work.
+   - `/api/show` is probed because the provider is `ollama`, which Hermes treats
+     as Ollama-native for its context-length and `thinking` capability probe
+     (`agent/model_metadata.py`, `run_agent.py`). Under NInfer the provider must
+     be `custom` instead, with the context length supplied explicitly rather than
+     discovered.
+
+   The important half is the positive result: **the agent loop itself — streaming,
+   25 tools, and a tool-result continuation turn — is entirely within NInfer's
+   accepted schema.** Gate A passes conditionally; Gate B still has to prove the
+   tool-call *parser* produces well-formed calls.
 
 ## Open items
 
