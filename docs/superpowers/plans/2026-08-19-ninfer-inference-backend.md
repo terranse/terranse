@@ -579,7 +579,14 @@ Decision gate:
 
 ---
 
-## Task 4: Codify the NInfer build and artifact download
+## Task 4 (SHELVED): Codify the NInfer build and artifact download
+
+> **Shelved 2026-08-22.** The spike measured NInfer at 1.3x, not the 1.8x the
+> README implied, and the stalls that prompted this work were already fixed by
+> `OLLAMA_KEEP_ALIVE=-1` plus resolving the two-model contention. Kept here
+> because the spike is reproducible from the pinned ref and checksum in "Spike
+> results" — reopen if decode speed becomes the binding constraint again.
+
 
 Only start this once Task 3's gate says go.
 
@@ -738,7 +745,7 @@ git commit -m "feat(ansible): build the NInfer engine and fetch its model artifa
 
 ---
 
-## Task 5: The backend switch
+## Task 5 (SHELVED): The backend switch
 
 **Files:**
 
@@ -903,7 +910,7 @@ git commit -m "feat(ansible): select the active inference backend with llm_backe
 
 ---
 
-## Task 6: Point Hermes at whichever backend is live
+## Task 6 (SHELVED): Point Hermes at whichever backend is live
 
 **Files:**
 
@@ -971,7 +978,7 @@ git commit -m "feat(ansible): follow llm_backend when wiring Hermes"
 
 ---
 
-## Task 7: A/B the two backends and decide
+## Task 7 (SHELVED): A/B the two backends and decide
 
 **Files:**
 
@@ -1066,7 +1073,7 @@ anyone who reaches it. Bind and authenticate accordingly.
 - Consumes: Docker + NVIDIA runtime from Task 2; the live backend from Task 5.
 - Produces: `http://ai-vm.edholm.cc:3000` chatting with the agent.
 
-- [ ] **Step 1: Turn on the Hermes API server**
+- [x] **Step 1: Turn on the Hermes API server**
 
 ```yaml
 llm_hermes_api_server_enabled: true
@@ -1085,7 +1092,7 @@ Generate the key once and store it vaulted:
 just vault-edit   # add llm_hermes_api_key
 ```
 
-- [ ] **Step 2: Run the gateway as a service**
+- [x] **Step 2: Run the gateway as a service**
 
 The API server only listens while `hermes gateway` runs, so it needs a unit
 rather than a login shell. Template `hermes-gateway.service.j2`:
@@ -1102,7 +1109,7 @@ curl -s -H "Authorization: Bearer <key>" http://127.0.0.1:8642/v1/models
 `/v1/models` returning 401 means the key does not match; `/health` failing means
 the gateway did not pick up `API_SERVER_ENABLED`.
 
-- [ ] **Step 3: Run Open WebUI**
+- [x] **Step 3: Run Open WebUI**
 
 Template a compose file rather than a bare `docker run` — the container needs a
 named volume to survive, and compose keeps that declarative:
@@ -1134,7 +1141,7 @@ the role report `changed` on a setting that did not actually take.
 
 First start takes 15-30 s while it downloads ~150 MB of embedding models.
 
-- [ ] **Step 4: Decide how it is exposed**
+- [x] **Step 4: Decide how it is exposed**
 
 Port 3000 is a shell on `ai-vm` behind a login form. First user to register
 becomes admin, so an unattended open port is a real exposure, not a theoretical
@@ -1393,6 +1400,36 @@ Tasks 1 and 2 are deployed to `ai-vm` and verified. Four things came up that the
    25 tools, and a tool-result continuation turn — is entirely within NInfer's
    accepted schema.** Gate A passes conditionally; Gate B still has to prove the
    tool-call *parser* produces well-formed calls.
+
+7. **Open WebUI reached the host on the wrong interface, and the play passed
+   anyway.** `host.docker.internal` resolves to the docker bridge gateway
+   (172.17.0.1), not loopback, while Hermes' API server defaults to binding
+   127.0.0.1. So Open WebUI got connection-refused (`health=000`) while every
+   host-side verification task returned 200 — they were testing a different
+   interface. Fixed by discovering the bridge gateway and setting
+   `API_SERVER_HOST` to it, which also keeps the agent API off the LAN while
+   port 3000 stays the front door. The real fix is the extra task that checks
+   the path Open WebUI actually uses, `docker exec open-webui curl ...`: a
+   verification that does not traverse the same route as the traffic proves
+   nothing.
+
+8. **`hermes config get` exits 1 on an unset key**, which under `set -euo
+   pipefail` aborted the whole config task before it could set anything. The
+   pre-existing `hermes.yaml` loop had the same latent bug and only worked
+   because its keys were already set — a fresh VM would have failed there too.
+   Both now tolerate it with `|| true`.
+
+   Related: that task carried `no_log: true` over the whole loop, so the failure
+   surfaced as three censored blocks with no message. The secret is now set in
+   its own task and only that one is silenced.
+
+9. **`API_SERVER_KEY` lands in `config.yaml`, not `~/.hermes/.env`** as the
+   upstream docs state. Worth knowing before grepping the wrong file.
+
+10. **Every Open WebUI turn carries ~15.6k prompt tokens** of agent system
+    prompt and skills before the user's own message. That is the cost of talking
+    to the agent rather than the raw model, and it is why chat latency there
+    will not match a bare Ollama call.
 
 ## Open items
 

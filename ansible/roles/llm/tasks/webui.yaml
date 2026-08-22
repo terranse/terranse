@@ -1,0 +1,165 @@
+---
+# Open WebUI as the browser front end for the Hermes agent.
+#
+#   browser -> Open WebUI :3000 -> Hermes gateway API server :8642 -> Ollama :11434
+#
+# Tool calls execute on the API-server host, i.e. on this VM. Port 3000 is
+# therefore a shell behind a login form, and the first account to register
+# becomes admin — register immediately after the first start, and put ipid in
+# front of it.
+
+# Open WebUI reaches the host through `host.docker.internal`, which resolves to
+# the docker bridge gateway (172.17.0.1), NOT to loopback. Hermes' API server
+# defaults to binding 127.0.0.1, so leaving it there means the container gets
+# connection-refused while every host-side check passes. Bind it to the bridge:
+# reachable by containers, still not reachable from the LAN.
+- name: Find the docker bridge gateway address
+  ansible.builtin.command: docker network inspect bridge -f '{% raw %}{{ (index .IPAM.Config 0).Gateway }}{% endraw %}'
+  register: llm_docker_bridge
+  changed_when: false
+
+- name: Record the API server bind address
+  ansible.builtin.set_fact:
+    llm_hermes_api_server_host: "{{ llm_docker_bridge.stdout | trim }}"
+
+- name: Turn on the Hermes API server
+  ansible.builtin.shell: |
+    set -euo pipefail
+    export PATH="$HOME/.local/bin:$PATH"
+    current="$(hermes config get {{ item.key }} 2>/dev/null | tail -1 || true)"
+    if [ "$current" != "{{ item.value }}" ]; then
+      hermes config set {{ item.key }} "{{ item.value }}"
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ llm_user }}"
+  loop:
+    - key: API_SERVER_ENABLED
+      value: "true"
+    - key: API_SERVER_PORT
+      value: "{{ llm_hermes_api_server_port }}"
+    - key: API_SERVER_HOST
+      value: "{{ llm_hermes_api_server_host }}"
+  loop_control:
+    label: "{{ item.key }} = {{ item.value }}"
+  register: llm_hermes_api_config
+  changed_when: "'CHANGED' in llm_hermes_api_config.stdout"
+  notify: Restart hermes-gateway
+
+# Separate task, and the only one wearing no_log: silencing the whole loop hides
+# real errors, which cost a debugging round the first time this ran.
+# `hermes config set` routes this to ~/.hermes/.env rather than config.yaml on
+# its own — do not template either file.
+- name: Set the Hermes API server key
+  ansible.builtin.shell: |
+    set -euo pipefail
+    export PATH="$HOME/.local/bin:$PATH"
+    current="$(hermes config get API_SERVER_KEY 2>/dev/null | tail -1 || true)"
+    if [ "$current" != "{{ llm_hermes_api_key }}" ]; then
+      hermes config set API_SERVER_KEY "{{ llm_hermes_api_key }}"
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ llm_user }}"
+  register: llm_hermes_api_key_set
+  changed_when: "'CHANGED' in llm_hermes_api_key_set.stdout"
+  no_log: true
+  notify: Restart hermes-gateway
+
+- name: Install the Hermes gateway unit
+  ansible.builtin.template:
+    src: hermes-gateway.service.j2
+    dest: /etc/systemd/system/hermes-gateway.service
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart hermes-gateway
+
+- name: Enable and start the Hermes gateway
+  ansible.builtin.systemd:
+    name: hermes-gateway
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Flush handlers so the gateway is live before Open WebUI points at it
+  ansible.builtin.meta: flush_handlers
+
+# The gateway builds its web assets on first run, so give it room before
+# declaring the endpoint broken.
+- name: Wait for the Hermes API server to answer
+  ansible.builtin.uri:
+    url: "http://{{ llm_hermes_api_server_host }}:{{ llm_hermes_api_server_port }}/health"
+    status_code: 200
+  register: llm_hermes_api_health
+  retries: 30
+  delay: 10
+  until: llm_hermes_api_health is succeeded
+
+- name: Verify the API key is accepted
+  ansible.builtin.uri:
+    url: "http://{{ llm_hermes_api_server_host }}:{{ llm_hermes_api_server_port }}/v1/models"
+    headers:
+      Authorization: "Bearer {{ llm_hermes_api_key }}"
+    status_code: 200
+  no_log: true
+
+- name: Create the Open WebUI compose directory
+  ansible.builtin.file:
+    path: "{{ llm_openwebui_dir }}"
+    state: directory
+    mode: '0750'
+
+- name: Template the Open WebUI compose file
+  ansible.builtin.template:
+    src: open-webui.compose.yaml.j2
+    dest: "{{ llm_openwebui_dir }}/docker-compose.yaml"
+    mode: '0640'
+  register: llm_openwebui_compose
+
+- name: Start Open WebUI
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ llm_openwebui_dir }}"
+  register: llm_openwebui_up
+  changed_when: "'Started' in llm_openwebui_up.stderr or 'Created' in llm_openwebui_up.stderr"
+
+# Open WebUI reads OPENAI_API_KEY only on its first launch; after that the value
+# lives in its own database. Re-templating the compose file with a new key would
+# otherwise look like it worked while the UI kept using the old one. Surface it
+# instead of reporting a change that did not happen.
+- name: Warn when the API key changed but Open WebUI has already initialised
+  ansible.builtin.debug:
+    msg: >-
+      The compose file changed but Open WebUI's data volume already exists.
+      Connection settings are read from its database, not the environment, so
+      this change has NOT taken effect. Update it under Admin Settings ->
+      Connections, or `docker compose down -v` in {{ llm_openwebui_dir }} to
+      start fresh (this deletes accounts and chat history).
+  when: llm_openwebui_compose is changed and not llm_openwebui_up is changed
+
+- name: Wait for Open WebUI to serve
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ llm_openwebui_port }}/health"
+    status_code: 200
+  register: llm_openwebui_health
+  retries: 30
+  delay: 10
+  until: llm_openwebui_health is succeeded
+
+# The host-side checks above passed while the container was getting
+# connection-refused, because they tested a different interface. Verify the path
+# Open WebUI actually uses, from inside Open WebUI.
+- name: Verify Open WebUI can reach the Hermes API server
+  ansible.builtin.command: >-
+    docker exec open-webui
+    curl -sf -m 10 -o /dev/null
+    -w '%{http_code}'
+    http://host.docker.internal:{{ llm_hermes_api_server_port }}/health
+  register: llm_webui_to_hermes
+  changed_when: false
+  failed_when: llm_webui_to_hermes.stdout | trim != "200"

@@ -7,7 +7,7 @@
   ansible.builtin.command: bash -lc "command -v hermes"
   become: true
   become_user: "{{ llm_user }}"
-  register: hermes_check
+  register: llm_hermes_check
   changed_when: false
   failed_when: false
 
@@ -17,7 +17,7 @@
     executable: /bin/bash
   become: true
   become_user: "{{ llm_user }}"
-  when: hermes_check.rc != 0
+  when: llm_hermes_check.rc != 0
 
 # Hermes reads its provider from ~/.hermes/config.yaml, NOT from OPENAI_BASE_URL
 # / OPENAI_API_KEY — pointing it with those env vars leaves it on its default
@@ -36,7 +36,7 @@
     # The installer puts hermes in ~/.local/bin, which only a login shell adds
     # to PATH; this task does not get one.
     export PATH="$HOME/.local/bin:$PATH"
-    current="$(hermes config get {{ item.key }} 2>/dev/null | tail -1)"
+    current="$(hermes config get {{ item.key }} 2>/dev/null | tail -1 || true)"
     if [ "$current" != "{{ item.value }}" ]; then
       hermes config set {{ item.key }} "{{ item.value }}"
       echo CHANGED
@@ -54,5 +54,5 @@
       value: "{{ llm_default_model }}"
   loop_control:
     label: "{{ item.key }} = {{ item.value }}"
-  register: hermes_config_set
-  changed_when: "'CHANGED' in hermes_config_set.stdout"
+  register: llm_hermes_config_set
+  changed_when: "'CHANGED' in llm_hermes_config_set.stdout"

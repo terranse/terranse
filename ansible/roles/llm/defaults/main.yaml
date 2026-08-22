@@ -54,3 +54,46 @@ llm_default_model: "{{ llm_ollama_models[0] }}"
 # Docker + NVIDIA Container Toolkit. Required by the ninfer backend, and by the
 # planned Open WebUI / ComfyUI containers regardless of which backend wins.
 llm_docker_enabled: true
+
+# --- Open WebUI + Hermes gateway ------------------------------------------
+#
+# Open WebUI talks to the Hermes gateway's OpenAI-compatible API server, not to
+# Ollama, so the browser drives the agent and its full toolset. That also makes
+# every client backend-agnostic: swapping the inference engine never touches the
+# phone or the browser.
+llm_webui_enabled: true
+
+# The API server lives inside `hermes gateway`, so the gateway needs to be a
+# service rather than something started from a login shell.
+llm_hermes_api_server_port: 8642
+# Overwritten at run time with the docker bridge gateway, so Open WebUI can
+# reach it via host.docker.internal. Left as loopback here so that a run with
+# Docker disabled still binds somewhere sane rather than to every interface.
+llm_hermes_api_server_host: "127.0.0.1"
+llm_hermes_workdir: "/home/{{ llm_user }}"
+
+# llm_hermes_api_key is vaulted in ansible/secrets.yaml — never give it a
+# default here, or a missing vault would silently deploy a guessable key.
+
+llm_openwebui_dir: /var/lib/open-webui
+llm_openwebui_port: 3000
+llm_openwebui_name: "Hermes"
+# Pinned rather than :main — an unpinned tag means every deploy is a silent
+# upgrade of a service that holds accounts and chat history.
+llm_openwebui_image: "ghcr.io/open-webui/open-webui:v0.6.18"
+
+# --- ComfyUI ---------------------------------------------------------------
+#
+# Installed but not enabled: ComfyUI is an EXCLUSIVE GPU tenant. Starting it
+# stops Ollama and stopping it starts Ollama again, because Flux (12-17 GiB) and
+# Qwen3.8 (~17 GiB) cannot both live in a 24 GiB slice.
+llm_comfyui_enabled: true
+llm_comfyui_dir: /var/lib/comfyui
+llm_comfyui_port: 8188
+llm_comfyui_image: "yanwk/comfyui-boot:cu124-slim"
+
+# Flux weights. Left empty by default: they are ~12 GiB and which quant to use
+# depends on what else is on the slice at the time. Add entries as
+# {url, dest, checksum} — dest is relative to llm_comfyui_dir, checksum is the
+# "sha256:..." form get_url expects, so a truncated download fails loudly.
+llm_comfyui_models: []

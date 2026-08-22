@@ -81,3 +81,11 @@
 
 - name: Set up Hermes agent CLI
   ansible.builtin.include_tasks: hermes.yaml
+
+- name: Set up Open WebUI in front of the Hermes gateway
+  ansible.builtin.include_tasks: webui.yaml
+  when: llm_webui_enabled | bool
+
+- name: Set up ComfyUI as an on-demand GPU tenant
+  ansible.builtin.include_tasks: comfyui.yaml
+  when: llm_comfyui_enabled | bool

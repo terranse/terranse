@@ -2,6 +2,9 @@
 collections:
   - name: cloud.terraform
     version: 3.0.0
+  # Used by the llm role (docker_image) — was previously relied on implicitly.
+  - name: community.docker
+    version: ">=4.7.0"
 
 roles:
   - name: geerlingguy.docker

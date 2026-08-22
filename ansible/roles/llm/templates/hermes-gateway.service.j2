@@ -1,0 +1,23 @@
+# Managed by Ansible (terranse llm role) — DO NOT EDIT.
+#
+# The Hermes OpenAI-compatible API server lives inside `hermes gateway`, so it
+# only listens while the gateway runs. Open WebUI talks to that endpoint, which
+# is what makes the browser chat with the *agent* (full toolset) rather than
+# with the raw model.
+[Unit]
+Description=Hermes agent gateway (OpenAI-compatible API server)
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ llm_user }}
+Group={{ llm_user }}
+WorkingDirectory={{ llm_hermes_workdir }}
+Environment=PATH=/home/{{ llm_user }}/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/{{ llm_user }}/.local/bin/hermes gateway
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -14,3 +14,8 @@
   ansible.builtin.systemd:
     name: docker
     state: restarted
+
+- name: Restart hermes-gateway
+  ansible.builtin.systemd:
+    name: hermes-gateway
+    state: restarted

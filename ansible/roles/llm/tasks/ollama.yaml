@@ -7,7 +7,7 @@
 
 - name: Check whether Ollama is already installed
   ansible.builtin.command: ollama --version
-  register: ollama_check
+  register: llm_ollama_check
   changed_when: false
   failed_when: false
 
@@ -16,8 +16,8 @@
 - name: Record the installed Ollama version
   ansible.builtin.set_fact:
     llm_ollama_installed_version: >-
-      {{ (ollama_check.stdout | regex_search('[0-9]+\.[0-9]+\.[0-9]+'))
-         if ollama_check.rc == 0 else '0.0.0' }}
+      {{ (llm_ollama_check.stdout | regex_search('[0-9]+\.[0-9]+\.[0-9]+'))
+         if llm_ollama_check.rc == 0 else '0.0.0' }}
 
 # Model manifests carry a minimum engine version. Pulling a model newer than the
 # installed Ollama fails with "412 ... requires a newer version of Ollama", and
@@ -68,7 +68,7 @@
 
 - name: Read the models already present
   ansible.builtin.command: ollama list
-  register: ollama_installed
+  register: llm_ollama_installed
   changed_when: false
 
 # Ask which models are missing rather than pulling unconditionally and trying to
@@ -78,7 +78,7 @@
 - name: Pull configured models
   ansible.builtin.command: "ollama pull {{ item }}"
   loop: "{{ llm_ollama_models }}"
-  when: item not in ollama_installed.stdout
+  when: item not in llm_ollama_installed.stdout
   changed_when: true
   async: 3600
   poll: 30

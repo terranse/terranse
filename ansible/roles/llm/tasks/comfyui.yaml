@@ -1,0 +1,65 @@
+---
+# ComfyUI as an on-demand, exclusive GPU tenant.
+#
+# Installed but NOT enabled: `systemctl start comfyui` takes the GPU (stopping
+# Ollama), `systemctl stop comfyui` gives it back. See comfyui.service.j2 for
+# why coexistence is not on the table.
+
+- name: Create the ComfyUI directories
+  ansible.builtin.file:
+    path: "{{ llm_comfyui_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ llm_user }}"
+    group: "{{ llm_user }}"
+    mode: '0755'
+  loop:
+    - models
+    - models/checkpoints
+    - models/unet
+    - models/clip
+    - models/vae
+    - output
+    - input
+
+# Not /tmp: that is a 15.7 GiB tmpfs on this VM, and writing model weights there
+# consumes RAM and wedged the box once already.
+- name: Assert the model directory is not on tmpfs
+  ansible.builtin.command: "findmnt --noatime --output FSTYPE --target {{ llm_comfyui_dir }} --noheadings"
+  register: llm_comfyui_fstype
+  changed_when: false
+  failed_when: "'tmpfs' in llm_comfyui_fstype.stdout"
+
+- name: Install the ComfyUI unit
+  ansible.builtin.template:
+    src: comfyui.service.j2
+    dest: /etc/systemd/system/comfyui.service
+    mode: '0644'
+  notify: Reload systemd
+
+# Deliberately `enabled: false` and not started — see the unit header. Ansible
+# still has to know the unit exists, hence daemon_reload.
+- name: Register the ComfyUI unit without enabling it
+  ansible.builtin.systemd:
+    name: comfyui
+    enabled: false
+    daemon_reload: true
+
+- name: Pull the ComfyUI image
+  community.docker.docker_image:
+    name: "{{ llm_comfyui_image }}"
+    source: pull
+    state: present
+
+- name: Fetch the Flux weights
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ llm_comfyui_dir }}/{{ item.dest }}"
+    checksum: "{{ item.checksum }}"
+    owner: "{{ llm_user }}"
+    group: "{{ llm_user }}"
+    mode: '0644'
+    timeout: 120
+  loop: "{{ llm_comfyui_models }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  when: llm_comfyui_models | length > 0
