@@ -379,7 +379,7 @@ actually proves it.
       24,576 MiB total, no ECC reduction, CUDA 13.2 / driver 595.58.03.
       C1 needs 19,641 MiB, so it fits with headroom.
 
-- [ ] **Step 1: Give the GPU back to one tenant**
+- [x] **Step 1: Give the GPU back to one tenant**
 
 The spike needs the whole slice, and the box currently thrashes (see
 "Deployment notes"). Before measuring anything:
@@ -393,7 +393,7 @@ requested, resolve that first — otherwise every number this task produces is
 noise. This is also why Step 5's baseline must be re-measured rather than
 taken from the "Benchmark results" table.
 
-- [ ] **Step 2: Capture what Hermes actually sends — before building anything**
+- [x] **Step 2: Capture what Hermes actually sends — before building anything**
 
 Sit a logging proxy between Hermes and Ollama, run one real agent turn that
 uses tools, and keep the request bodies. This costs minutes and can kill the
@@ -444,7 +444,7 @@ results" and close the idea out; Tasks 1 and 2 still stand on their own.
 
 Keep `/var/lib/hermes-capture/` — Step 5 replays it.
 
-- [ ] **Step 3: Build the image and fetch the artifact concurrently**
+- [x] **Step 3: Build the image and fetch the artifact concurrently**
 
 They are independent; running them in series wastes an hour. Start the
 download first so it runs while the compiler works.
@@ -474,7 +474,7 @@ sha256sum /var/lib/ninfer-spike/models/qwen3_8_27b.ninfer
 
 Expected: `eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e`
 
-- [ ] **Step 4: Stop Ollama so the VRAM is free, then serve**
+- [x] **Step 4: Stop Ollama so the VRAM is free, then serve**
 
 ```bash
 sudo systemctl stop ollama
@@ -492,7 +492,7 @@ docker run --rm --gpus all -p 8080:8080 \
 Record the `id` from `curl -s http://ai-vm.edholm.cc:8080/v1/models` verbatim —
 Task 6 needs it. Run `nvidia-smi` while it serves and record peak VRAM.
 
-- [ ] **Step 5: Replay the captured Hermes requests — the real compat gate**
+- [x] **Step 5: Replay the captured Hermes requests — the real compat gate**
 
 Static checks proved nothing about the tool-call *parser*. Replay every
 captured body against NInfer with only the model id swapped:
@@ -524,7 +524,7 @@ that is precisely what `tool_call_parser.cpp` exists to prevent, and precisely
 what a prompt-rendered (rather than grammar-constrained) implementation gets
 wrong.
 
-- [ ] **Step 6: Drive it with the real Hermes, end to end**
+- [x] **Step 6: Drive it with the real Hermes, end to end**
 
 Static replay can still miss streaming behaviour and multi-turn tool loops.
 
@@ -541,7 +541,7 @@ the stream, loops on a malformed tool call, or trips its own
 Revert with `hermes config set model.base_url http://localhost:11434/v1` and
 the Ollama model id when done.
 
-- [ ] **Step 7: Only now, measure speed**
+- [x] **Step 7: Only now, measure speed**
 
 Discard the first request after any model load — it runs 20-40% slow and
 already produced one wrong conclusion in this project. Take at least three
@@ -558,7 +558,7 @@ Divide `usage.completion_tokens` by `time_total`. Compare against a
 **freshly re-measured** Ollama baseline taken on an otherwise idle GPU, not
 against the table below.
 
-- [ ] **Step 8: Record the findings and decide**
+- [x] **Step 8: Record the findings and decide**
 
 Fill in "Spike results": CUDA version, total VRAM, build time, Gate A/B/C
 outcomes, measured tok/s, peak VRAM, the model ID string, and anything that
@@ -1189,33 +1189,108 @@ Task 4.
 
 ## Spike results
 
-*Filled in by Task 3.*
+Task 3, run 2026-08-22. Ref `403fc56d`, artifact sha256
+`eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e` (verified).
 
 | Measurement | Value |
 |---|---|
-| Guest CUDA version | |
-| Guest total VRAM | |
-| Image build time | |
-| Model ID advertised | |
-| Decode speed (C1) | |
-| Peak VRAM while serving | |
-| Problems hit | |
+| Guest CUDA version | 13.2, driver 595.58.03 |
+| Guest total VRAM | 24,576 MiB (no ECC reduction) |
+| Image build time | **8.5 min** compile (510 s, 245 objects), zero errors — the 45-90 min estimate was badly wrong |
+| Model ID advertised | `qwen3.8-27b` |
+| Decode speed (C1) | **37.4 tok/s** mean (35.6 / 36.4 / 40.1) |
+| Peak VRAM while serving | 20,046 MiB of 24,576 — 4.5 GiB headroom |
+| Model load time | 23.3 s (16.67 GiB weights + 2.75 GiB KV) |
+| Gate A (schema) | **conditional pass** — agent loop clean, 2 auxiliary paths blocked |
+| Gate B (replay) | **pass** — 3/3 agent-loop requests HTTP 200, `finish=tool_calls`, all tool calls well formed |
+| Gate C (live Hermes) | **pass** — completed a multi-step write-then-read terminal task |
+| Problems hit | see below |
+
+**Gate B detail.** The captured requests were replayed with only `model` swapped
+and `stream` left exactly as Hermes sent it:
+
+```
+req-001  HTTP 200  finish='tool_calls'  tool_calls=1 OK
+req-007  HTTP 200  finish='tool_calls'  tool_calls=1 OK
+req-008  HTTP 200  finish='tool_calls'  tool_calls=1 OK      <- continuation carrying role:tool
+req-000  HTTP 400  response_format_not_supported
+req-006  HTTP 400  response_format_not_supported
+```
+
+"OK" means non-empty `id`, a `function.name` that was actually offered, and
+`arguments` that parse as JSON. **The main risk did not materialise**: NInfer's
+prompt-rendered tool calls came back well formed over SSE, including on the
+continuation turn. That was the single thing most likely to sink this, and it
+held.
+
+**Problems hit:**
+
+1. `/tmp` is a 15.7 GiB tmpfs and the artifact is 16.96 GiB — following this
+   plan's own instructions wedged the VM. See Follow-up finding 5.
+2. `response_format: json_schema` from `title_generation` → 400. Fixed with
+   `auxiliary.title_generation.enabled: false`.
+3. Ollama-native `/api/show` probes → 404. Fixed with provider `custom`.
+4. `ubuntu` is not in the `docker` group (the role only adds `llm`), so the
+   build needs `sudo`.
 
 ## Benchmark results
 
-*Filled in by Task 7.*
+All serve Qwen3.8-27B, so this isolates the engine.
 
-All three serve Qwen3.8-27B, so this isolates the engine.
+Method: 512-token generation (`finish_reason: length`, so token count is fixed
+and comparable), identical prompt, model already resident, **first request after
+any load discarded**. The final numbers below come from one script
+(`bench.py`) run against both engines back to back, which is the only
+comparison worth quoting.
 
-Method: 512-token generation (`finish_reason: length`, so token count is fixed and comparable), identical prompt, model already resident. **Discard the first request after any model load** — it runs 20-40% slow and reading it as a result made MTP look slower than baseline until it was re-measured.
-
-| Backend / model | tok/s | Peak VRAM | Notes |
+| Backend / model | tok/s (mean, range) | Peak VRAM | Notes |
 |---|---|---|---|
-| Ollama, `qwen3.8:27b-q4_K_M` | **28.0** (27.9 / 28.0) | 19,121 MiB | baseline, measured 2026-08-20 |
-| Ollama, `qwen3.8:27b-mtp-q4_K_M` | **31.8** (30.1 / 33.6) | 19,121 MiB | +14% over baseline; noisier run-to-run |
-| NInfer, Qwen3.8-27B artifact | | | expected ~57 tok/s → would be ~1.8x MTP |
+| Ollama, `qwen3.8:27b-q4_K_M` | 28.0 (27.9-28.0) | 19,121 MiB | 2026-08-20, contended GPU |
+| Ollama, `qwen3.8:27b-mtp-q4_K_M` | 31.8 (30.1-33.6) | 19,121 MiB | 2026-08-20, contended GPU |
+| Ollama, `qwen3.8:27b-mtp-q4_K_M` | **28.9** (27.8-29.6) | 19,111 MiB | 2026-08-22, clean, two runs agreeing (28.8 / 28.9) |
+| NInfer C1, Qwen3.8-27B | **37.4** (35.6-40.1) | 20,046 MiB | 2026-08-22, clean |
 
-Cold-load cost is ~15-20 s for a 17 GB model, which `OLLAMA_KEEP_ALIVE=-1` now removes entirely (`ollama ps` shows `UNTIL: Forever`).
+**NInfer is ~1.3x Ollama** (37.4 vs 28.9), not the ~1.8x the README's 57 tok/s
+figure implied. Two honest caveats on that comparison:
+
+- The 2026-08-20 Ollama figures (31.8) were taken on the contended GPU and are
+  ~10% optimistic; the 28.9 pair is the trustworthy one. Quote 1.3x, not 1.2x
+  and not 1.8x.
+- Upstream reports `decode_tok_s = (completion_tokens - 1) / decode_seconds`,
+  which excludes prefill. Here TTFT is only ~55 ms, so NInfer's own counters
+  (40.2 / 36.5 / 35.7) agree with the wall-clock numbers above — the metric
+  choice is not what accounts for the gap to 57 tok/s.
+
+The gap to upstream's 3090 figure is mostly memory bandwidth: A5000 768 GB/s vs
+3090 936 GB/s is 0.82x before any vGPU overhead, and decode is bandwidth-bound.
+NInfer's own log shows MTP acceptance at **43.7-46.9%, 2.31-2.40 tokens per
+round**, so speculation is working as designed rather than failing.
+
+Cold-load cost: Ollama ~15-20 s for a 17 GB model (removed by
+`OLLAMA_KEEP_ALIVE=-1`); NInfer 23.3 s, with no equivalent keep-alive concept
+because the process holds the weights for its lifetime.
+
+## Decision
+
+Gates A, B and C pass. The engine is real, it fits with 4.5 GiB to spare, and it
+is meaningfully faster. The question for Task 4 is whether **1.3x decode** is
+worth what it costs:
+
+- a from-source C++/CUDA build pinned to one commit, with no upstream packaging
+- one model per process — Devstral becomes unreachable on this box
+- no Ollama-native API, so anything using `/api/*` breaks
+- Hermes needs two configuration workarounds that upstream may change under us
+- a 17 GiB artifact to fetch, checksum and store outside any package manager
+
+Against that, `OLLAMA_KEEP_ALIVE=-1` and fixing the two-model contention already
+removed the multi-second stalls that prompted this whole investigation, and
+those were worth far more to perceived speed than 8 tok/s.
+
+Recommendation: **do not promote NInfer to the default yet.** Keep the spike
+reproducible (this document plus the pinned ref and checksum), run Hermes on the
+tuned Ollama for a week, and revisit if decode speed is still the binding
+constraint. Task 8 (Open WebUI in front of the Hermes gateway) is worth more
+per hour of work than Task 4-7, and it is backend-agnostic by construction.
 
 ## Deployment notes (2026-08-20)
 
