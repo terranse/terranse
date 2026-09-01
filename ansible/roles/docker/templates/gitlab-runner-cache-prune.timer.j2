@@ -1,0 +1,14 @@
+[Unit]
+Description=Periodic GitLab Runner Docker cache reclaim
+
+[Timer]
+# CI cache keys are derived from the project's lockfile, so every dependency
+# change mints a fresh cache volume set and orphans the previous one. Nothing in
+# GitLab or the runner ever reclaims them, and left alone they fill the
+# container's root filesystem until every job fails before it starts.
+OnCalendar={{ gitlab_runner_cache_prune_schedule | default('weekly') }}
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
