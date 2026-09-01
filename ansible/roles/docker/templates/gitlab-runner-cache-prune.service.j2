@@ -1,0 +1,19 @@
+[Unit]
+Description=Reclaim GitLab Runner Docker cache volumes
+Documentation=https://docs.gitlab.com/runner/executors/docker.html#clear-the-docker-cache
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Same operation as gitlab-runner's own clear-docker-cache prune-volumes, run on
+# the host rather than inside the runner container, which ships no docker client.
+# The label filter restricts removal to runner-managed objects, so the runner's
+# own config volume is spared, and Docker skips volumes attached to a running job
+# container, making this safe to run while pipelines execute.
+ExecStart=/usr/bin/docker system prune -af --volumes --filter label=com.gitlab.gitlab-runner.managed=true
+RemainAfterExit=no
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gitlab-runner-cache-prune

@@ -75,7 +75,9 @@
 # GPU driver setup (guest side)
 # =============================================================================
 - name: Include NVIDIA vGPU guest driver setup
-  ansible.builtin.include_tasks: nvidia-guest.yaml
+  ansible.builtin.include_role:
+    name: drivers
+    tasks_from: nvidia-guest
   when: gpu_type == "nvidia_vgpu"
 
 - name: Include Intel graphics driver setup
@@ -106,6 +108,19 @@
   ansible.builtin.include_tasks: steam.yaml
   when: steam_enabled | bool
 
+# Tagged so it can be applied on its own. A full gaming-role run bounces Sunshine
+# and the session, which is not something to do to a guest that is mid-stream;
+# this include only writes config files and restarts nothing.
+- name: Tune Vulkan shader pre-caching
+  ansible.builtin.include_tasks:
+    file: shader-cache.yaml
+    apply:
+      tags: [shader-cache]
+  tags: [shader-cache]
+  when:
+    - shader_cache_tuning | bool
+    - gpu_type == "nvidia_vgpu"
+
 - name: Setup RetroArch emulators
   ansible.builtin.include_tasks: retroarch.yaml
   when: retroarch_enabled | bool
@@ -114,11 +129,17 @@
   ansible.builtin.include_tasks: lutris.yaml
   when: lutris_enabled | bool
 
+- name: Install headless game installers
+  ansible.builtin.include_tasks: install-tools.yaml
+  when: game_sync_install_enabled | bool
+
+# No longer gated on lutris_enabled: game-sync reads Steam's appmanifests and
+# the Steam Web API directly, so it has a full library to serve even on a host
+# where Lutris is absent — which is just as well, since Lutris has never
+# successfully produced a pga.db here.
 - name: Deploy game sync service
   ansible.builtin.include_tasks: game-sync.yaml
-  when:
-    - game_sync_enabled | bool
-    - lutris_enabled | bool
+  when: game_sync_enabled | bool
 
 # =============================================================================
 # Snapshot hooks for instant resume

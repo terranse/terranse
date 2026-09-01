@@ -167,15 +167,82 @@
 # Set capabilities for Sunshine — cap_sys_admin is required for KMS capture and
 # lets Sunshine run as an unprivileged user service (no AmbientCapabilities in
 # the unit).
+#
+# cap_sys_nice is meant to let Sunshine prioritise its own work: without any
+# priority headroom the capture/encode threads compete with the game at plain
+# nice 0 on both the CPU run queue and the GPU context queue. That is invisible
+# while a game paces itself to the 60 Hz output, and very visible the moment one
+# does not: an uncapped title starves the encoder and the stream picks up
+# input-to-photon jitter that reads as steering lag. Capabilities are read at
+# exec(), so this only takes effect after Sunshine restarts.
+#
+# IT IS NOT SUFFICIENT ON ITS OWN, and the "setpriority failed" warnings are NOT
+# evidence that this setcap failed. Measured on the running guest 2026-08-05:
+# the file carries cap_sys_admin,cap_sys_nice=ep and the process still logs
+# "setpriority failed for nice -15: Permission denied" on every stream start,
+# with every thread sitting at nice 0. /proc/<pid>/status explains why —
+#     CapPrm: cap_sys_nice     CapEff: (empty)
+# Sunshine drops its capabilities out of the EFFECTIVE set after start-up (and
+# drops cap_sys_admin from Permitted entirely once KMS capture is up), so by the
+# time a stream starts and the encoder threads call setpriority(), the capability
+# is no longer in force. Nothing we can set on the file changes that.
+# The setpriority path is fixed by RLIMIT_NICE instead — see the next task.
 - name: Set capabilities for Sunshine
   community.general.capabilities:
     path: /usr/bin/sunshine
-    # `=ep`, not `+ep`: getcap reports "cap_sys_admin=ep", and the module compares
-    # against that string — so `+ep` never matches and the task reports changed on
-    # every single run.
-    capability: cap_sys_admin=ep
+    # `=ep`, not `+ep`: getcap reports "cap_sys_admin,cap_sys_nice=ep", and the
+    # module compares against that string — so `+ep` never matches and the task
+    # reports changed on every single run.
+    capability: cap_sys_admin,cap_sys_nice=ep
     state: present
   failed_when: false
+  notify: Restart sunshine
+
+# -----------------------------------------------------------------------------
+# Priority headroom for the capture/encode threads.
+#
+# setpriority() lets an unprivileged process go below nice 0 when the target is
+# >= (20 - RLIMIT_NICE), no capability required. That is the route that actually
+# works here, because Sunshine has dropped cap_sys_nice from its effective set by
+# the time it needs it (see the setcap task above).
+#
+# The limit has to be raised on user@<uid>.service, not on sunshine.service. The
+# limit is inherited: systemd ships DefaultLimitNICE=0, so the per-user manager
+# gets a HARD limit of 0, and a *user* unit cannot raise its own hard limit — it
+# has no CAP_SYS_RESOURCE. Setting LimitNICE in the user-scoped sunshine.service
+# would therefore not just fail to help, it would make the unit fail to start.
+# user@.service is a system unit, so PID 1 raises it for the whole session and
+# Sunshine simply inherits the headroom.
+#
+# Verified as gamer on the running guest 2026-08-05:
+#   systemd-run --uid=1001 ...                     -> setpriority(-15) EPERM
+#   systemd-run --uid=1001 -p LimitNICE=-15 ...    -> setpriority(-15) OK, nice -15
+#
+# -15 matches the most aggressive value Sunshine asks for (it also asks for -10).
+# This is inherited by everything in the session, including games — it grants the
+# ABILITY to renice, it does not renice anything by itself.
+- name: Ensure the user manager drop-in directory exists
+  ansible.builtin.file:
+    path: "/etc/systemd/system/user@{{ getent_passwd[gaming_user][1] | default(1001) }}.service.d"
+    state: directory
+    mode: '0755'
+
+- name: Give the gaming session headroom to raise thread priority
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (gaming role, sunshine.yaml) - do not edit manually.
+      # Lets Sunshine's capture/encode threads reach the negative nice values it
+      # asks for. See sunshine.yaml for why this cannot live in sunshine.service.
+      [Service]
+      LimitNICE=-15
+    dest: "/etc/systemd/system/user@{{ getent_passwd[gaming_user][1] | default(1001) }}.service.d/10-gaming-nice.conf"
+    mode: '0644'
+  # rlimits are established when the manager execs, so this only takes hold once
+  # the user manager restarts — which tears down the streaming session, hence a
+  # handler rather than an inline restart.
+  notify:
+    - Reload systemd
+    - Restart gaming session
 
 # -----------------------------------------------------------------------------
 # Input: Sunshine injects the Moonlight client's mouse/keyboard/gamepad via

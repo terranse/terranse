@@ -6,13 +6,13 @@ service_tests:
   jellyfin:
     containers:
       - jellyfin
-      - jellyseerr
+      - seerr
     health_checks:
       - name: jellyfin
         port: 8096
         path: /
         expected_status: [200, 302, 401]
-      - name: jellyseerr
+      - name: seerr
         port: 5055
         path: /
         expected_status: [200, 302]
@@ -53,6 +53,7 @@ service_tests:
       - sonarr
       - lidarr
       - lazylibrarian
+      - bazarr
       - unpackerr
     health_checks:
       - name: prowlarr
@@ -71,6 +72,10 @@ service_tests:
         port: 8080
         path: /
         expected_status: [200, 302, 401]
+      - name: bazarr
+        port: 6767
+        path: /
+        expected_status: [200, 302]
     # unpackerr uses 1password for API keys
     uses_onepassword: true
 

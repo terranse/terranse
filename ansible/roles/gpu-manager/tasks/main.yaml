@@ -226,13 +226,19 @@
 # prefixes on these shares cannot run MSI installers at all. Never add expose-acl=1;
 # it takes the whole mount down unless the host dataset has POSIX ACLs, and Wine does
 # not want it regardless.
+#
+# cache=always: let the guest kernel cache virtiofs metadata and pages. Wine/Proton
+# game loads are stat/open storms, and with the default cache mode every one of them
+# is a round-trip to virtiofsd on the host — this was the dominant cost in game load
+# times, not the NVMe pool underneath. Safe here because the gaming VMs are the only
+# writers to these shares. Takes effect at the next VM power cycle, not on qm set.
 - name: Attach virtiofs shares to gaming VMs
   ansible.builtin.command: >-
     qm set {{ item.value.vmid }}
     {% for share in ((item.value.mounts | default([]) | map(attribute='name') | list)
                      + [vgpu_virtiofs_mapping | default('nvidia-guest-drivers')])
                     | select('in', _published) | list %}
-    --virtiofs{{ loop.index0 }} dirid={{ share }},expose-xattr=1
+    --virtiofs{{ loop.index0 }} dirid={{ share }},expose-xattr=1,cache=always
     {% endfor %}
   loop: "{{ gaming_vms | dict2items }}"
   loop_control:

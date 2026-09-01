@@ -1,0 +1,33 @@
+---
+# Hermes agent CLI (https://github.com/NousResearch/hermes-agent) install and
+# provider wiring. Installed per-user (bundles its own uv/Python 3.11/Node),
+# so it runs as llm_user rather than system-wide.
+
+- name: Check whether Hermes is already installed for the llm user
+  ansible.builtin.command: bash -lc "command -v hermes"
+  become: true
+  become_user: "{{ llm_user }}"
+  register: hermes_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Hermes agent CLI
+  ansible.builtin.shell: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ llm_user }}"
+  when: hermes_check.rc != 0
+
+- name: Deploy Hermes environment configuration
+  ansible.builtin.template:
+    src: hermes-llm.sh.j2
+    dest: "/etc/profile.d/hermes-llm.sh"
+    mode: '0644'
+
+- name: Select the default Hermes model (best-effort; verify manually per plan Task 6)
+  ansible.builtin.command: bash -lc "source /etc/profile.d/hermes-llm.sh && hermes model custom:{{ llm_default_model }}"
+  become: true
+  become_user: "{{ llm_user }}"
+  changed_when: false
+  failed_when: false

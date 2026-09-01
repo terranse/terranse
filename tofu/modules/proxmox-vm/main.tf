@@ -271,6 +271,14 @@ resource "proxmox_vm_qemu" "vms" {
       # declare that would satisfy it — it's provider/API bookkeeping, not
       # config drift — so ignore the block instead of fighting it.
       startup_shutdown,
+      # Power state is managed by hand (and later by gpu-manager), not by
+      # tofu. `gaming` and `ai-vm` share a single 24Q slice of the A5000 and
+      # must never run at once, so stopping one to free the GPU is normal
+      # operation — but the provider defaults vm_state to "running", which
+      # made every plan want to start both and hand the loser a vGPU the
+      # card cannot create. VMs are still started when first created;
+      # only later reconciliation is dropped.
+      vm_state,
     ]
   }
 

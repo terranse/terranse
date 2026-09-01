@@ -216,6 +216,102 @@
     path: /tmp/proton-ge.tar.gz
     state: absent
 
+# -----------------------------------------------------------------------------
+# Per-game DXVK tuning.
+#
+# DXVK looks for `dxvk.conf` in the process working directory, and Steam sets that
+# to the game's install dir — so dropping a file next to the exe needs no launch
+# option, no env var, and no Steam restart. That matters because the alternative
+# (a LaunchOptions entry in localconfig.vdf) can only be written with Steam shut
+# down, or it gets overwritten when Steam next flushes its config.
+#
+# Only applied when the shared library is actually mounted; the install dirs live
+# on the virtiofs game pool, not on the VM's own disk.
+# -----------------------------------------------------------------------------
+- name: Check which DXVK-tuned games are installed
+  ansible.builtin.stat:
+    path: "{{ steam_library_path }}/steamapps/common/{{ item.key }}"
+  register: _dxvk_game_dirs
+  loop: "{{ steam_game_dxvk_conf | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - game_storage_mount | bool
+    - steam_game_dxvk_conf | length > 0
+
+# Skipped silently for games that are not installed — the tuned list is a
+# superset of whatever happens to be on the pool at any given moment.
+- name: Apply per-game DXVK configuration
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (gaming role, steam.yaml) - do not edit manually.
+      {{ item.item.value.comment | default('') }}
+      {% for k, v in item.item.value.options.items() %}
+      {{ k }} = {{ v }}
+      {% endfor %}
+    dest: "{{ steam_library_path }}/steamapps/common/{{ item.item.key }}/dxvk.conf"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
+  loop: "{{ _dxvk_game_dirs.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.key | default('skipped') }}"
+  when: item.stat.exists | default(false)
+
+# -----------------------------------------------------------------------------
+# Per-game Source-engine cvars.
+#
+# Written as `cfg/autoexec.cfg` inside the game's MOD directory (Portal's is
+# `Portal/portal/`, not the install root), which the engine execs on every
+# launch.
+#
+# It has to be autoexec.cfg specifically. The obvious alternatives were both
+# measured and both fail:
+#   - `cfg/config.cfg` is where the setting lives at rest, but the engine
+#     REWRITES that file from its live cvars on every exit. Setting a value
+#     there holds only until something in-game changes it back — and a single
+#     run with a different value silently persists into every later run (which
+#     is exactly how it invalidated an A/B test of this fix).
+#   - `+cvar value` as a launch option did NOT take effect here at all: with
+#     config.cfg holding 0 and `+mat_queue_mode -1` on the command line, the
+#     game demonstrably behaved as 0 and wrote 0 back out.
+# autoexec.cfg is re-applied on each launch and wins over config.cfg, so the
+# value survives both a settings reset and a game-initiated rewrite.
+#
+# Only applied when the shared library is actually mounted; the install dirs
+# live on the virtiofs game pool, not on the VM's own disk.
+# -----------------------------------------------------------------------------
+- name: Check which Source-tuned games are installed
+  ansible.builtin.stat:
+    path: "{{ steam_library_path }}/steamapps/common/{{ item.key }}/{{ item.value.mod_dir }}"
+  register: _source_game_dirs
+  loop: "{{ steam_game_source_cvars | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - game_storage_mount | bool
+    - steam_game_source_cvars | length > 0
+
+# Skipped silently for games that are not installed — the tuned list is a
+# superset of whatever happens to be on the pool at any given moment.
+- name: Apply per-game Source-engine cvars
+  ansible.builtin.copy:
+    content: |
+      // Managed by Ansible (gaming role, steam.yaml) - do not edit manually.
+      {{ item.item.value.comment | default('') }}
+      {% for k, v in item.item.value.cvars.items() %}
+      {{ k }} {{ v }}
+      {% endfor %}
+    dest: >-
+      {{ steam_library_path }}/steamapps/common/{{ item.item.key }}/{{ item.item.value.mod_dir }}/cfg/autoexec.cfg
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
+  loop: "{{ _source_game_dirs.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.key | default('skipped') }}"
+  when: item.stat.exists | default(false)
+
 - name: Display Steam setup info
   ansible.builtin.debug:
     msg: |

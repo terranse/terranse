@@ -77,3 +77,23 @@ intel_sriov_vfs: 7
 
 # Enable GUC submission for better SR-IOV performance
 intel_enable_guc: true
+
+# vGPU licensing via nvlts (NVIDIA Local Trusted Store): forge a permanent
+# node-locked license into the driver's local store — fully offline, no DLS
+# server, no cert chain, no driver patching. This is the only supported method;
+# it works on all vGPU branches incl. 20.x/595 (which FastAPI-DLS cannot license
+# because the NLS root CA moved into unpatchable GSP firmware). The legacy
+# FastAPI-DLS flow was removed — see git history if it's ever needed for < 20.x.
+nvlts_repo_url: https://git.collinwebdesigns.de/vgpu/nvlts
+nvlts_vendored_commit: e639414
+# Used only if the live driver version can't be read when the license is generated.
+nvlts_fallback_driver_version: "595.58.03"
+# License product/feature. Defaults match FeatureType 2 (RTX Virtual Workstation,
+# e.g. the A5000 RTXA5000-8Q/24Q profiles). For other profiles set these to the
+# matching values (e.g. vPC: "NVIDIA Virtual PC" / "GRID-Virtual-PC" / "2.0").
+vgpu_product_name: "NVIDIA RTX Virtual Workstation"
+vgpu_feature_name: "Quadro-Virtual-DWS"
+vgpu_feature_version: "5.0"
+
+# vGPU FeatureType: 2 = RTX vWS (A5000 Q-series profile). 1 = vGPU/vPC, 4 = vCS.
+vgpu_feature_type: 2

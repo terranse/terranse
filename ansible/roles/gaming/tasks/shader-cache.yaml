@@ -1,0 +1,129 @@
+---
+# Vulkan shader pre-caching
+#
+# Steam ships games with Fossilize pipeline archives and, before the game starts,
+# "replays" them so the GPU driver compiles every pipeline up front instead of
+# stuttering mid-game. On this guest that replay was taking ~5 minutes AND running
+# again from scratch on every launch. Measured on Jedi: Fallen Order (appid
+# 1172380), which re-replayed in full on 24, 26 and 29 Jul without the game ever
+# having updated:
+#
+#   19:54:10  Still replaying 1172380 (0%, 0/184581)
+#   ...
+#   19:59:05  fossilize_replay completed, remove from build queue
+#
+# Two independent problems, fixed separately below.
+#
+# -----------------------------------------------------------------------------
+# 1. The result is thrown away, so the replay repeats forever.
+#
+# The replay's real output is a native driver cache, which Steam harvests into
+# `shadercache/<appid>/nvidiav1/`. For this game that merged cache is 2.06 GB:
+#
+#   2057332649  shadercache/1172380/nvidiav1/GLCache/.../steamapp_merged_shader_cache.bin
+#
+# The NVIDIA driver's shader disk cache limit is 1 GB by default (raised from
+# 128 MB in the 460 branch, and unchanged since — 595.58.03 here). A 2.06 GB cache
+# is over budget the moment it is handed back, so the driver prunes it; Steam then
+# sees the pipelines as missing and replays the whole 1 GB Fossilize archive again.
+# That is Valve steam-for-linux#11392 and NVIDIA bugs 4932793 / 4934720, both still
+# open. The tell is in the same log: the sibling database that DID fit produced a
+# `replay_cache.*.foz` and replayed in two seconds (0/64), while the big one has no
+# replay_cache at all and starts from zero every time.
+#
+# So: raise the budget past what the library actually produces. This has to be set
+# in the environment Steam itself inherits — both bug reports are explicit that a
+# per-game Steam launch option does NOT take effect.
+#
+# -----------------------------------------------------------------------------
+# 2. The replay itself is slower than the box can do.
+#
+# Steam decides the fossilize_replay thread count itself, and in some
+# configurations that collapses to a single core regardless of what the machine
+# has. `unShaderBackgroundProcessingThreads` overrides it, and is set from the
+# guest's own vCPU count (12 here). The pre-launch replay runs before the game
+# does, so there is nothing to take time away from.
+# -----------------------------------------------------------------------------
+
+- name: Raise the NVIDIA shader disk cache budget for user services
+  # systemd --user reads /etc/environment.d/*.conf, so this reaches sway-gaming,
+  # gamescope-session and everything they launch — which is how Steam gets it.
+  # (/etc/environment is PAM-only and would NOT cover the session units.)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (gaming role, shader-cache.yaml) - do not edit manually.
+      __GL_SHADER_DISK_CACHE=1
+      __GL_SHADER_DISK_CACHE_SIZE={{ nvidia_shader_cache_size }}
+      {% if nvidia_shader_cache_skip_cleanup | bool %}
+      __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
+      {% endif %}
+    dest: /etc/environment.d/10-nvidia-shader-cache.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Raise the NVIDIA shader disk cache budget for login shells
+  # Parity for anything started outside the user manager (an SSH session running a
+  # game by hand, a Sunshine app command). Harmless duplication of the above.
+  ansible.builtin.lineinfile:
+    path: /etc/environment
+    regexp: '^{{ item.key }}='
+    line: '{{ item.key }}={{ item.value }}'
+    state: "{{ 'present' if item.value else 'absent' }}"
+  loop:
+    - { key: '__GL_SHADER_DISK_CACHE', value: '1' }
+    - { key: '__GL_SHADER_DISK_CACHE_SIZE', value: '{{ nvidia_shader_cache_size }}' }
+    - key: '__GL_SHADER_DISK_CACHE_SKIP_CLEANUP'
+      value: "{{ '1' if nvidia_shader_cache_skip_cleanup | bool else '' }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+# Flatpak builds the sandbox environment itself rather than inheriting the whole
+# host one, so the two settings above do not reach Steam or Lutris on their own.
+- name: Raise the NVIDIA shader disk cache budget inside the Flatpak sandboxes
+  ansible.builtin.command:
+    cmd: >-
+      flatpak override
+      --env=__GL_SHADER_DISK_CACHE=1
+      --env=__GL_SHADER_DISK_CACHE_SIZE={{ nvidia_shader_cache_size }}
+      {{ '--env=__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1'
+         if nvidia_shader_cache_skip_cleanup | bool
+         else '--unset-env=__GL_SHADER_DISK_CACHE_SKIP_CLEANUP' }}
+      {{ item }}
+  become: true
+  loop:
+    - com.valvesoftware.Steam
+    - net.lutris.Lutris
+  changed_when: false
+  failed_when: false
+
+# Steam reads this once at start-up: it must be restarted for a change to apply.
+# Deliberately NOT restarted here — this role is run against a guest that may be
+# streaming a game right now.
+- name: Give fossilize_replay every vCPU
+  ansible.builtin.copy:
+    content: |
+      // Managed by Ansible (gaming role, shader-cache.yaml) - do not edit manually.
+      unShaderBackgroundProcessingThreads {{ steam_shader_threads }}
+    dest: "{{ _steam_root }}/steam_dev.cfg"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
+  when: steam_enabled | bool
+
+- name: Report shader cache tuning
+  ansible.builtin.debug:
+    msg: |
+      Shader pre-caching tuned. Both settings are read at process start, so they
+      take effect after the next Steam restart (env vars: after the next boot or
+      `systemctl --user restart sway-gaming`).
+
+      fossilize_replay threads : {{ steam_shader_threads }}
+      NVIDIA cache budget      : {{ (nvidia_shader_cache_size | int / 1073741824) | round(1) }} GiB
+      Cleanup disabled         : {{ nvidia_shader_cache_skip_cleanup }}
+
+      Verify with the next launch of a large title:
+        grep -E 'Still replaying|compile job' \
+          {{ _steam_root }}/logs/shader_log.txt | tail -20
+      A replay that is being reused prints a two-second "0/<small>" pass instead
+      of counting through hundreds of thousands of pipelines.

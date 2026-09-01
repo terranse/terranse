@@ -1,0 +1,27 @@
+---
+# Default variables for the llm role
+#
+# Deploys Ollama (serving local coding models) and the Hermes agent CLI on a
+# VM holding the full 24Q vGPU slice. See docs/superpowers/specs/2026-08-11-ai-vm-local-llm-design.md.
+
+# System user that owns the Hermes CLI and its config. Ollama runs as its own
+# "ollama" user, created by the upstream install script.
+llm_user: llm
+
+gpu_type: nvidia_vgpu
+
+# Bind all interfaces, not just localhost, so the OpenAI-compatible API is
+# reachable over the LAN/Netbird for future clients, not only Hermes on-box.
+llm_ollama_bind: "0.0.0.0:11434"
+
+# Models to `ollama pull` on deploy. Tags verified against the live Ollama
+# library on 2026-08-11 — `ollama pull` 404s on a tag that doesn't exist, so
+# re-check https://ollama.com/library/<model>/tags before editing these.
+# Devstral is published as `devstral`, not `devstral-small2`, and carries its
+# release date in the tag rather than a "small 2" version suffix.
+llm_ollama_models:
+  - "qwen3.6:27b-q4_K_M"
+  - "devstral:24b-small-2505-q4_K_M"
+
+# Model Hermes defaults to on first run.
+llm_default_model: "{{ llm_ollama_models[0] }}"

@@ -19,19 +19,37 @@ services:
       # - 1900:1900/udp # Service discovery by DLNA/-clients (optional)
     restart: unless-stopped
 
-# When setting up this application (v1.1.1) and you enter setup with Jellyfin account
-# make sure that the hostname ends with a '/' to indicate that there is no subfolder
-  jellyseerr:
-    image: fallenbagel/jellyseerr:latest
-    container_name: jellyseerr
+# When setting up this application and you enter setup with a Jellyfin account,
+# make sure the hostname ends with a '/' to indicate that there is no subfolder.
+#
+# Overseerr and Jellyseerr merged into Seerr in February 2026; fallenbagel/jellyseerr
+# is the pre-merge image. Seerr is one codebase covering Plex, Jellyfin and Emby.
+#
+# Two things differ from the jellyseerr image and both matter:
+#   - it no longer ships an init process, hence `init: true`
+#   - it runs as the `node` user (UID 1000) rather than root, so the config
+#     directory must be owned 1000:1000. base-service's PUID/PGID are ignored.
+# Seerr auto-migrates a jellyseerr config found in the same volume, so this points
+# at a fresh directory and the old /appdata/jellyseerr is left intact to roll back to.
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: seerr
+    init: true
     extends:
       file: common.yaml
       service: base-service
     environment:
       LOG_LEVEL: debug
+      PORT: 5055
     ports:
       - 5055:5055
     volumes:
-      - "{{ service_mounts.config }}/jellyseerr:/app/config"
+      - "{{ service_mounts.config }}/seerr:/app/config"
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:5055/api/v1/settings/public || exit 1
+      start_period: 20s
+      timeout: 3s
+      interval: 15s
+      retries: 3
     restart: unless-stopped
 

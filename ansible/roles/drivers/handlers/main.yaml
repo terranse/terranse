@@ -65,3 +65,9 @@
     name: nvidia-gridd
     state: restarted
   failed_when: false
+
+- name: Reboot for NVIDIA driver
+  ansible.builtin.debug:
+    msg: |
+      NVIDIA driver installed. A reboot is recommended.
+      Run: sudo reboot
