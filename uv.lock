@@ -1054,6 +1054,12 @@ test = [
     { name = "yamllint" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "ansible-lint" },
+    { name = "yamllint" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "ansible", specifier = ">=12.0.0" },
@@ -1071,6 +1077,12 @@ requires-dist = [
     { name = "yamllint", marker = "extra == 'test'", specifier = ">=1.35.0" },
 ]
 provides-extras = ["test"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ansible-lint", specifier = ">=24.0.0" },
+    { name = "yamllint", specifier = ">=1.35.0" },
+]
 
 [[package]]
 name = "typing-extensions"

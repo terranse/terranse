@@ -22,6 +22,14 @@ test = [
     "jinja2>=3.1.0",
 ]
 
+# Installed by a bare `uv sync`, so `just lint` works without a separate step.
+# The heavier molecule/pytest stack stays in the `test` extra behind `just install-test`.
+[dependency-groups]
+dev = [
+    "ansible-lint>=24.0.0",
+    "yamllint>=1.35.0",
+]
+
 [tool.setuptools]
 # This is an infrastructure project, not a Python package
 packages = []
