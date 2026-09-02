@@ -21,3 +21,8 @@ output "ansible_inventory" {
       name => entry
   }
 }
+
+output "lxc_mac_addresses" {
+  description = "Deterministic MAC per LXC, for dnsmasq reservations"
+  value       = local.mac_addresses
+}

@@ -11,6 +11,35 @@ terraform {
   }
 }
 
+locals {
+  # Deterministic MAC per container, inside Proxmox's BC:24:11 OUI. Derived
+  # from the container name so it is known at plan time: a DHCP reservation
+  # does not have to wait for the container to exist, and rebuilding one
+  # preserves its address.
+  #
+  # Changing this derivation moves every container's MAC, and therefore every
+  # DHCP lease. `media` must hash to BC:24:11:72:1C:95.
+  mac_addresses = {
+    for n in keys(var.configuration) : n => upper(join(":", [
+      "BC", "24", "11",
+      substr(sha256(n), 0, 2),
+      substr(sha256(n), 2, 2),
+      substr(sha256(n), 4, 2),
+    ]))
+  }
+}
+
+resource "terraform_data" "mac_collision_guard" {
+  input = local.mac_addresses
+
+  lifecycle {
+    precondition {
+      condition     = length(distinct(values(local.mac_addresses))) == length(local.mac_addresses)
+      error_message = "Deterministic MAC collision across containers on this host: ${jsonencode(local.mac_addresses)}"
+    }
+  }
+}
+
 data "external" "resolve_lxc_template" {
   program = ["${path.module}/resolve-template.sh"]
   query   = { prefix = var.image_prefix }
@@ -82,5 +111,6 @@ resource "proxmox_lxc" "lxcs" {
     gw     = var.gateway
     ip     = "dhcp"
     ip6    = "auto"
+    hwaddr = local.mac_addresses[each.key]
   }
 }
