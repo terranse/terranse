@@ -1,38 +1,24 @@
 variable "domain" {
-  description = "Base domain for DNS overrides and reverse proxy hostnames"
+  description = "Base domain for service names"
   type        = string
 }
 
-variable "kea_subnet_id" {
-  description = "Kea DHCP subnet ID for reservations (resource ID from opnsense_kea_subnet)"
+variable "caddy_host" {
+  description = "IP of the Caddy host; service DNS records point here"
   type        = string
 }
 
-variable "lxc_containers" {
-  description = "Map of LXC containers with their network configuration. MAC address must be obtained from proxmox provider outputs if available."
-  type = map(object({
-    ip_address  = string
-    mac_address = string
-  }))
-  default = {}
+variable "cert_refid" {
+  description = "OPNsense certificate refid the plugin exports for Caddy"
+  type        = string
 }
 
-variable "docker_services" {
-  description = "Map of Docker services to configure reverse proxy for. The key is the service name (used as subdomain and should match ansible template file name), and the value contains container details."
-  type = map(object({
-    container_name = string
-    port           = number
+variable "services" {
+  description = "Exposed services with their upstream host"
+  type = list(object({
+    bundle   = string
+    name     = string
+    port     = number
+    upstream = string
   }))
-  default = {}
-
-  validation {
-    condition     = alltrue([for k, v in var.docker_services : can(regex("^[a-z0-9-]+$", k))])
-    error_message = "Service names must contain only lowercase letters, numbers, and hyphens."
-  }
-}
-
-variable "caddy_listen_port" {
-  description = "Port for Caddy to listen on"
-  type        = number
-  default     = 54443
 }

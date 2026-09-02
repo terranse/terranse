@@ -1,0 +1,7 @@
+# Managed by terranse (tofu). Do not edit on the firewall — changes are overwritten.
+%{ for s in services ~}
+${s.name}.${domain} {
+	tls /usr/local/etc/caddy/certificates/${cert_refid}.pem /usr/local/etc/caddy/certificates/${cert_refid}.key
+	reverse_proxy ${s.upstream}:${s.port}
+}
+%{ endfor ~}
