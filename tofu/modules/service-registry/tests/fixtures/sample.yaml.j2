@@ -1,0 +1,17 @@
+services:
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    volumes:
+      - "{{ service_mounts.config }}/{{ item.name }}:/config"
+    ports:
+      - 8096:8096 # caddy:expose
+      - 8920:8920 # Https webUI (optional)
+      - 7359:7359/udp # discovery
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    ports:
+      - "5055:5055" # caddy:expose
+  admin:
+    image: example/admin
+    ports:
+      - 127.0.0.1:9000:9000 # caddy:expose=console

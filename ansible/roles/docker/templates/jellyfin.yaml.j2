@@ -13,7 +13,7 @@ services:
       - "{{ service_mounts.tv_series }}:/media/tvshows" # Map to default search path of Jellyfin
       - "{{ service_mounts.movies }}:/media/movies"
     ports:
-      - 8096:8096 # Http webUI
+      - 8096:8096 # caddy:expose Http webUI
       - 8920:8920 # Https webUI (optional)
       - 7359:7359/udp # Clients discovery of Jellyfin on LAN (optional)
       # - 1900:1900/udp # Service discovery by DLNA/-clients (optional)
@@ -42,7 +42,7 @@ services:
       LOG_LEVEL: debug
       PORT: 5055
     ports:
-      - 5055:5055
+      - 5055:5055 # caddy:expose
     volumes:
       - "{{ service_mounts.config }}/seerr:/app/config"
     healthcheck:

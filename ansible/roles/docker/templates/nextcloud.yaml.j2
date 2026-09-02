@@ -26,7 +26,7 @@ services:
       # Temporary solution for https://github.com/nextcloud/docker/issues/763#issuecomment-1007447212
       - "{{ service_mounts.config }}/{{ item.name }}/redis-session.ini:/usr/local/etc/php/conf.d/redis-session.ini"
     ports:
-      - 8080:80
+      - 8080:80 # caddy:expose
       - 443:443
     user: 1000:1000
     restart: unless-stopped

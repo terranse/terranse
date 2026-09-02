@@ -44,7 +44,7 @@ services:
       # - ./media:/media # Optional; used for storing icons etc.
       # - ./custom-templates:/templates # Optional; storing custom email templates
     ports:
-      - 9000:9000
+      - 9000:9000 # caddy:expose=authentik
       - 9443:9443
     depends_on:
       - postgresql

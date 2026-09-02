@@ -14,7 +14,7 @@ services:
       VIKUNJA_SERVICE_JWTSECRET: "{{ lookup('community.general.onepassword', 'Vikunja', vault= 'HomeNetwork', field= 'jwt_secret') }}"
       VIKUNJA_CORS_ENABLE: "false"
     ports:
-      - 3456:3456
+      - 3456:3456 # caddy:expose
     volumes:
       - "{{ service_mounts.config }}:/app/vikunja/files"
     depends_on:

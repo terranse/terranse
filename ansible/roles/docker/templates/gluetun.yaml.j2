@@ -13,7 +13,7 @@ services:
     ports:
       # Published here rather than on qbittorrent, which no longer has a network
       # namespace of its own and so cannot publish ports itself.
-      - 8080:8080   # qBittorrent WebUI
+      - 8080:8080   # caddy:expose=qbittorrent
     environment:
       TZ: Europe/Stockholm
       # Generate Windscribe credentials: https://windscribe.com/getconfig/wireguard

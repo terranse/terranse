@@ -7,7 +7,7 @@ services:
       file: common.yaml
       service: base-service
     ports:
-      - "9696:9696"
+      - "9696:9696" # caddy:expose
     volumes: 
       - "{{ service_mounts.config }}/prowlarr:/config"
     restart: unless-stopped
@@ -45,7 +45,7 @@ services:
       file: common.yaml
       service: base-service
     ports:
-      - "7878:7878"
+      - "7878:7878" # caddy:expose
     volumes:
       - "{{ service_mounts.config }}/radarr:/config"
       - "{{ service_mounts.movies }}:/media/movies"
@@ -58,7 +58,7 @@ services:
       file: common.yaml
       service: base-service
     ports:
-      - "8989:8989"
+      - "8989:8989" # caddy:expose
     volumes:
       - "{{ service_mounts.config }}/sonarr:/config"
       - "{{ service_mounts.tv_series }}:/media/tv_series"
@@ -71,7 +71,7 @@ services:
       file: common.yaml
       service: base-service
     ports:
-      - "8686:8686"
+      - "8686:8686" # caddy:expose
     volumes:
       - "{{ service_mounts.config }}/lidarr:/config"
       - "{{ service_mounts.util }}/Mp3:/media/music"
@@ -84,7 +84,7 @@ services:
       file: common.yaml
       service: base-service
     ports:
-      - "5299:5299"
+      - "5299:5299" # caddy:expose
     environment:
       DOCKER_MODS: linuxserver/mods:universal-calibre #optional
     volumes:
@@ -101,7 +101,7 @@ services:
       file: common.yaml
       service: base-service
     ports:
-      - "6767:6767"
+      - "6767:6767" # caddy:expose
     volumes:
       - "{{ service_mounts.config }}/bazarr:/config"
       - "{{ service_mounts.movies }}:/media/movies"
