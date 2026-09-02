@@ -23,22 +23,22 @@ variable "machine_common" {
     error_message = "One or more roles do not exist (or are empty) under ansible/roles/."
   }
 
-  # Services must exist under ansible/roles/services
+  # Services must exist under ansible/roles
   validation {
     condition = alltrue([
       for s in var.machine_common.services :
-      length(fileset("${var.ansible_root}/roles/services", "**/${s.name}/**")) > 0
+      length(fileset("${var.ansible_root}/roles", "**/${s.name}/**")) > 0
     ])
-    error_message = "One or more services do not exist (or are empty) under ansible/roles/services/."
+    error_message = "One or more services do not exist (or are empty) under ansible/roles/."
   }
 
   # Docker service templates must exist
   validation {
     condition = alltrue([
       for d in var.machine_common.docker_services :
-      fileexists("${var.ansible_root}/roles/services/docker/templates/${d.name}.yaml.j2")
+      fileexists("${var.ansible_root}/roles/docker/templates/${d.name}.yaml.j2")
     ])
-    error_message = "One or more docker services lack a .yaml.j2 template under ansible/roles/services/docker/templates/."
+    error_message = "One or more docker services lack a .yaml.j2 template under ansible/roles/docker/templates/."
   }
 
   # To run docker services it also needs to have docker setup
