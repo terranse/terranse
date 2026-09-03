@@ -110,7 +110,17 @@ resource "proxmox_lxc" "lxcs" {
     bridge = var.network_bridge
     gw     = var.gateway
     ip     = "dhcp"
-    ip6    = "auto"
+    # NOT "auto". Proxmox rewrites /etc/network/interfaces from this on every
+    # container start, and `ip6 = "auto"` emits `iface eth0 inet6 auto`, which
+    # the ifupdown in Debian 13 rejects:
+    #   error: /etc/network/interfaces: line5: iface eth0: unsupported address
+    #   method 'auto'
+    # That parse error aborts the WHOLE file, so eth0 never comes up and the
+    # container boots with no network at all. It stayed hidden for months
+    # because the containers were never rebooted; the 2026-09-03 MAC rollout
+    # rebooted all nine and every one came up without an address.
+    # Nothing here uses global IPv6 (link-local only), so SLAAC buys nothing.
+    ip6    = "manual"
     hwaddr = local.mac_addresses[each.key]
   }
 }
