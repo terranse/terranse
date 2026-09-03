@@ -82,51 +82,78 @@ module "ansible-wiring" {
   ))
 }
 
-# TODO: Uncomment and configure when OPNSense and Caddy providers are set up
-# Example integration of OPNSense networking module
-# This should be configured after:
-# 1. Creating a Kea subnet resource in OPNSense
-# 2. Obtaining MAC addresses from LXC containers (may need to add to proxmox-container module outputs)
-# 3. Configuring provider credentials in secrets
-#
-# resource "opnsense_kea_subnet" "lan" {
-#   subnet      = "192.168.1.0/24"
-#   description = "LAN subnet"
-# }
-#
-# module "opnsense-networking" {
-#   source = "./modules/opnsense-networking"
-#
-#   domain        = var.domain
-#   kea_subnet_id = opnsense_kea_subnet.lan.id
-#
-#   # Map LXC containers to their network info
-#   # NOTE: MAC addresses need to be added to proxmox-container module outputs
-#   lxc_containers = {
-#     for host_key, host in var.hosts : host_key => {
-#       for lxc_key, lxc in host.lxcs : lxc_key => {
-#         ip_address  = "192.168.1.${100 + index(keys(host.lxcs), lxc_key)}"  # Example: assign sequential IPs
-#         mac_address = module.proxmox-lxc[host_key].lxc_mac_addresses[lxc_key]  # Need to add this output
-#       }
-#     }
-#   }
-#
-#   # Map docker services to their reverse proxy config
-#   # Service name should match the template file name (e.g., jellyfin.yaml.j2)
-#   docker_services = {
-#     "jellyfin" = {
-#       container_name = "media"  # LXC container hosting the service
-#       port           = 8096
-#     }
-#     "nextcloud" = {
-#       container_name = "colab"
-#       port           = 80
-#     }
-#     "authentik" = {
-#       container_name = "authentication"
-#       port           = 9000
-#     }
-#   }
-#
-#   caddy_listen_port = 54443
-# }
+# ---------------------------------------------------------------------------
+# Service registration: DNS names + Caddy routes for every exposed container.
+# ---------------------------------------------------------------------------
+
+locals {
+  # Every LXC name across every host, for the uniqueness guard below.
+  all_lxc_names = flatten([
+    for host_key, host in var.hosts : keys(try(host.lxcs, {}))
+  ])
+
+  # Deterministic MACs, flattened across hosts. `merge` would silently drop a
+  # duplicate name, which is exactly what the guard prevents.
+  lxc_macs = merge([
+    for host_key, mod in module.proxmox-lxc : mod.lxc_mac_addresses
+  ]...)
+
+  # Which container runs which compose bundle, so a service's upstream can be
+  # addressed by container name rather than by an address that moves.
+  bundle_to_container = merge(flatten([
+    for host_key, host in var.hosts : [
+      for lxc_name, lxc in try(host.lxcs, {}) : {
+        for svc in try(lxc.docker_services, []) : svc.name => lxc_name
+      }
+    ]
+  ])...)
+}
+
+# MACs derive from the container name ALONE, and proxmox-container is
+# instantiated once per host — so two containers sharing a name on different
+# hosts would be handed identical MACs on one L2 segment. Nothing inside a
+# single module instance can see that, so the check has to live here.
+resource "terraform_data" "lxc_name_uniqueness_guard" {
+  input = local.all_lxc_names
+
+  lifecycle {
+    precondition {
+      condition     = length(local.all_lxc_names) == length(distinct(local.all_lxc_names))
+      error_message = "LXC names must be unique across ALL hosts, because deterministic MACs are derived from the name alone. Duplicates: ${jsonencode([for n in distinct(local.all_lxc_names) : n if length([for m in local.all_lxc_names : m if m == n]) > 1])}"
+    }
+  }
+}
+
+module "service_registry" {
+  source = "../../modules/service-registry"
+
+  template_dir = "${path.root}/../../../ansible/roles/docker/templates"
+  bundles      = keys(local.bundle_to_container)
+}
+
+module "opnsense_networking" {
+  source = "../../modules/opnsense-networking"
+
+  domain     = var.domain
+  caddy_host = var.caddy_host
+  cert_refid = var.opnsense_cert_refid
+
+  # Upstreams address the container by name; dnsmasq registers those from the
+  # DHCP reservations below, so the name is stable even though the address is
+  # handed out by DHCP.
+  services = [
+    for s in module.service_registry.services : {
+      bundle   = s.bundle
+      name     = s.name
+      port     = s.port
+      upstream = "${local.bundle_to_container[s.bundle]}.${var.domain}"
+    }
+  ]
+
+  reservations = {
+    for name, ip in var.lxc_reserved_ips : name => {
+      mac = local.lxc_macs[name]
+      ip  = ip
+    } if contains(keys(local.lxc_macs), name)
+  }
+}

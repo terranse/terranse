@@ -12,6 +12,10 @@ terraform {
       source  = "1Password/onepassword"
       version = ">= 2.0.0"
     }
+    opnsense = {
+      source  = "browningluke/opnsense"
+      version = "~> 0.16"
+    }
   }
   required_version = ">= 1.3.0"
 }
@@ -25,4 +29,15 @@ provider "proxmox" {
 
 provider "onepassword" {
   account = "my.1password.com"
+}
+
+provider "opnsense" {
+  uri        = module.opnsense_secrets.items["url"]
+  api_key    = module.opnsense_secrets.items["api-key"]
+  api_secret = module.opnsense_secrets.items["api-secret"]
+
+  # The web GUI on :54443 serves its own self-signed certificate
+  # (refid 671ffeac69f00), not the ACME wildcard Caddy uses, so verification
+  # cannot succeed against it. The path is LAN-only.
+  allow_insecure = true
 }
