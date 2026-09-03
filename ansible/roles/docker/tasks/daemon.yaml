@@ -11,6 +11,7 @@
 # skipped wherever Docker is already present -- i.e. on every host that
 # already has the problem.
 - name: Cap container log size
+  become: true
   template:
     src: daemon.json.j2
     dest: /etc/docker/daemon.json

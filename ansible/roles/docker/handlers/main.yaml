@@ -6,6 +6,7 @@
 
 # daemon.json is only read at daemon start.
 - name: Restart docker daemon
+  become: true
   service:
     name: docker
     state: restarted
