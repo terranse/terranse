@@ -3,3 +3,9 @@
     project_src: /opt/docker
     remove_orphans: true
     state: present
+
+# daemon.json is only read at daemon start.
+- name: Restart docker daemon
+  service:
+    name: docker
+    state: restarted

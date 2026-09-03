@@ -1,0 +1,20 @@
+# Docker's default json-file driver has NO size limit. Unbounded container
+# logs filled CT 103's 8G rootfs (found 2026-09-03), which broke far more than
+# logging: dhclient-script could no longer create its temp file next to
+# /etc/resolv.conf, exited non-zero, and dhclient turned that into a
+# DHCPDECLINE -- every ten seconds since 2026-07-14. That walked the whole DHCP
+# pool, left 212 abandoned leases all carrying the hostname
+# "authentication", and made authentication.edholm.cc resolve to 211
+# addresses, which is what made authentik return intermittent 502s.
+#
+# This runs unconditionally, not from install.yaml, because that block is
+# skipped wherever Docker is already present -- i.e. on every host that
+# already has the problem.
+- name: Cap container log size
+  template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart docker daemon

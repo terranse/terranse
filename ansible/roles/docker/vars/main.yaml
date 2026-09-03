@@ -1,2 +1,7 @@
 docker_user: default-user
 docker_group: container-data
+
+# Caps Docker's json-file logs, which are unbounded by default.
+docker_log_driver: json-file
+docker_log_max_size: 50m
+docker_log_max_file: "3"

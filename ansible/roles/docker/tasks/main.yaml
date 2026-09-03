@@ -11,6 +11,9 @@
       import_tasks: install.yaml
       when: not docker_binary.stat.exists
 
+    - name: Configure the Docker daemon
+      import_tasks: daemon.yaml
+
     - name: Deploy Docker applications
       import_tasks: apps.yaml
 
