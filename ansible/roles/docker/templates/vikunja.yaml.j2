@@ -11,12 +11,12 @@ services:
       VIKUNJA_DATABASE_TYPE: postgres
       VIKUNJA_DATABASE_USER: vikunja
       VIKUNJA_DATABASE_DATABASE: vikunja
-      VIKUNJA_SERVICE_JWTSECRET: "{{ lookup('community.general.onepassword', 'Vikunja', vault= 'HomeNetwork', field= 'jwt_secret') }}"
+      VIKUNJA_SERVICE_SECRET: "{{ lookup('community.general.onepassword', 'Vikunja', vault= 'HomeNetwork', field= 'jwt_secret') }}"
       VIKUNJA_CORS_ENABLE: "false"
     ports:
       - 3456:3456 # caddy:expose
     volumes:
-      - "{{ service_mounts.config }}:/app/vikunja/files"
+      - "{{ service_mounts.config }}/vikunja:/app/vikunja/files"
     depends_on:
       db:
         condition: service_healthy

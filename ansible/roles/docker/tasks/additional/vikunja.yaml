@@ -1,0 +1,25 @@
+---
+# Vikunja runs as uid 1000 and writes user attachments straight into its files
+# directory -- it does not create that directory itself, and it refuses to
+# start if it cannot write there.
+#
+# The mount used to be the whole `config` dataset root (/appdata). That root is
+# owned by an unmapped host uid (65534 inside this unprivileged LXC), so uid
+# 1000 could never create anything in it and the container crash-looped on
+# "storage validation failed: failed to create test file". Pointing it at the
+# whole dataset was also wrong on its own terms: every other service gets a
+# subdirectory, and vikunja would otherwise have treated every other service's
+# state as its own file storage.
+
+- name: Pre-deployment tasks for vikunja
+  when: task_phase == "pre"
+  vars:
+    additional_tasks_pre: true
+  block:
+    - name: Ensure vikunja files directory
+      file:
+        path: "{{ service_mounts.config }}/vikunja"
+        state: directory
+        owner: "{{ docker_user }}"
+        group: "{{ docker_group }}"
+        mode: '0775'
