@@ -98,6 +98,14 @@
 # same VMs on its own timer, fighting the daemon over them, and the allocation
 # ledger would keep asserting an allocation granted against a card it never
 # read.
+#
+# gpu-arbiter goes for the same reason: it is a second authority that starts
+# and stops these same two VMs, so running both would give them two masters.
+# Its audit log (/var/lib/gpu-manager/history.jsonl) is deliberately kept --
+# it is a record of what happened to this host, and nothing here needs it
+# gone. Note the arbiter is deployed by a different branch of this same role;
+# that branch has to be retired too, or the next run of it brings the arbiter
+# back.
 # -----------------------------------------------------------------------------
 - name: Stop and disable the retired services
   ansible.builtin.systemd:
@@ -108,6 +116,7 @@
     - session-watcher
     - session-monitor
     - gpu-manager-api
+    - gpu-arbiter
   failed_when: false
 
 - name: Remove the retired scripts, units and state
@@ -130,6 +139,11 @@
     - /var/lib/gpu-manager/allocations.lock
     - /var/lib/gpu-manager/watcher-state.json
     - /var/lib/gpu-manager/monitor-state.json
+    - /opt/gpu-manager/gpu-arbiter.py
+    - /usr/local/bin/gpuctl
+    - /etc/systemd/system/gpu-arbiter.service
+    - /etc/gpu-manager/arbiter.conf
+    - /etc/gpu-manager/tenants.json
   notify: Reload systemd
 
 # =============================================================================

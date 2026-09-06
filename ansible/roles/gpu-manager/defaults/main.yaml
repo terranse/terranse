@@ -3,7 +3,7 @@
 #
 # The daemon is built from source on the Ansible controller and copied over;
 # there are no tagged releases yet.
-gpu_manager_src: "{{ playbook_dir }}/../../gpu-manager"
+gpu_manager_src: "{{ playbook_dir }}/../../../gpu-manager"
 
 # Must match the mapping the drivers role registers over the vGPU virtual
 # functions -- the daemon assigns profiles through it, and Proxmox picks a

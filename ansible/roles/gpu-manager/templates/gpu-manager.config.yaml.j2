@@ -10,9 +10,9 @@ vf_release_timeout_s: {{ gpu_manager_vf_release_timeout_s }}
 profiles:
 {% for name, p in gpu_manager_profiles | dictsort %}
   {{ name }}: {vram_mb: {{ p.vram_mb }}, max_instances: {{ p.max_instances }}, mdev_type: {{ p.mdev_type }}}
-{%- endfor %}
+{% endfor %}
 
 vms:
 {% for name, vm in gaming_vms | dictsort %}
   {{ name }}: {vmid: {{ vm.vmid }}, tier: {{ vm.tier | default('game') }}{% if vm.host is defined %}, host: {{ vm.host }}{% endif %}}
-{%- endfor %}
+{% endfor %}
