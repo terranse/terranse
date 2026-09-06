@@ -253,6 +253,9 @@ hosts = {
         disk_size = "150G"
         clone     = "ubuntu-2604-base"
 
+        # Outranked by an active game stream, and displaces an idle one.
+        gpu_tier = "ai"
+
         # Same full-24Q claim as `gaming`. The A5000 only allows one
         # homogeneous slice across the whole card, so ai-vm and gaming are
         # mutually exclusive — stop one before starting the other.

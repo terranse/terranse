@@ -76,7 +76,11 @@ variable "configuration" {
       primary_gpu   = optional(bool, false)
       rombar        = optional(bool, true)
     })), [])
-    roles = optional(list(object({ name = string, vars = optional(map(string), {}) })), [])
+    # How gpu-manager ranks this VM when the card is contested: "game" (an
+    # active stream outranks everything but an explicit preemption), "ai", or
+    # "background". Only meaningful for VMs that claim a vGPU.
+    gpu_tier = optional(string, "game")
+    roles    = optional(list(object({ name = string, vars = optional(map(string), {}) })), [])
   }))
 }
 

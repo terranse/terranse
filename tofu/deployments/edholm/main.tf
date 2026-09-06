@@ -32,16 +32,20 @@ module "proxmox-vm" {
 
 # Inject the gaming VMs' live VMIDs (from the proxmox-vm module) into the
 # gpu-manager role's vars, so it never hardcodes a VMID. Shape matches what
-# vm-map.json.j2 and the virtiofs-attach task consume:
-# { gaming = { vmid = N, mounts = [...] } }. The mounts ride along so the host
-# play can publish each dataset as a directory mapping and attach it — the guest
-# cannot do either for itself.
+# the gpu-manager config template and the virtiofs-attach task consume:
+# { gaming = { vmid = N, tier = "game", mounts = [...] } }. The mounts ride
+# along so the host play can publish each dataset as a directory mapping and
+# attach it — the guest cannot do either for itself.
 locals {
   gaming_vms_by_host = {
     for host_key, mod in module.proxmox-vm : host_key => {
       for name, id in mod.vm_ids : name => {
         vmid   = id
         mounts = try(var.hosts[host_key].vms[name].mounts, [])
+        # gpu-manager arbitrates the card by tier, so it has to travel with
+        # the VMID: without it every VM would look like a gaming VM and the
+        # AI VM could never be told apart from the one it displaces.
+        tier = try(var.hosts[host_key].vms[name].gpu_tier, "game")
       }
     }
   }

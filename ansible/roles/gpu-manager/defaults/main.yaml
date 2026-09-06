@@ -1,0 +1,29 @@
+---
+# gpu-manager daemon deployment.
+#
+# The daemon is built from source on the Ansible controller and copied over;
+# there are no tagged releases yet.
+gpu_manager_src: "{{ playbook_dir }}/../../gpu-manager"
+
+# Must match the mapping the drivers role registers over the vGPU virtual
+# functions -- the daemon assigns profiles through it, and Proxmox picks a
+# free function from it at VM start.
+gpu_manager_pci_mapping: "{{ vgpu_pci_mapping_name | default('RTX-A5000') }}"
+
+gpu_manager_listen: "0.0.0.0:8080"
+
+# Per-VM Sunshine session markers. While this is absent the daemon reports
+# every session as unknown: nothing is auto-suspended, and displacing a
+# running holder needs an explicit preempting claim.
+gpu_manager_session_dir: /mnt/gaming/session-state
+gpu_manager_grace_period_s: 300
+
+# A virtual function stays held for a few seconds after its QEMU exits.
+gpu_manager_vf_release_timeout_s: 60
+
+# The RTX A5000's real vGPU types. nvidia-666 is RTXA5000-24Q: the whole
+# 24 GB card, so exactly one tenant at a time.
+gpu_manager_profiles:
+  Q-8C: {vram_mb: 8192, max_instances: 3, mdev_type: nvidia-664}
+  Q-12C: {vram_mb: 12288, max_instances: 2, mdev_type: nvidia-665}
+  Q-24C: {vram_mb: 24576, max_instances: 1, mdev_type: nvidia-666}

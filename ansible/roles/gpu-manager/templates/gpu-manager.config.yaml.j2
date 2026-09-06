@@ -1,0 +1,18 @@
+# Managed by Ansible - do not edit manually
+listen: "{{ gpu_manager_listen }}"
+pf_address: "{{ gpu_manager_pf_address }}"
+pci_mapping: "{{ gpu_manager_pci_mapping }}"
+sunshine_port: 47989
+session_dir: {{ gpu_manager_session_dir }}
+grace_period_s: {{ gpu_manager_grace_period_s }}
+vf_release_timeout_s: {{ gpu_manager_vf_release_timeout_s }}
+
+profiles:
+{% for name, p in gpu_manager_profiles | dictsort %}
+  {{ name }}: {vram_mb: {{ p.vram_mb }}, max_instances: {{ p.max_instances }}, mdev_type: {{ p.mdev_type }}}
+{%- endfor %}
+
+vms:
+{% for name, vm in gaming_vms | dictsort %}
+  {{ name }}: {vmid: {{ vm.vmid }}, tier: {{ vm.tier | default('game') }}{% if vm.host is defined %}, host: {{ vm.host }}{% endif %}}
+{%- endfor %}

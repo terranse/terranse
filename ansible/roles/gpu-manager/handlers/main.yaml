@@ -5,8 +5,8 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
-- name: Restart session watcher
+- name: Restart gpu-manager
   ansible.builtin.systemd:
-    name: session-watcher
+    name: gpu-manager
     state: restarted
-  failed_when: false
+    daemon_reload: true

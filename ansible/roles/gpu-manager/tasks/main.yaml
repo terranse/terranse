@@ -16,41 +16,21 @@
     - /var/lib/gpu-manager
     - /etc/gpu-manager
 
-- name: Copy GPU allocation script
-  ansible.builtin.copy:
-    src: gpu-allocate.sh
-    dest: /usr/local/bin/gpu-allocate.sh
-    mode: '0755'
-
-- name: Copy GPU status script
-  ansible.builtin.copy:
-    src: gpu-status.sh
-    dest: /usr/local/bin/gpu-status.sh
-    mode: '0755'
-
-- name: Copy GPU preempt script
-  ansible.builtin.copy:
-    src: gpu-preempt.sh
-    dest: /usr/local/bin/gpu-preempt.sh
-    mode: '0755'
-
+# =============================================================================
+# gpu-manager daemon
+#
+# Replaces gpu-allocate/preempt/reconfig/status.sh and the session watcher.
+# Those kept an allocation ledger that could disagree with the card, drove a
+# partitioning mechanism this host does not use, and had no verb anywhere that
+# starts a VM -- so handing the GPU from the AI VM to the gaming VM had to be
+# done by hand. The daemon reads the card's virtual functions directly and is
+# the single component that decides when a VM goes down.
+# =============================================================================
 - name: Copy VM snapshot script
   ansible.builtin.copy:
     src: vm-snapshot.sh
     dest: /usr/local/bin/vm-snapshot.sh
     mode: '0755'
-
-- name: Copy GPU reconfiguration script
-  ansible.builtin.copy:
-    src: gpu-reconfig.sh
-    dest: /usr/local/bin/gpu-reconfig.sh
-    mode: '0755'
-
-- name: Deploy GPU profiles configuration
-  ansible.builtin.template:
-    src: gpu-profiles.conf.j2
-    dest: /etc/gpu-manager/gpu-profiles.conf
-    mode: '0644'
 
 - name: Deploy game profiles database
   ansible.builtin.template:
@@ -58,74 +38,99 @@
     dest: /etc/gpu-manager/game-profiles.json
     mode: '0644'
 
-- name: Initialize allocation state file
-  ansible.builtin.copy:
-    content: |
-      {
-        "allocations": {},
-        "last_updated": "{{ ansible_date_time.iso8601 }}"
-      }
-    dest: /var/lib/gpu-manager/allocations.json
-    mode: '0644'
-    force: false
+- name: Determine the GPU's physical function
+  ansible.builtin.shell: |
+    set -o pipefail
+    lspci -D -d 10de: | grep -iE 'vga|3d' | head -1 | awk '{print $1}'
+  args:
+    executable: /bin/bash
+  register: gpu_manager_pf
+  changed_when: false
 
-# =============================================================================
-# Session Watcher - VM lifecycle management based on Sunshine sessions
-# =============================================================================
-- name: Install inotify-tools for session watching
-  ansible.builtin.apt:
-    name: inotify-tools
-    state: present
+- name: Set the physical function fact
+  ansible.builtin.set_fact:
+    gpu_manager_pf_address: "{{ gpu_manager_pf.stdout | trim }}"
 
-- name: Copy session watcher script
+- name: Build the gpu-manager binary on the controller
+  ansible.builtin.command:
+    cmd: go build -o gpu-manager ./cmd/gpu-manager
+    chdir: "{{ gpu_manager_src }}"
+  environment:
+    CGO_ENABLED: "0"
+  delegate_to: localhost
+  run_once: true
+  changed_when: true
+
+- name: Install the gpu-manager binary
   ansible.builtin.copy:
-    src: session-watcher.sh
-    dest: /usr/local/bin/session-watcher.sh
+    src: "{{ gpu_manager_src }}/gpu-manager"
+    dest: /usr/local/bin/gpu-manager
     mode: '0755'
+  notify: Restart gpu-manager
 
-- name: Deploy VM hostname to VMID mapping
+- name: Deploy the gpu-manager configuration
   ansible.builtin.template:
-    src: vm-map.json.j2
-    dest: /etc/gpu-manager/vm-map.json
+    src: gpu-manager.config.yaml.j2
+    dest: /etc/gpu-manager/config.yaml
     mode: '0644'
-  when: gaming_vms is defined
+  notify: Restart gpu-manager
 
-- name: Deploy session watcher service
-  ansible.builtin.template:
-    src: session-watcher.service.j2
-    dest: /etc/systemd/system/session-watcher.service
+- name: Install the gpu-manager service unit
+  ansible.builtin.copy:
+    src: "{{ gpu_manager_src }}/packaging/gpu-manager.service"
+    dest: /etc/systemd/system/gpu-manager.service
     mode: '0644'
   notify:
     - Reload systemd
-    - Restart session watcher
+    - Restart gpu-manager
 
-- name: Mount session state directory from NAS
-  ansible.posix.mount:
-    path: /mnt/gaming/session-state
-    src: "{{ nfs_server }}:/tank/gaming/session-state"
-    fstype: nfs
-    opts: "rw,noatime,nfsvers=4.2"
-    state: mounted
-  when: nfs_server is defined
-
-- name: Enable session watcher service
+- name: Enable gpu-manager
   ansible.builtin.systemd:
-    name: session-watcher
+    name: gpu-manager
     enabled: true
     state: started
     daemon_reload: true
-  when: enable_session_watcher | default(true)
 
-# =============================================================================
-# Optional: Simple HTTP API for external integrations
-# =============================================================================
-- name: Create simple HTTP API service (optional)
-  ansible.builtin.template:
-    src: gpu-manager-api.service.j2
-    dest: /etc/systemd/system/gpu-manager-api.service
-    mode: '0644'
+# -----------------------------------------------------------------------------
+# Retire what the daemon replaces
+#
+# Left in place, the session watcher would keep suspending and resuming the
+# same VMs on its own timer, fighting the daemon over them, and the allocation
+# ledger would keep asserting an allocation granted against a card it never
+# read.
+# -----------------------------------------------------------------------------
+- name: Stop and disable the retired services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - session-watcher
+    - session-monitor
+    - gpu-manager-api
+  failed_when: false
+
+- name: Remove the retired scripts, units and state
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /usr/local/bin/gpu-allocate.sh
+    - /usr/local/bin/gpu-preempt.sh
+    - /usr/local/bin/gpu-reconfig.sh
+    - /usr/local/bin/gpu-status.sh
+    - /usr/local/bin/session-watcher.sh
+    - /opt/gpu-manager/session-monitor.sh
+    - /etc/systemd/system/session-watcher.service
+    - /etc/systemd/system/session-monitor.service
+    - /etc/systemd/system/gpu-manager-api.service
+    - /etc/gpu-manager/gpu-profiles.conf
+    - /etc/gpu-manager/vm-map.json
+    - /var/lib/gpu-manager/allocations.json
+    - /var/lib/gpu-manager/allocations.lock
+    - /var/lib/gpu-manager/watcher-state.json
+    - /var/lib/gpu-manager/monitor-state.json
   notify: Reload systemd
-  when: enable_gpu_api | default(false)
 
 # =============================================================================
 # Monitoring and Health Checks
@@ -267,22 +272,22 @@
       ========================================
       GPU Manager Setup Complete!
 
-      Scripts installed:
-        gpu-allocate.sh request <vm_id> [profile]
-        gpu-allocate.sh release <vm_id>
-        gpu-status.sh
-        gpu-preempt.sh <vm_id>
+      Daemon:
+        gpu-manager serve --config /etc/gpu-manager/config.yaml
+        gpu-manager ctl status
+        gpu-manager ctl claim <vm> --profile Q-24C [--preempt-active]
+        gpu-manager ctl release <vm>
+
+      Also installed:
         vm-snapshot.sh <vm_id> <action>
         health-check.sh [component...]
 
       Configuration:
-        /etc/gpu-manager/gpu-profiles.conf
+        /etc/gpu-manager/config.yaml
         /etc/gpu-manager/game-profiles.json
 
-      State:
-        /var/lib/gpu-manager/allocations.json
-
-      Monitoring:
-        Session monitor: {{ 'enabled' if (enable_session_monitor | default(true)) else 'disabled' }}
-        Health checks: Run with 'health-check.sh all'
+      Sessions:
+        {{ gpu_manager_session_dir }}
+        (absent => every session reads unknown: nothing is auto-suspended
+         and displacing a running holder needs --preempt-active)
       ========================================

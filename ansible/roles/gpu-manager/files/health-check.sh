@@ -7,7 +7,7 @@
 # Usage:
 #   health-check.sh [--json] [--quiet] [component...]
 #
-# Components: gpu, nfs, sunshine, session-watcher, all (default)
+# Components: gpu, nfs, sunshine, gpu-manager, all (default)
 #
 # Exit codes:
 #   0 - All checks passed
@@ -19,7 +19,6 @@ set -euo pipefail
 # Configuration
 NFS_MOUNT="/mnt/gaming"
 SESSION_STATE_DIR="${NFS_MOUNT}/session-state"
-ALLOCATIONS_FILE="/var/lib/gpu-manager/allocations.json"
 
 # Output format
 JSON_OUTPUT=false
@@ -130,16 +129,21 @@ check_gpu() {
         fi
     fi
 
-    # Check GPU manager state
-    if [[ -f "$ALLOCATIONS_FILE" ]]; then
-        local alloc_count=$(jq -r '.allocations | length' "$ALLOCATIONS_FILE" 2>/dev/null || echo "error")
-        if [[ "$alloc_count" != "error" ]]; then
-            check_pass "gpu-manager-state" "$alloc_count active allocations"
+    # Ask the daemon what it sees on the card. This is read back from the
+    # hardware every pass, so unlike the allocation ledger it replaced it
+    # cannot disagree with reality.
+    local state
+    if state=$(curl -sf --max-time 5 http://127.0.0.1:8080/v1/state 2>/dev/null); then
+        local layout free
+        layout=$(echo "$state" | jq -r '.gpu.layout_profile // ""')
+        free=$(echo "$state" | jq -r '"\(.gpu.free_slots)/\(.gpu.capacity)"')
+        if [[ -z "$layout" ]]; then
+            check_pass "gpu-manager-state" "card free"
         else
-            check_fail "gpu-manager-state" "Invalid allocations.json"
+            check_pass "gpu-manager-state" "$layout, $free slots free"
         fi
     else
-        check_warn "gpu-manager-state" "No allocations file (first run?)"
+        check_fail "gpu-manager-state" "Daemon not answering on 127.0.0.1:8080"
     fi
 }
 
@@ -225,14 +229,14 @@ check_sunshine() {
 # =============================================================================
 # Session Watcher Checks
 # =============================================================================
-check_session_watcher() {
-    log "\n=== Session Watcher Health Checks ==="
+check_gpu_manager() {
+    log "\n=== GPU Manager Health Checks ==="
 
-    # Check if session-watcher service is running
-    if systemctl is-active --quiet session-watcher 2>/dev/null; then
-        check_pass "session-watcher-service" "Service running"
+    # Check if the daemon is running
+    if systemctl is-active --quiet gpu-manager 2>/dev/null; then
+        check_pass "gpu-manager-service" "Service running"
     else
-        check_fail "session-watcher-service" "Service not running"
+        check_fail "gpu-manager-service" "Service not running"
     fi
 
     # Check for stale session files (older than 1 hour with active status)
@@ -306,18 +310,18 @@ main() {
             sunshine)
                 check_sunshine
                 ;;
-            session-watcher)
-                check_session_watcher
+            gpu-manager)
+                check_gpu_manager
                 ;;
             all)
                 check_gpu
                 check_nfs
                 check_sunshine
-                check_session_watcher
+                check_gpu_manager
                 ;;
             *)
                 echo "Unknown component: $component" >&2
-                echo "Valid components: gpu, nfs, sunshine, session-watcher, all" >&2
+                echo "Valid components: gpu, nfs, sunshine, gpu-manager, all" >&2
                 exit 2
                 ;;
         esac
