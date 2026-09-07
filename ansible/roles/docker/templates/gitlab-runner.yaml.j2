@@ -2,6 +2,10 @@
 # Docker executor: runner spawns sibling containers on the LXC's Docker daemon.
 # The LXC is unprivileged on Proxmox (user namespace remapping), so even a full
 # LXC escape only lands an attacker as an unprivileged user on the workstation.
+#
+# /srv/nix-cache is bind-mounted here as well as into the job containers,
+# because the runner resolves a job's bind-mount source on *this* container's
+# filesystem before handing it to the daemon.
 services:
   gitlab-runner:
     image: gitlab/gitlab-runner:latest
@@ -10,6 +14,12 @@ services:
     volumes:
       - runner-config:/etc/gitlab-runner
       - /var/run/docker.sock:/var/run/docker.sock
+      - "{{ service_mounts.nixcache }}:/srv/nix-cache"
 
 volumes:
   runner-config:
+  # Survives job containers, so a pipeline does not rebuild Rust and WASM from
+  # zero every time. Named, not a bind mount: only Nix ever reads it, and it
+  # must not be pruned by the cache-prune timer (which filters on the
+  # gitlab-runner managed label).
+  nix-store:

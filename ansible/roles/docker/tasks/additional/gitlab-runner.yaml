@@ -6,6 +6,7 @@
     additional_tasks_post: true
     gitlab_url: "https://gitlab.com"
     runner_token: "{{ lookup('community.general.onepassword', 'Gitlab Runner', vault='Private', field='token') }}"
+    nix_runner_token: "{{ lookup('community.general.onepassword', 'Gitlab Runner Nix', vault='Private', field='token') }}"
   block:
     - name: Check if runner is already registered
       shell: |
@@ -29,6 +30,41 @@
       args:
         executable: /bin/bash
       when: runner_registered.rc != 0
+      changed_when: true
+
+    - name: Check if the Nix runner is already registered
+      shell: |
+        set -o pipefail
+        docker exec gitlab-runner gitlab-runner list 2>&1 | grep -q 'nix-runner'
+      args:
+        executable: /bin/bash
+      register: nix_runner_registered
+      failed_when: false
+      changed_when: false
+
+    # A second registration rather than a change to the first: the shell
+    # executor above still serves everything that is not a Nix build, and
+    # re-registering it would invalidate a runner that works.
+    #
+    # The persistent /nix volume is the point. Without it every pipeline
+    # rebuilds Rust and WASM from zero, which turns a two-minute deploy into
+    # a forty-minute one.
+    - name: Register the Nix runner
+      shell: |
+        set -o pipefail
+        docker exec gitlab-runner gitlab-runner register \
+          --non-interactive \
+          --url "{{ gitlab_url }}" \
+          --token "{{ nix_runner_token }}" \
+          --executor docker \
+          --description "nix-runner" \
+          --docker-image "nixos/nix:latest" \
+          --docker-volumes "nix-store:/nix" \
+          --docker-volumes "/srv/nix-cache:/srv/nix-cache" \
+          --docker-pull-policy "if-not-present"
+      args:
+        executable: /bin/bash
+      when: nix_runner_registered.rc != 0
       changed_when: true
 
     - name: Deploy gitlab-runner cache prune service

@@ -340,6 +340,31 @@ class TestNixCacheTemplate:
         assert any(p.startswith("8088:80") for p in ports)
 
 
+class TestGitlabRunnerTemplate:
+    """Tests for gitlab-runner.yaml.j2. No Ansible lookups: just the bind
+    mount for the Nix cache and the persistent /nix volume."""
+
+    def test_renders_valid_yaml(self, jinja_env, mock_service_mounts):
+        template = jinja_env.get_template("gitlab-runner.yaml.j2")
+        parsed = yaml.safe_load(template.render(service_mounts=mock_service_mounts))
+
+        assert parsed is not None
+        assert "gitlab-runner" in parsed["services"]
+
+    def test_bind_mounts_nix_cache(self, jinja_env, mock_service_mounts):
+        template = jinja_env.get_template("gitlab-runner.yaml.j2")
+        parsed = yaml.safe_load(template.render(service_mounts=mock_service_mounts))
+
+        volumes = parsed["services"]["gitlab-runner"]["volumes"]
+        assert f"{mock_service_mounts['nixcache']}:/srv/nix-cache" in volumes
+
+    def test_declares_persistent_nix_store_volume(self, jinja_env, mock_service_mounts):
+        template = jinja_env.get_template("gitlab-runner.yaml.j2")
+        parsed = yaml.safe_load(template.render(service_mounts=mock_service_mounts))
+
+        assert "nix-store" in parsed["volumes"]
+
+
 class TestTemplateDiscovery:
     """Tests to verify all templates are accounted for."""
 
