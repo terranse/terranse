@@ -116,6 +116,21 @@ setup-tofu-user:
 # What a NixOS machine runs is declared in nix/machines.nix, not in Ansible.
 # tfvars still declares that it exists and how to reach it.
 
+# Render a NixOS host's op-inject secrets template and install it on the box.
+# Values exist only inside the pipe: never in the repo, never in the Nix store,
+# never in CI. Idempotent -- re-running it is the entire rotation procedure.
+secrets machine dest="/var/lib/dev-secrets/env" owner="default-user":
+    #!{{ bash }}
+    tpl="nix/hosts/{{ machine }}/secrets.env.tpl"
+    if [[ ! -f "$tpl" ]]; then
+      echo "No secrets template at $tpl" >&2
+      exit 1
+    fi
+    op inject -i "$tpl" | ssh default-user@{{ machine }}.{{ domain }} \
+      "sudo install -d -m 0700 -o {{ owner }} -g users $(dirname {{ dest }}) && \
+       sudo install -m 0600 -o {{ owner }} -g users /dev/stdin {{ dest }}"
+    echo "secrets installed on {{ machine }}.{{ domain }} at {{ dest }}"
+
 # Build a NixOS container's rootfs tarball and put it on the Proxmox node.
 # Only needed to CREATE the container -- updates go through deploy-nixos.
 push-lxc-template machine node="192.168.1.200":

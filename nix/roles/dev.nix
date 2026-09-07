@@ -23,6 +23,17 @@ in
       description = "Account the workspace belongs to and the agents run as.";
     };
 
+    secretsFile = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/dev-secrets/env";
+      description = ''
+        KEY=value file rendered from nix/hosts/<machine>/secrets.env.tpl by
+        `just secrets <machine>` and sourced into interactive shells. Owned by
+        `user`, mode 0600, and never in the Nix store -- the values exist only
+        inside the pipe that installs it.
+      '';
+    };
+
     workspace = lib.mkOption {
       type = lib.types.str;
       default = "/srv/work";
@@ -125,10 +136,28 @@ in
     #
     # or per shell: `env RUSTC_WRAPPER=sccache cargo build`.
 
+    # Claude Code's own precedence puts CLAUDE_CODE_OAUTH_TOKEN below
+    # ANTHROPIC_API_KEY and above an interactive login, so this file is the
+    # unattended fallback and `claude auth login` still wins nothing back from
+    # it -- an interactive login simply is not consulted while the token is
+    # set. Interactive shells only: the agents are started by a person in a
+    # herdr pane, not by a system unit.
+    #
+    # POSIX on purpose. NixOS translates environment.interactiveShellInit into
+    # fish with babelfish, so one snippet covers both shells on this box.
+    environment.interactiveShellInit = ''
+      if [ -r ${cfg.secretsFile} ]; then
+        set -a
+        . ${cfg.secretsFile}
+        set +a
+      fi
+    '';
+
     systemd.tmpfiles.rules = [
       "d ${cfg.workspace} 0755 ${cfg.user} users - -"
       "d ${cfg.workspace}/target 0755 ${cfg.user} users - -"
       "d ${cfg.workspace}/sccache 0755 ${cfg.user} users - -"
+      "d ${builtins.dirOf cfg.secretsFile} 0700 ${cfg.user} users - -"
     ];
 
     nix.settings = {
