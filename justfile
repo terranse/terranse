@@ -136,6 +136,11 @@ secrets machine dest="/var/lib/dev-secrets/env" owner="default-user":
 push-lxc-template machine node="192.168.1.200":
     ./scripts/push-lxc-template.sh {{ machine }} {{ node }}
 
+# Build, sign, publish and push a NixOS machine's system closure. Same script
+# CI runs, so there is one implementation with two entry points.
+deploy machine:
+    ./scripts/ship.sh {{ machine }}
+
 # Build and activate a NixOS machine's configuration.
 # --build-host is the machine itself: it has more cores than the laptop, and
 # this is the whole point of a build box. root@ will not work -- base.nix
