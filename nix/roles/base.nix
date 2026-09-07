@@ -43,17 +43,6 @@
   # route on a box with no other way in.
   security.sudo.wheelNeedsPassword = false;
 
-  # CI's account. It gets no shell privileges of its own; the single sudo
-  # entry it needs belongs to the staged-updates role, which is what owns that
-  # command.
-  users.users.deploy = {
-    isNormalUser = true;
-    description = "CI closure receiver";
-    openssh.authorizedKeys.keys = [
-      "REPLACE-WITH-htpc-deploy.pub-FROM-TASK-1"
-    ];
-  };
-
   services.openssh = {
     enable = true;
     settings = {
@@ -68,13 +57,15 @@
       "nix-command"
       "flakes"
     ];
-    # The builder's public half. A closure signed by it is accepted from an
-    # untrusted user; anything else is refused. This is the whole reason a
-    # stolen deploy key uploads bytes the box will not run, rather than
-    # granting root.
+    # A CI builder's public half belongs here too, once one exists: a closure
+    # signed by it is then accepted from an untrusted user and anything else
+    # is refused, which is what makes a stolen deploy key upload bytes the box
+    # will not run rather than granting root. Deliberately NOT a placeholder
+    # string -- Nix parses every entry eagerly and refuses to substitute
+    # anything at all if one of them is not a real key:
+    #   error: while decoding key named '' ... key is corrupt
     trusted-public-keys = [
       "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-      "REPLACE-WITH-cache-pub.pem-FROM-TASK-1"
     ];
   };
 

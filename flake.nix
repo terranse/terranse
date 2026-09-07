@@ -70,7 +70,13 @@
       # <machine>-lxc-template. Built from the SAME toplevel nixos-rebuild
       # later deploys, so the template and the running system can never be two
       # different things. Ship one with `just push-lxc-template <machine>`.
-      packages.x86_64-linux = lib.mapAttrs' (
+      packages.x86_64-linux = {
+        # The laptop is not NixOS. Exposing the tool here rather than relying
+        # on PATH keeps the thing that deploys a machine pinned by the same
+        # flake.lock as the machine it deploys.
+        nixos-rebuild = pkgs.nixos-rebuild;
+      }
+      // lib.mapAttrs' (
         name: cfg: lib.nameValuePair "${name}-lxc-template" cfg.config.system.build.tarball
       ) (lib.filterAttrs (name: _: (machines.${name}.kind or "metal") == "lxc") self.nixosConfigurations);
 

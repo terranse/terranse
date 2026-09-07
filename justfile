@@ -141,7 +141,9 @@ push-lxc-template machine node="192.168.1.200":
 # this is the whole point of a build box. root@ will not work -- base.nix
 # disables root login -- so it goes through default-user's passwordless sudo.
 deploy-nixos machine action="switch":
-    nixos-rebuild {{ action }} --flake .#{{ machine }} \
+    # The laptop is not NixOS, so the tool comes from the flake's own nixpkgs
+    # rather than from PATH -- one pin for the builder and the built.
+    nix run .#nixos-rebuild -- {{ action }} --flake .#{{ machine }} \
       --target-host default-user@{{ machine }}.{{ domain }} \
       --build-host default-user@{{ machine }}.{{ domain }} \
       --elevate=sudo

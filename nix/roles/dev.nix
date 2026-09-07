@@ -111,9 +111,11 @@ in
     environment.variables = {
       RUSTUP_HOME = "${cfg.workspace}/rustup";
       CARGO_HOME = "${cfg.workspace}/cargo";
-      # One shared target/ off $HOME, so a 200G rootfs is not eaten by a
-      # per-clone copy of every dependency.
-      CARGO_TARGET_DIR = "${cfg.workspace}/target";
+      # Deliberately no CARGO_TARGET_DIR. One shared target/ would save disk,
+      # but cargo takes a lock per target directory -- so several agents
+      # building at once would serialise against each other, on the one
+      # machine that exists to build several things at once. Disk is the
+      # cheaper resource here.
 
       SCCACHE_DIR = "${cfg.workspace}/sccache";
       SCCACHE_CACHE_SIZE = "40G";
@@ -153,9 +155,41 @@ in
       fi
     '';
 
+    # rustup with no default toolchain makes a bare `cargo` fail, and a repo
+    # without a rust-toolchain.toml has nothing to trigger an install. A
+    # one-off rather than a recurring unit: it has exactly one thing to do, and
+    # once RUSTUP_HOME has a default it never needs to run again. Everything
+    # after that is the repos' business -- a rust-toolchain.toml still wins,
+    # because rustup reads it per invocation.
+    systemd.services.rustup-default-toolchain = {
+      description = "Install a default Rust toolchain for ${cfg.user}";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      # Guarded on the toolchains directory, not on settings.toml: merely
+      # running `rustup --version` creates RUSTUP_HOME and settings.toml with
+      # no toolchain in it, so that file proves nothing. Once a toolchain is
+      # installed this is skipped, and upgrading is `rustup update` by hand
+      # rather than a surprise on boot.
+      unitConfig.ConditionDirectoryNotEmpty = "!${cfg.workspace}/rustup/toolchains";
+      serviceConfig = {
+        Type = "oneshot";
+        User = cfg.user;
+        RemainAfterExit = true;
+      };
+      environment = {
+        RUSTUP_HOME = "${cfg.workspace}/rustup";
+        CARGO_HOME = "${cfg.workspace}/cargo";
+      };
+      path = [
+        pkgs.rustup
+        pkgs.gitMinimal
+      ];
+      script = "rustup toolchain install stable --profile default --no-self-update";
+    };
+
     systemd.tmpfiles.rules = [
       "d ${cfg.workspace} 0755 ${cfg.user} users - -"
-      "d ${cfg.workspace}/target 0755 ${cfg.user} users - -"
       "d ${cfg.workspace}/sccache 0755 ${cfg.user} users - -"
       "d ${builtins.dirOf cfg.secretsFile} 0700 ${cfg.user} users - -"
     ];
