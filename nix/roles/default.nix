@@ -2,4 +2,5 @@
 # next to it; nothing else in the flake needs to know.
 {
   base = ./base.nix;
+  dev = ./dev.nix;
 }
