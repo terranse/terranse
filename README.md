@@ -134,6 +134,60 @@ tofu apply
 ansible-playbook playbook.yml
 ```
 
+## ❄️ NixOS machines
+
+Most machines here are provisioned by Ansible. A few are not: their whole
+configuration is declared in this repo's flake, and Ansible must never touch
+them.
+
+`configurations.tfvars` still says a machine *exists* and how to reach it.
+`nix/machines.nix` says what it *does*:
+
+```nix
+{
+  herdr = {
+    system = "x86_64-linux";
+    kind   = "lxc";              # nix/profiles/lxc.nix -- a Proxmox container
+    roles  = [ { name = "dev"; } ];  # nix/roles/dev.nix
+  };
+}
+```
+
+`kind` is the only branch in the flake. `metal` brings in disko, systemd-boot
+and EFI variable access; `lxc` brings in nixpkgs' `proxmox-lxc` profile, which
+sets `boot.isContainer` and so needs neither a `disko.nix` nor a
+`hardware.nix`. They are mutually exclusive: a bootloader and the container's
+init-script loader both define `system.build.installBootLoader`, which has no
+merge function.
+
+Roles are plain NixOS modules under `nix/roles/`, indexed by name in
+`nix/roles/default.nix`. Listing one in a machine's `roles` sets
+`roles.<name>.enable = true`; a typo names the machine and lists the valid
+roles rather than failing with a bare "attribute missing".
+
+On the tofu side, such a container carries three extra attributes:
+`ostemplate` (a template built here rather than pulled from the Proxmox
+appliance repository), `ostype`, and `provision = "none"` — which is what
+keeps every Ansible play, including the fleet-wide SSH hardening one, away
+from it. It keeps its inventory entry, its deterministic MAC and its DHCP
+reservation.
+
+```bash
+# Everything the flake claims
+just check-nix
+
+# Create a container: build its rootfs and put it on the Proxmox node,
+# then let tofu create the CT from it. Only needed once.
+just push-lxc-template herdr
+just apply-tofu edholm
+
+# Update it afterwards. Built ON the box -- it has more cores than the laptop.
+just deploy-nixos herdr
+
+# Install a host's secrets from 1Password. Values live only inside the pipe.
+just secrets herdr
+```
+
 ## 🤝 Contributing
 
 Contributions are welcome! New modules need to integrate with the configuration
