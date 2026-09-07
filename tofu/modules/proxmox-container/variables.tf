@@ -49,7 +49,29 @@ variable "configuration" {
     roles           = optional(list(object({ name = string })), [])
     services        = optional(list(object({ name = string })), [])
     docker_services = optional(list(object({ name = string })), [])
+
+    # Full Proxmox volume id of a template built somewhere other than the
+    # appliance repository -- e.g. a NixOS rootfs tarball produced by
+    # `just push-lxc-template <name>`. When set, the module-level Debian
+    # template resolution does not apply to this container.
+    ostemplate = optional(string)
+
+    # pct ostype. "nixos" makes PVE write /etc/systemd/network/eth0.network and
+    # /etc/resolv.conf but skip the hostname and init rewrites, which on a
+    # NixOS rootfs would fight activation. Leave unset for Debian.
+    ostype = optional(string)
+
+    # "ansible" (default) emits the proxmox/lxc play. "none" emits no play at
+    # all, for a machine whose configuration is declared in nix/machines.nix
+    # instead. The inventory entry, the deterministic MAC and the DHCP
+    # reservation are unaffected.
+    provision = optional(string, "ansible")
   }))
+
+  validation {
+    condition     = alltrue([for c in var.configuration : contains(["ansible", "none"], c.provision)])
+    error_message = "provision must be \"ansible\" or \"none\"."
+  }
 }
 
 variable "host_ssh_address" {

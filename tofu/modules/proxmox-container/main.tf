@@ -68,7 +68,15 @@ resource "proxmox_lxc" "lxcs" {
   vmid        = try(each.value.vmid, 0)
   target_node = var.host
   hostname    = each.key
-  ostemplate  = "local:vztmpl/${local.image_name}"
+
+  # A container may bring its own template -- a NixOS rootfs tarball scp'd
+  # into the node's vztmpl directory -- instead of the Debian one resolved
+  # for the whole node above.
+  ostemplate = coalesce(each.value.ostemplate, "local:vztmpl/${local.image_name}")
+
+  # Optional+Computed in the provider, so null sends nothing and leaves no
+  # perpetual diff on the containers that do not set it.
+  ostype = each.value.ostype
 
   cores  = each.value.cores
   memory = each.value.memory

@@ -10,6 +10,15 @@ output "ansible_plays" {
       )
       vars  = try(host_config.ansible_vars, {})
     }
+    # A `provision = "none"` container is declared in nix/machines.nix and
+    # Ansible must never touch it. Dropping its play here does two jobs: it
+    # skips the apt-based proxmox/lxc role, and -- because ansible-wiring
+    # builds the "Harden SSH" play's host list by joining these plays' hosts
+    # -- it also keeps that play away, which would otherwise try to edit a
+    # read-only /etc/ssh/sshd_config and restart a service named `ssh` that
+    # does not exist on NixOS. The inventory entry is emitted separately in
+    # inventory.tf and is unaffected.
+    if host_config.provision != "none"
   ]
 }
 

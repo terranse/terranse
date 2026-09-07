@@ -188,6 +188,27 @@ hosts = {
           { name = "vagrant-runner" }
         ]
       }
+
+      # NixOS. Always-on build box for the Rust projects, and the host for the
+      # coding agents (herdr multiplexes them; claude runs inside its panes).
+      #
+      # This block declares identity and shape only -- what the machine RUNS is
+      # nix/machines.nix, the same way docker_services names a bundle whose
+      # contents live elsewhere. `provision = "none"` is what keeps Ansible off
+      # it: the proxmox/lxc role is apt-based and would fail on its first task.
+      #
+      # The rootfs comes from `just push-lxc-template herdr`, not from the
+      # Proxmox appliance repository. Re-run that before re-creating this
+      # container -- ostemplate is under ignore_changes, so a missing template
+      # is invisible to tofu until pct fails.
+      herdr = {
+        memory     = 32768
+        cores      = 12
+        disk_size  = "200G"
+        ostemplate = "local:vztmpl/nixos-lxc-herdr.tar.xz"
+        ostype     = "nixos"
+        provision  = "none"
+      }
     }
 
     vms = {

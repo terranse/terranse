@@ -56,5 +56,6 @@ variable "lxc_reserved_ips" {
     tasks          = "192.168.1.48"
     gitlab-runner  = "192.168.1.49"
     vagrant-runner = "192.168.1.50"
+    herdr          = "192.168.1.52"
   }
 }
