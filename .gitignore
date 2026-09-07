@@ -26,3 +26,7 @@ __pycache__/
 
 # media audit local dumps
 docs/media-audit/.cache/
+
+# Nix
+result
+result-*
