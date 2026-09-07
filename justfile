@@ -152,6 +152,12 @@ deploy-nixos machine action="switch":
 check-nix:
     nix flake check
 
+# Build the terranse rescue/installer ISO. Same flake as the machines it
+# installs, so the installer and the installed system share one flake.lock.
+iso:
+    nix build .#installer-iso
+    @ls -lh result/iso/
+
 # ============== TESTING TASKS ==============
 
 # Run all static analysis checks

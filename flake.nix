@@ -64,7 +64,15 @@
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
     in
     {
-      nixosConfigurations = lib.mapAttrs mkMachine machines;
+      nixosConfigurations = lib.mapAttrs mkMachine machines // {
+        # Not built by mkMachine: an installer has no roles and no disk of its
+        # own, so it is a plain nixosSystem rather than a fleet machine.
+        installer = lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs = { inherit inputs; };
+          modules = [ ./nix/installer.nix ];
+        };
+      };
 
       # The rootfs tarballs for every container-kind machine, named
       # <machine>-lxc-template. Built from the SAME toplevel nixos-rebuild
@@ -75,6 +83,8 @@
         # on PATH keeps the thing that deploys a machine pinned by the same
         # flake.lock as the machine it deploys.
         nixos-rebuild = pkgs.nixos-rebuild;
+
+        installer-iso = self.nixosConfigurations.installer.config.system.build.isoImage;
       }
       // lib.mapAttrs' (
         name: cfg: lib.nameValuePair "${name}-lxc-template" cfg.config.system.build.tarball
@@ -82,11 +92,16 @@
 
       # A broken role must fail the pipeline, not the machine: every machine's
       # toplevel is a check, so `nix flake check` builds what would be
-      # deployed.
+      # deployed. The installer is excluded by name -- it is x86_64-linux too,
+      # and a check would build a 1GB ISO on every `nix flake check`.
       checks.x86_64-linux =
         lib.mapAttrs' (
           name: cfg: lib.nameValuePair "machine-${name}" cfg.config.system.build.toplevel
-        ) (lib.filterAttrs (_: cfg: cfg.pkgs.stdenv.hostPlatform.system == "x86_64-linux") self.nixosConfigurations)
+        ) (
+          lib.filterAttrs (
+            name: cfg: name != "installer" && cfg.pkgs.stdenv.hostPlatform.system == "x86_64-linux"
+          ) self.nixosConfigurations
+        )
         // {
           registry = import ./nix/tests/registry.nix { inherit lib pkgs; };
         };
