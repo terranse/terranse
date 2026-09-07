@@ -171,11 +171,19 @@ hosts = {
         cores     = 12
         disk_size = "128G"
 
+        # The signed closures CI publishes. A ZFS dataset rather than rootfs
+        # space: it is served to the HTPC over static HTTP and needs its own
+        # quota, so a runaway cache cannot fill the runner's disk.
+        mounts = [
+          { name = "nixcache", dataset = "nvmepool/nix-cache", path = "/srv/nix-cache" },
+        ]
+
         roles = [
           { name = "docker" }
         ]
         docker_services = [
-          { name = "gitlab-runner" }
+          { name = "gitlab-runner" },
+          { name = "nix-cache" }
         ]
       }
 

@@ -17,6 +17,7 @@ BASIC_TEMPLATES = [
     "mosquitto.yaml.j2",
     "zigbee2mqtt.yaml.j2",
     "zwave-js-ui.yaml.j2",
+    "nix-cache.yaml.j2",
 ]
 
 # Templates requiring Ansible lookups (onepassword, etc.) - skip in unit tests
@@ -314,6 +315,31 @@ class TestZwaveJsUiTemplate:
             )
 
 
+class TestNixCacheTemplate:
+    """Tests for nix-cache.yaml.j2, the static HTTP front for the binary cache."""
+
+    def test_renders_valid_yaml(self, jinja_env, mock_service_mounts):
+        template = jinja_env.get_template("nix-cache.yaml.j2")
+        parsed = yaml.safe_load(template.render(service_mounts=mock_service_mounts))
+
+        assert parsed is not None
+        assert "nix-cache" in parsed["services"]
+
+    def test_serves_the_nixcache_mount_read_only(self, jinja_env, mock_service_mounts):
+        template = jinja_env.get_template("nix-cache.yaml.j2")
+        parsed = yaml.safe_load(template.render(service_mounts=mock_service_mounts))
+
+        volumes = parsed["services"]["nix-cache"]["volumes"]
+        assert f"{mock_service_mounts['nixcache']}:/usr/share/nginx/html:ro" in volumes
+
+    def test_exposes_http_port(self, jinja_env, mock_service_mounts):
+        template = jinja_env.get_template("nix-cache.yaml.j2")
+        parsed = yaml.safe_load(template.render(service_mounts=mock_service_mounts))
+
+        ports = [str(p) for p in parsed["services"]["nix-cache"]["ports"]]
+        assert any(p.startswith("8088:80") for p in ports)
+
+
 class TestTemplateDiscovery:
     """Tests to verify all templates are accounted for."""
 
@@ -333,6 +359,7 @@ class TestTemplateDiscovery:
             "zigbee2mqtt.yaml.j2",
             "zwave-js-ui.yaml.j2",
             "gitlab-runner.yaml.j2",
+            "nix-cache.yaml.j2",
         ]
 
         for template_name in expected_templates:
@@ -355,6 +382,7 @@ class TestTemplateDiscovery:
             "zigbee2mqtt.yaml.j2",
             "zwave-js-ui.yaml.j2",
             "gitlab-runner.yaml.j2",
+            "nix-cache.yaml.j2",
         }
 
         actual_templates = {

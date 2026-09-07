@@ -1,0 +1,17 @@
+---
+# Static HTTP in front of the file:// binary cache CI writes with
+# `nix copy --to file:///srv/nix-cache`. That layout is already a valid cache
+# -- nix-cache-info, <hash>.narinfo and nar/*.nar.xz -- so the serving host
+# needs no Nix and no daemon of its own, only a web server.
+#
+# Read-only on purpose: only the CI job writes here, and it writes through the
+# bind mount, not through this container.
+services:
+  nix-cache:
+    image: nginx:alpine
+    container_name: nix-cache
+    volumes:
+      - "{{ service_mounts.nixcache }}:/usr/share/nginx/html:ro"
+    ports:
+      - 8088:80 # caddy:expose
+    restart: unless-stopped

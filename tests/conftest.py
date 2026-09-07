@@ -61,6 +61,7 @@ def mock_service_mounts():
         "movies": "/media/movies",
         "downloads": "/media/downloads",
         "cloud": "/storage/cloud",
+        "nixcache": "/srv/nix-cache",
     }
 
 
