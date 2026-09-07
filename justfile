@@ -138,6 +138,9 @@ push-lxc-template machine node="192.168.1.200":
 
 # Build, sign, publish and push a NixOS machine's system closure. Same script
 # CI runs, so there is one implementation with two entry points.
+# deploy-nixos targets a reachable box directly and activates immediately;
+# deploy publishes a signed closure and a pointer, succeeds even when the
+# box is asleep, and lets the box decide when to switch.
 deploy machine:
     ./scripts/ship.sh {{ machine }}
 

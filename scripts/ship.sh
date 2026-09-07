@@ -92,9 +92,20 @@ log "pointer written"
 
 # The MAC is declared once, in tfvars, and read by both the DHCP reservation
 # and this step.
+#
+# `inblock` must be cleared when the machine's own block closes, or a
+# machine with no `mac` field falls through into whatever block comes next
+# and silently returns a different host's MAC. Brace depth is tracked from
+# the line the block opens on (its own `{` included) back down to the line
+# where it closes, and scanning stops there whether or not `mac` was found.
 WOL_MAC="${WOL_MAC:-$(awk -v m="$MACHINE" '
-  $1 == m && $2 == "=" { inblock = 1 }
-  inblock && $1 == "mac" { gsub(/"/, "", $3); print $3; exit }
+  $1 == m && $2 == "=" { inblock = 1; depth = 0 }
+  inblock {
+    depth += gsub(/{/, "{")
+    depth -= gsub(/}/, "}")
+    if ($1 == "mac") { gsub(/"/, "", $3); print $3; exit }
+    if (depth <= 0) { inblock = 0 }
+  }
 ' "$TFVARS" 2>/dev/null || true)}"
 
 if [ -n "$WOL_MAC" ] && command -v wakeonlan >/dev/null 2>&1; then
@@ -122,12 +133,25 @@ if [ "$reachable" -ne 1 ]; then
 fi
 
 log "pushing the closure"
-nix copy --to "ssh-ng://${DEPLOY_HOST}" "$OUT"
+# `if`, not a bare command: the box answered the reachability probe a moment
+# ago, but it can still sleep, drop the network, or refuse the push before
+# this finishes. The cache and pointer already stand, so a failure here must
+# not turn the pipeline red -- log it and exit 0 rather than let `set -e`
+# take the script down.
+if ! nix copy --to "ssh-ng://${DEPLOY_HOST}" "$OUT"; then
+  log "push to ${DEPLOY_HOST} failed; the cache and pointer stand, it will pull on next boot"
+  exit 0
+fi
 
 if ssh -o BatchMode=yes "$DEPLOY_HOST" 'test -x /run/current-system/sw/bin/htpc-stage'; then
   log "staging"
-  ssh -o BatchMode=yes "$DEPLOY_HOST" \
-    "sudo /run/current-system/sw/bin/htpc-stage $OUT"
+  # Same reasoning as the push above: staging is the box's business once the
+  # bytes are on it, so a remote failure here is logged, not fatal.
+  if ! ssh -o BatchMode=yes "$DEPLOY_HOST" \
+       "sudo /run/current-system/sw/bin/htpc-stage $OUT"; then
+    log "staging on ${MACHINE} failed; the closure is on the box, activate by hand"
+    exit 0
+  fi
 else
   log "htpc-stage is not installed on ${MACHINE} yet; closure pushed, activate by hand"
 fi
