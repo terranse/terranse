@@ -13,4 +13,13 @@
     kind = "lxc";
     roles = [ { name = "dev"; } ];
   };
+
+  htpc = {
+    system = "x86_64-linux";
+    # metal, so the machine gets disko, systemd-boot and EFI variable access
+    # from nix/profiles/metal.nix. An LXC gets none of those and needs no
+    # disko.nix or hardware.nix at all.
+    kind = "metal";
+    roles = [ ];
+  };
 }
