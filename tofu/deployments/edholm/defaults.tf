@@ -59,3 +59,16 @@ variable "lxc_reserved_ips" {
     herdr          = "192.168.1.52"
   }
 }
+
+variable "host_reserved_ips" {
+  type        = map(string)
+  description = <<-EOT
+    Fixed address per bare-metal host that declares a `mac`. Separate from
+    lxc_reserved_ips because those MACs are derived from the container name in
+    proxmox-container; a physical NIC's MAC is a fact about hardware and has
+    to be declared.
+  EOT
+  default = {
+    htpc = "192.168.1.51"
+  }
+}

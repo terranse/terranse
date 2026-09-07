@@ -296,5 +296,21 @@ hosts = {
         }]
       }
     }
+  },
+
+  # Bare metal, no hypervisor. tfvars declares identity only -- what this
+  # machine actually runs is declared in nix/machines.nix, the same way
+  # docker_services names a bundle whose contents live elsewhere.
+  #
+  # No lxcs, no vms and no host_roles, so this entry instantiates no Proxmox
+  # module and generates no Ansible plays. It buys exactly two things: an
+  # inventory entry, and the DHCP reservation below.
+  htpc = {
+    ansible_host = "htpc.edholm.cc"
+    ansible_user = "default-user"
+    kind         = "nixos"
+    # The wired NIC's MAC, read from the box at install. The DHCP reservation
+    # and CI's wake-on-LAN step both read this one declaration.
+    mac = "REPLACE-WITH-THE-MAC-FROM-TASK-3-STEP-5"
   }
 }

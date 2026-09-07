@@ -102,6 +102,14 @@ locals {
     for host_key, mod in module.proxmox-lxc : mod.lxc_mac_addresses
   ]...)
 
+  # Bare-metal hosts that declared a MAC. Nothing derives these -- a physical
+  # NIC's address is a fact, so the tfvars entry is the source of truth for
+  # both the reservation below and CI's wakeonlan step.
+  host_macs = {
+    for host_key, host in var.hosts : host_key => host.mac
+    if try(host.mac, null) != null
+  }
+
   # Which container runs which compose bundle, so a service's upstream can be
   # addressed by container name rather than by an address that moves.
   bundle_to_container = merge(flatten([
@@ -124,6 +132,20 @@ resource "terraform_data" "lxc_name_uniqueness_guard" {
     precondition {
       condition     = length(local.all_lxc_names) == length(distinct(local.all_lxc_names))
       error_message = "LXC names must be unique across ALL hosts, because deterministic MACs are derived from the name alone. Duplicates: ${jsonencode([for n in distinct(local.all_lxc_names) : n if length([for m in local.all_lxc_names : m if m == n]) > 1])}"
+    }
+  }
+}
+
+# A reservation is keyed by name and a name is a DNS record, so a container
+# and a bare-metal host sharing one would silently overwrite each other's
+# address. merge() would pick the host's and say nothing.
+resource "terraform_data" "reservation_name_uniqueness_guard" {
+  input = sort(concat(keys(local.lxc_macs), keys(local.host_macs)))
+
+  lifecycle {
+    precondition {
+      condition     = length(setintersection(keys(local.lxc_macs), keys(local.host_macs))) == 0
+      error_message = "A bare-metal host and an LXC share a name, so their DHCP reservations would collide: ${jsonencode(setintersection(keys(local.lxc_macs), keys(local.host_macs)))}"
     }
   }
 }
@@ -154,10 +176,18 @@ module "opnsense_networking" {
     }
   ]
 
-  reservations = {
-    for name, ip in var.lxc_reserved_ips : name => {
-      mac = local.lxc_macs[name]
-      ip  = ip
-    } if contains(keys(local.lxc_macs), name)
-  }
+  reservations = merge(
+    {
+      for name, ip in var.lxc_reserved_ips : name => {
+        mac = local.lxc_macs[name]
+        ip  = ip
+      } if contains(keys(local.lxc_macs), name)
+    },
+    {
+      for name, ip in var.host_reserved_ips : name => {
+        mac = local.host_macs[name]
+        ip  = ip
+      } if contains(keys(local.host_macs), name)
+    },
+  )
 }
