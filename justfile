@@ -112,6 +112,29 @@ install-packer:
 setup-tofu-user:
     ./tofu/scripts/init-terraform-user-proxmox.sh
 
+# ============== NIXOS MACHINES ==============
+# What a NixOS machine runs is declared in nix/machines.nix, not in Ansible.
+# tfvars still declares that it exists and how to reach it.
+
+# Build a NixOS container's rootfs tarball and put it on the Proxmox node.
+# Only needed to CREATE the container -- updates go through deploy-nixos.
+push-lxc-template machine node="192.168.1.200":
+    ./scripts/push-lxc-template.sh {{ machine }} {{ node }}
+
+# Build and activate a NixOS machine's configuration.
+# --build-host is the machine itself: it has more cores than the laptop, and
+# this is the whole point of a build box. root@ will not work -- base.nix
+# disables root login -- so it goes through default-user's passwordless sudo.
+deploy-nixos machine action="switch":
+    nixos-rebuild {{ action }} --flake .#{{ machine }} \
+      --target-host default-user@{{ machine }}.{{ domain }} \
+      --build-host default-user@{{ machine }}.{{ domain }} \
+      --elevate=sudo
+
+# Everything the flake claims, built from scratch.
+check-nix:
+    nix flake check
+
 # ============== TESTING TASKS ==============
 
 # Run all static analysis checks
@@ -123,8 +146,8 @@ lint: _python-venv
 # Run OpenTofu validation for all deployments
 validate-tofu:
     @for deployment in tofu/deployments/*/; do \
-        echo "Validating $$deployment..."; \
-        (cd "$$deployment" && tofu init -backend=false -input=false >/dev/null && tofu validate) || exit 1; \
+        echo "Validating $deployment..."; \
+        (cd "$deployment" && tofu init -backend=false -input=false >/dev/null && tofu validate) || exit 1; \
     done
 
 # Run unit tests (fast, no VMs)

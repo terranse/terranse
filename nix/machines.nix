@@ -8,4 +8,9 @@
 #
 # `base` is implicit and is never listed.
 {
+  herdr = {
+    system = "x86_64-linux";
+    kind = "lxc";
+    roles = [ { name = "dev"; } ];
+  };
 }
