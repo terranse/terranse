@@ -20,6 +20,13 @@
     # from nix/profiles/metal.nix. An LXC gets none of those and needs no
     # disko.nix or hardware.nix at all.
     kind = "metal";
-    roles = [ ];
+    roles = [
+      {
+        name = "video";
+        settings = {
+          driver = "intel";
+        };
+      }
+    ];
   };
 }

@@ -3,4 +3,5 @@
 {
   base = ./base.nix;
   dev = ./dev.nix;
+  video = ./video.nix;
 }
