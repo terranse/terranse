@@ -3,5 +3,6 @@
 {
   base = ./base.nix;
   dev = ./dev.nix;
+  staged-updates = ./staged-updates.nix;
   video = ./video.nix;
 }

@@ -27,6 +27,11 @@
           driver = "intel";
         };
       }
+      # home-player and kiosk are not implemented yet (Tasks 7 and 9) -- this
+      # role's defaults for healthUrl and kioskUser point at pieces that do
+      # not exist on this machine until those land. A failed health check
+      # reads as idle, so the update loop still works in the gap.
+      { name = "staged-updates"; }
     ];
   };
 }
