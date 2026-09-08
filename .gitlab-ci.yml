@@ -1,0 +1,52 @@
+---
+stages:
+  - check
+  - deploy
+
+# Full history: the deploy job commits the flake.lock bump and pushes it back.
+variables:
+  GIT_DEPTH: "0"
+
+.nix:
+  image: nixos/nix:latest
+  tags:
+    - nix
+  before_script:
+    - printf 'experimental-features = nix-command flakes\n' >> /etc/nix/nix.conf
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    # base64 because a masked CI variable cannot hold a multi-line PEM.
+    - printf '%s' "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    # Without known_hosts the git+ssh flake input and the closure push both
+    # hang on host-key confirmation in a container with no TTY.
+    - printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+    - chmod 600 ~/.ssh/known_hosts
+
+flake-check:
+  extends: .nix
+  stage: check
+  script:
+    - nix flake check -L
+
+# ONE job on purpose. Splitting the lock bump from the build would let the
+# bump's own push re-trigger CI, and would let two pushes interleave a bump
+# from one with a build from the other. resource_group serialises concurrent
+# runs; [skip ci] on the bump commit (see ship.sh) closes the loop.
+deploy-htpc:
+  extends: .nix
+  stage: deploy
+  resource_group: htpc-deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  variables:
+    NIX_CACHE_DIR: /srv/nix-cache
+    SIGNING_KEY_FILE: /run/htpc-cache-key
+    PUSH_BRANCH: $CI_DEFAULT_BRANCH
+  script:
+    - printf '%s' "$CACHE_SIGNING_KEY" > "$SIGNING_KEY_FILE"
+    - chmod 600 "$SIGNING_KEY_FILE"
+    - export PUSH_REMOTE="https://oauth2:${CI_PUSH_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
+    - nix shell nixpkgs#bash nixpkgs#git nixpkgs#openssh nixpkgs#wakeonlan nixpkgs#gawk nixpkgs#gnused
+        -c ./scripts/ship.sh htpc --bump
+  after_script:
+    - rm -f /run/htpc-cache-key
