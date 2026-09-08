@@ -133,6 +133,14 @@ let
               # the box just stays on it until a human intervenes, which
               # state.json now says outright rather than claiming a
               # rollback happened when it did not.
+              #
+              # "rollback-failed" is a deliberate extension beyond the
+              # contract's documented reason enum (none|busy|bad|
+              # rebooting|rolled-back). A rollback that failed is a
+              # genuinely distinct state from "rolled-back" -- reporting
+              # rolled-back here would tell home-player's popup the box is
+              # on a good generation when it is still on the bad one. Do
+              # not "fix" this back to an existing value.
               echo "htpc-update-watchdog: no earlier generation to roll back to" >&2
               write_state rollback-failed "$pending" 0
               exit 1
@@ -167,7 +175,7 @@ let
     text = ''
       ${writeStateFn}
 
-      # An `if`, not `[ … ] && force_idle=1`: writeShellApplication sets
+      # An `if`, not `[ ... ] && force_idle=1`: writeShellApplication sets
       # `set -e`, under which a bare test-and-assign line exits the script the
       # moment the test is false.
       force_idle=0
@@ -242,11 +250,18 @@ let
       # Not `exec`: switch-to-configuration can restart htpc-update.service
       # itself, when the update touches this very role -- exactly the class
       # of update most in need of a watchdog. `exec` would then either die
-      # along with the unit's own restart (no watchdog ever runs) or run the
-      # watchdog from inside the unit racing its own restart. A transient
-      # unit detaches the watchdog from htpc-update.service's lifecycle so
-      # it survives either way.
-      systemd-run --collect --unit=htpc-update-watchdog-run \
+      # along with the unit's own restart or run the watchdog from inside
+      # the unit racing its own restart. A transient unit, detached from
+      # htpc-update.service's lifecycle, avoids both -- but only if this
+      # line is actually reached: if switch-to-configuration kills this
+      # process first, no watchdog is spawned at all here, and the marker
+      # sits unverified until htpc-update-watchdog.service's own
+      # multi-user.target start finds it on the *next* boot, whenever that
+      # is. The unit name includes $$ so two overlapping watchdogs -- the
+      # 15-minute timer racing an operator-triggered htpc-update-apply --
+      # get distinct names instead of one systemd-run failing under set -e
+      # because --collect only reaps a unit that has already finished.
+      systemd-run --collect --unit="htpc-update-watchdog-run-$$" \
         ${lib.getExe htpc-update-watchdog}
     '';
   };
@@ -281,7 +296,15 @@ let
           exit 1
           ;;
       esac
-      if ! printf '%s\n' "$path" | grep -qE '^/nix/store/[0-9a-z]{32}-[^/]+$'; then
+      # A bash pattern match against the whole variable, not a
+      # line-oriented `grep`: piping $path through `grep -qE '^...$'`
+      # anchors ^ and $ to each *line* grep reads, so a two-line string
+      # such as "/nix/store/junk\n/nix/store/<real-hash>-name" would match
+      # on its second line even though $path as a whole is not one store
+      # path. `[^/[:space:]]+` (not `[^/]+`) also keeps a newline hidden
+      # inside the name segment from being swallowed by the character
+      # class itself.
+      if [[ ! $path =~ ^/nix/store/[0-9a-z]{32}-[^/[:space:]]+$ ]]; then
         echo "htpc-stage: $path must name exactly one store object" >&2
         exit 1
       fi
@@ -301,23 +324,62 @@ let
         # legitimate fixed-output/CA derivation) but must never be true of
         # the top level about to be handed to switch-to-configuration, so
         # the top level is checked on its own terms before the closure-wide
-        # check below runs. Only with all of these does a stolen deploy key
-        # merely upload bytes the box refuses to run, rather than granting
-        # root.
+        # check below runs.
+        #
         # `nix path-info --json` reports an object keyed by store path (not
         # an array), so the query has to select by $path rather than by
         # position.
         info=$(nix path-info --json --json-format 1 "$path")
+
+        # A guard whose own machinery breaking must fail closed, not pass.
+        # If path-info's output shape ever changes underneath this script --
+        # a renamed field, a different top-level structure -- `.ca` and
+        # `.signatures` below would read as missing, which jq's `-r`
+        # renders as the string "null" and the empty count 0 respectively:
+        # exactly what "not content-addressed" and "no signature" already
+        # look like. A check that silently degrades into always passing on
+        # its own breakage is not a check. Assert the shape is what is
+        # expected before reading either value out of it.
+        if ! printf '%s' "$info" | jq -e --arg p "$path" \
+             'has($p) and (.[$p] | has("ca")) and (.[$p] | has("signatures"))' \
+             >/dev/null; then
+          echo "htpc-stage: unexpected nix path-info output for $path; refusing" >&2
+          exit 1
+        fi
+
         ca=$(printf '%s' "$info" | jq -r --arg p "$path" '.[$p].ca')
         if [ "$ca" != "null" ]; then
           echo "htpc-stage: $path is content-addressed at the top level; refusing" >&2
           exit 1
         fi
+
+        # This only proves *somebody* signed -- the Nix daemon lets any
+        # unprivileged user attach an arbitrary signature with a key they
+        # generated themselves (`nix key generate-secret` +
+        # `nix store sign`). It is a cheap, early rejection of "not signed
+        # at all"; it is not the trust check. signingKeyName below is.
         nsigs=$(printf '%s' "$info" | jq -r --arg p "$path" '.[$p].signatures | length')
         if [ "$nsigs" -eq 0 ]; then
           echo "htpc-stage: $path carries no signature at the top level; refusing" >&2
           exit 1
         fi
+
+        # The actual trust check. cache.nixos.org-1 is in
+        # trusted-public-keys so ordinary dependencies can be substituted,
+        # but a signature from it says nothing about who assembled *this*
+        # closure -- without this, any cache.nixos.org-signed, non-CA path
+        # whose basename contains "-nixos-system-" (a Hydra-built installer
+        # closure, say) would clear every check above and below. That is
+        # root by a different door: deploy stages a foreign, legitimately
+        # signed NixOS system with, for instance, root autologin and no
+        # firewall. Require a signature specifically from this box's own
+        # builder key, not merely from something trusted in general.
+        if ! printf '%s' "$info" | jq -e --arg p "$path" --arg key "${cfg.signingKeyName}:" \
+             '.[$p].signatures | any(startswith($key))' >/dev/null; then
+          echo "htpc-stage: $path is not signed by ${cfg.signingKeyName}; refusing" >&2
+          exit 1
+        fi
+
         # Cheap defence in depth: the only thing this ever legitimately
         # stages is a system closure's toplevel, never a bare derivation
         # output.
@@ -332,7 +394,8 @@ let
         # The closure-wide check: everything $path transitively depends on
         # must verify against a trusted key (or be legitimately
         # content-addressed -- see above for why that allowance stops at the
-        # top level).
+        # top level). An additional, narrower assertion on top of this, not
+        # a replacement for it.
         nix store verify --recursive --sigs-needed 1 "$path"
       ''}
 
@@ -404,6 +467,26 @@ in
         Verify staged closures against the trusted keys. Only the nixosTest
         turns this off -- a test VM has no builder key, and the thing under
         test is the policy, not the cryptography.
+      '';
+    };
+
+    signingKeyName = lib.mkOption {
+      type = lib.types.str;
+      default = "htpc-cache-1";
+      description = ''
+        Name of the signing key the staged toplevel must itself carry a
+        signature from -- not merely any key this box trusts.
+        cache.nixos.org-1 is trusted too (for substituting ordinary
+        dependencies), but a signature from it proves nothing about who
+        assembled a given closure; without this check, any
+        cache.nixos.org-signed, non-CA nixos-system-* path -- a foreign,
+        Hydra-built installer closure, say -- would clear every other
+        check here. "htpc-cache-1" is the name Task 1's
+        `nix-store --generate-binary-cache-key htpc-cache-1 ...` step
+        generates. Until that key exists both in this box's
+        trusted-public-keys and in ship.sh's SIGNING_KEY_FILE, nothing can
+        ever satisfy this check and the update path is inert by design --
+        that is a human-gated prerequisite, not a regression.
       '';
     };
 
