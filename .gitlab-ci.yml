@@ -26,7 +26,51 @@ flake-check:
   extends: .nix
   stage: check
   script:
-    - nix flake check -L
+    # Eval-only, and ahead of the loop below: this is what still gives
+    # nixosConfigurations.installer and every <machine>-lxc-template
+    # package eval coverage. Neither is in checks.x86_64-linux -- the
+    # installer ISO is 1.4 GB and CI should not build one on every push --
+    # so without this line an eval error in either would reach the default
+    # branch uncaught, the exact coverage `nix flake check -L` used to give
+    # for free before this job started building checks individually.
+    - nix flake check --no-build -L
+    # Enumerated, not hardcoded: a name list here is a maintenance trap --
+    # every machine added to nix/machines.nix after this list was last
+    # edited would silently stop being built in CI, with nothing to say so.
+    # The one exception is staged-updates, which needs /dev/kvm the
+    # runner's LXC does not expose today -- skipped loudly, not silently,
+    # rather than hardcoded around.
+    - |
+      set -euo pipefail
+      # nix, not jq -- nixos/nix:latest ships nix, bash, and coreutils, but
+      # no jq, so a `| jq -r '.[]'` here would exit 127 on every real
+      # pipeline run. `builtins.concatStringsSep "\n"` does jq's job with
+      # nothing beyond the tool already required to build anything below.
+      checks=$(nix eval --raw .#checks.x86_64-linux \
+        --apply 'cs: builtins.concatStringsSep "\n" (builtins.attrNames cs)')
+      # An empty set must fail loudly, not silently build nothing and exit
+      # 0 -- that is the identical failure class this enumeration exists to
+      # fix in the first place. A loop over nothing can't say so from
+      # inside itself, so this has to be checked before the loop.
+      if [ -z "$checks" ]; then
+        echo "no checks enumerated from .#checks.x86_64-linux; refusing to silently build nothing" >&2
+        exit 1
+      fi
+      # while+read over a here-string, not `for c in $checks` -- unquoted
+      # word-splitting on $checks would glob and mis-split on any check
+      # name containing a space or shell metacharacter. Current names are
+      # safe; the parsing itself should not depend on that staying true. A
+      # here-string keeps the loop in this shell rather than a subshell (a
+      # pipe into `while` would fork one), so `set -e` above still fails
+      # the whole job if a build inside the loop fails.
+      while IFS= read -r c; do
+        if [ "$c" = "staged-updates" ] && [ ! -e /dev/kvm ]; then
+          echo "no /dev/kvm on this runner; skipping the staged-updates VM test"
+          continue
+        fi
+        echo "building check: $c"
+        nix build -L ".#checks.x86_64-linux.$c"
+      done <<< "$checks"
 
 # ONE job on purpose. Splitting the lock bump from the build would let the
 # bump's own push re-trigger CI, and would let two pushes interleave a bump

@@ -104,6 +104,7 @@
         )
         // {
           registry = import ./nix/tests/registry.nix { inherit lib pkgs; };
+          staged-updates = import ./nix/tests/staged-updates.nix { inherit pkgs; };
         };
 
       formatter.x86_64-linux = pkgs.nixfmt-tree;
