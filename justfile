@@ -137,11 +137,23 @@ push-lxc-template machine node="192.168.1.200":
     ./scripts/push-lxc-template.sh {{ machine }} {{ node }}
 
 # Build, sign, publish and push a NixOS machine's system closure. Same script
-# CI runs, so there is one implementation with two entry points.
+# CI runs -- one implementation, two entry points -- but NOT the same cache
+# directory: ship.sh defaults to /srv/nix-cache, which is the runner's dataset
+# and exists only there. Without the NIX_CACHE_DIR below, `just deploy htpc`
+# built the whole closure and only then died on `df: /srv/nix-cache: No such
+# file or directory`, throwing away minutes of work with a message that
+# explained nothing. The publish is local either way; what CI adds on top is
+# the signing key and the fact that the box trusts what it finds there.
+#
 # deploy-nixos targets a reachable box directly and activates immediately;
 # deploy publishes a signed closure and a pointer, succeeds even when the
 # box is asleep, and lets the box decide when to switch.
 deploy machine:
+    #!{{ bash }}
+    # Outside the worktree on purpose: this fills up with whole system
+    # closures, and it must survive `git clean`.
+    export NIX_CACHE_DIR="${NIX_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/terranse/nix-cache}"
+    mkdir -p "$NIX_CACHE_DIR"
     ./scripts/ship.sh {{ machine }}
 
 # Build and activate a NixOS machine's configuration.

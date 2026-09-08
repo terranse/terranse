@@ -32,7 +32,7 @@ fi
 while [ -s "$queue" ]; do
   h=$(head -n1 "$queue")
   sed -i 1d "$queue"
-  # An `if`, not `grep … && continue`: under `set -e` a failing grep at the
+  # An `if`, not `grep ... && continue`: under `set -e` a failing grep at the
   # head of an && chain takes the whole script down.
   if grep -qxF "$h" "$seen" 2>/dev/null; then
     continue
