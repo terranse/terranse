@@ -1,7 +1,16 @@
-# Boot a VM, stage a second generation, and assert the three things the policy
+# Boot a VM, stage a second generation, and assert the four things the policy
 # exists to get right: busy means nothing happens, idle means it activates,
-# and an unhealthy backend means it rolls back *and* marks the revision bad so
-# the timer does not retry it every fifteen minutes.
+# an unhealthy backend means it rolls back *and* marks the revision bad so
+# the timer does not retry it every fifteen minutes -- and an update that
+# changes this role's OWN units does not make switch-to-configuration stop the
+# unit it is running inside.
+#
+# That last one is why the specialisation below changes a
+# roles.staged-updates option and not only a file in /etc. An earlier version
+# changed /etc/htpc-generation alone, so no unit definition ever differed
+# between the two generations and the whole restartIfChanged class of bug --
+# the one that silently half-activates an update and leaves every recorded
+# state lying about it -- was invisible to this test by construction.
 { pkgs }:
 pkgs.testers.runNixOSTest {
   name = "htpc-staged-updates";
@@ -82,6 +91,30 @@ pkgs.testers.runNixOSTest {
       # is what puts this on the `switch` path rather than the `boot` one.
       specialisation.next.configuration = {
         environment.etc."htpc-generation".text = "2";
+
+        # Load-bearing, not decoration. watchdogSeconds is interpolated into
+        # htpc-update-watchdog's script (in the requireHealthy branch, which
+        # this node is on), htpc-update's script embeds that script's store
+        # path to hand to systemd-run, htpc-update-apply's ExecStart embeds
+        # htpc-update's, and htpc-update-fetch's script embeds both
+        # htpc-update's and htpc-stage's. So changing this one value changes
+        # all four services' ExecStart= -- verified by evaluating the role
+        # twice with 15 and 16 and diffing the rendered units, and re-asserted
+        # from inside the test script below so it cannot rot into a no-op.
+        #
+        # That is what makes the "idle means it activates" subtest exercise
+        # the real hazard: switch-to-configuration-ng puts a unit in its
+        # changed-unit diff when the unit is `active` OR `activating`, and a
+        # Type=oneshot service is `activating` for the whole of its ExecStart
+        # -- so htpc-update.service is in scope for the very switch its own
+        # ExecStart is running, and without restartIfChanged = false it would
+        # be stopped mid-switch, after the bootloader install and before the
+        # activate script.
+        #
+        # mkForce because the parent already defines watchdogSeconds and a
+        # specialisation inherits the parent's config: two equal-priority
+        # definitions of one option is an evaluation error, not an override.
+        roles.staged-updates.watchdogSeconds = lib.mkForce 16;
       };
     };
 
@@ -93,6 +126,31 @@ pkgs.testers.runNixOSTest {
 
     base = machine.succeed("readlink -f /run/current-system").strip()
     nxt = machine.succeed("readlink -f /run/current-system/specialisation/next").strip()
+
+    # Guard against a vacuous test. Everything below about restartIfChanged
+    # only means anything if the two generations genuinely disagree about
+    # these units' definitions -- that is the entire condition under which
+    # switch-to-configuration considers a unit "changed" and stops it. If a
+    # future edit makes the specialisation differ only in /etc again, this
+    # fails here and says so, rather than letting the subtests keep passing
+    # while covering nothing.
+    for unit in (
+        "htpc-update.service",
+        "htpc-update-apply.service",
+        "htpc-update-fetch.service",
+        "htpc-update-watchdog.service",
+    ):
+        old_def = machine.succeed(f"cat {base}/etc/systemd/system/{unit}")
+        new_def = machine.succeed(f"cat {nxt}/etc/systemd/system/{unit}")
+        assert old_def != new_def, (
+            f"{unit} is identical in both generations, so switching between "
+            "them never marks it changed and this test cannot see the "
+            "restartIfChanged bug it exists to catch"
+        )
+        assert "X-RestartIfChanged=false" in new_def, (
+            f"{unit} does not carry X-RestartIfChanged=false; "
+            "switch-to-configuration would stop it mid-switch"
+        )
 
     # A test VM boots straight from a store path, so the system profile has no
     # generations at all -- and with no generation 1 there is nothing to roll
@@ -122,7 +180,21 @@ pkgs.testers.runNixOSTest {
         # --collect, not `exec`; see staged-updates.nix's comment on why).
         # So by the time `systemctl start` returns, current-system and
         # /etc/htpc-generation have already flipped.
+        # The heart of it. This switch changed htpc-update.service's own
+        # ExecStart= (see the specialisation's comment), so without
+        # restartIfChanged = false switch-to-configuration would have stopped
+        # the cgroup it was running inside: `systemctl start` above would come
+        # back non-zero, /run/current-system would still be the OLD generation
+        # while /nix/var/nix/profiles/system and the bootloader already point
+        # at the new one, and the unit would be left `failed`. All three of
+        # those are asserted, because each one is a different half of the same
+        # lie: the profile says the update landed, the running system says it
+        # did not.
+        machine.fail("systemctl is-failed --quiet htpc-update.service")
         assert machine.succeed("readlink -f /run/current-system").strip() == nxt
+        assert (
+            machine.succeed("readlink -f /nix/var/nix/profiles/system").strip() == nxt
+        )
         assert machine.succeed("cat /etc/htpc-generation").strip() == "2"
 
         # Cleared only by the detached watchdog once it sees the generation
@@ -195,14 +267,12 @@ pkgs.testers.runNixOSTest {
         # that path (the unit stays "active (exited)" so it is never
         # "wanted but inactive" for an unrelated switch to restart).
         #
-        # This assertion does NOT exercise the separate, more dangerous
-        # path restartIfChanged/stopIfChanged (also in staged-updates.nix)
-        # closes -- a switch that changes htpc-update-watchdog.service's
-        # OWN definition, which this test's specialisation never does (it
-        # only touches /etc/htpc-generation). Proving that path would need
-        # a specialisation that edits roles.staged-updates itself; not
-        # added here since it would not exercise anything about the
-        # activation *policy*, which is what this whole test is for.
+        # This subtest's switches DO now change htpc-update-watchdog.service's
+        # own definition as well (the specialisation moves watchdogSeconds),
+        # so this assertion covers the restartIfChanged path too and not only
+        # the RemainAfterExit one it was originally written for. The earlier
+        # version of this comment said the opposite, correctly at the time:
+        # the specialisation then differed only in /etc/htpc-generation.
         machine.fail("systemctl is-failed --quiet htpc-update-watchdog.service")
 
     with subtest("a known-bad revision is not retried"):
