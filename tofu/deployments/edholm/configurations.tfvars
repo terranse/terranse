@@ -319,6 +319,12 @@ hosts = {
     kind         = "nixos"
     # The wired NIC's MAC, read from the box at install. The DHCP reservation
     # and CI's wake-on-LAN step both read this one declaration.
+    #
+    # Deliberately still a placeholder: the box does not exist yet. main.tf's
+    # local.host_macs filters on a well-formed MAC, not on mere presence, so
+    # this line produces no DHCP reservation and blocks no `tofu apply` until
+    # a human replaces it with the real address. Replacing it is what turns
+    # the reservation on -- there is nothing else to enable.
     mac = "REPLACE-WITH-THE-MAC-FROM-TASK-3-STEP-5"
   }
 }

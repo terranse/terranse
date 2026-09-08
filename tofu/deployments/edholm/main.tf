@@ -105,9 +105,22 @@ locals {
   # Bare-metal hosts that declared a MAC. Nothing derives these -- a physical
   # NIC's address is a fact, so the tfvars entry is the source of truth for
   # both the reservation below and CI's wakeonlan step.
+  #
+  # The filter tests the SHAPE, not merely presence. A machine whose NIC has
+  # not been read yet carries an explicit placeholder in configurations.tfvars
+  # (see the htpc entry there, and keep the two comments in sync). A
+  # presence-only test -- `try(host.mac, null) != null` -- treats that
+  # placeholder as a real address: a full opnsense_dnsmasq_host reservation is
+  # planned with a garbage hardware_addresses, nothing anywhere in this chain
+  # validates MAC shape, and every unrelated apply on this deployment (a new
+  # container, a Caddy route) then either errors at the OPNsense API or writes
+  # a junk reservation. That blocks the whole deployment on a step for a
+  # machine that does not physically exist yet. Requiring a well-formed
+  # address instead makes an unfilled placeholder simply produce no
+  # reservation, which is exactly what it means.
   host_macs = {
     for host_key, host in var.hosts : host_key => host.mac
-    if try(host.mac, null) != null
+    if can(regex("^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", try(host.mac, "")))
   }
 
   # Which container runs which compose bundle, so a service's upstream can be
