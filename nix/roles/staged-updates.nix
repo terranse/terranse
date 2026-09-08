@@ -454,11 +454,17 @@ let
         # costs any unprivileged user nothing, and the daemon accepts the
         # resulting signature on a path it did not build); only the key
         # material itself cannot be. --option trusted-public-keys here
-        # overrides the daemon's own list for this one invocation, so a
-        # payload carrying a genuine cache.nixos.org-1 signature (already
-        # trusted, for ordinary dependencies) *plus* a forged
-        # "htpc-cache-1:..."-named signature is refused: neither the fake
-        # name nor the real third party is this box's actual builder key.
+        # overrides the *client's* own list for this one invocation -- not
+        # the daemon's, which an untrusted caller could not override anyway.
+        # That is precisely why the pin binds: `nix store verify` checks
+        # signatures client-side, against the list this invocation was
+        # handed, so the narrowed list is authoritative here regardless of
+        # whether the caller is a trusted user. A payload carrying a genuine
+        # cache.nixos.org-1 signature (already in the daemon's list, for
+        # substituting ordinary dependencies) *plus* a forged
+        # "htpc-cache-1:..."-named signature is therefore refused: neither
+        # the fake name nor the real third party is this box's actual
+        # builder key.
         nix store verify --sigs-needed 1 \
           --option trusted-public-keys "$signing_public_key" \
           "$path"
@@ -653,11 +659,65 @@ in
       });
     '';
 
+    # restartIfChanged = false is load-bearing here, not hygiene: this unit
+    # runs switch-to-configuration inside its own ExecStart, so it must never
+    # be a unit switch-to-configuration is willing to stop.
+    # switch-to-configuration-ng puts a unit into its changed-unit diff when
+    # that unit's state is `active` OR `activating` (main.rs:1238) -- and a
+    # Type=oneshot service is `activating` for the whole of its ExecStart, so
+    # htpc-update.service is in scope for the very switch its own ExecStart is
+    # running. With X-RestartIfChanged and X-StopIfChanged unset (the
+    # defaults) a changed .service lands in units_to_stop AND units_to_start
+    # (main.rs:738-746), and switch-to-configuration issues
+    # stop_unit(unit, "replace") and BLOCKS on it (main.rs:2202) before it ever
+    # runs the activate script (main.rs:2231). An ordinary update would
+    # therefore install the bootloader and then SIGTERM the cgroup running
+    # switch-to-configuration itself: bootloader and
+    # /nix/var/nix/profiles/system pointing at the new generation while
+    # /run/current-system, /etc and every running service are still the old
+    # one, the verify marker set, the unit `failed`, and no watchdog detached.
+    # Every piece of recorded state would lie about what happened, and nothing
+    # would converge until a reboot a suspended television may not take for
+    # weeks.
+    #
+    # This is the common case, not a corner: htpc-update is a
+    # writeShellApplication over coreutils/curl/gnugrep/jq/nix/systemd, so its
+    # store path -- and therefore this ExecStart= -- changes on essentially
+    # every nixpkgs bump. NixOS's own nixos-upgrade.service sets exactly these
+    # two options for exactly this reason
+    # (nixos/modules/tasks/auto-upgrade.nix).
+    #
+    # The reboot_required path was always safe: switch-to-configuration boot
+    # returns right after installing the bootloader, before stopping anything.
+    # It is the plain `switch` path -- the ordinary one -- that this closes.
+    #
+    # htpc-update-watchdog.service below also carries restartIfChanged = false,
+    # for a related but different reason (it must not be *started* by a switch
+    # at all, so the declared instance cannot race the transient one). Do not
+    # collapse the two, and do not remove either.
     systemd.services.htpc-update = {
       description = "Activate a staged system generation when the TV is idle";
+      restartIfChanged = false;
+      unitConfig.X-StopOnRemoval = false;
       serviceConfig = {
         Type = "oneshot";
         ExecStart = lib.getExe htpc-update;
+        # systemd.service(5): the start timeout is DISABLED by default for
+        # Type=oneshot. Nothing inside htpc-update bounds itself either --
+        # switch-to-configuration blocks for as long as systemd takes, and the
+        # only bounded call in the script is the --max-time 5 curl to
+        # /system/activity. Without this, a wedged nix daemon or a hung switch
+        # leaves the unit `activating` forever: no timeout, no failure, no
+        # journal line, and a box that has silently stopped updating.
+        #
+        # 30min is a deliberate ceiling rather than a measurement. The slowest
+        # legitimate switch observed anywhere in this work is ~90s (this
+        # role's own VM test, under nested virtualisation on one vCPU), so
+        # 30min cannot cut short real work; a run that reaches it is stuck,
+        # and a failed unit is a far better outcome than an invisible one.
+        # The same value is used on all four units of this role for the same
+        # reason.
+        TimeoutStartSec = "30min";
       };
     };
 
@@ -671,11 +731,21 @@ in
       };
     };
 
+    # Same unit, same ExecStart, same switch-to-configuration -- only the
+    # trigger differs (the viewer's popup rather than the timer), so it needs
+    # the identical protection. See the long comment on
+    # systemd.services.htpc-update above for the mechanism: `activating`
+    # oneshots enter switch-to-configuration's changed-unit diff, and a changed
+    # unit is stopped before the activate script runs.
     systemd.services.htpc-update-apply = {
       description = "Apply the staged generation now (the viewer accepted the popup)";
+      restartIfChanged = false;
+      unitConfig.X-StopOnRemoval = false;
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${lib.getExe htpc-update} --force-idle";
+        # See htpc-update above: Type=oneshot has no start timeout by default.
+        TimeoutStartSec = "30min";
       };
     };
 
@@ -728,6 +798,12 @@ in
         # dangerous case, where the definition DID change.
         RemainAfterExit = true;
         ExecStart = lib.getExe htpc-update-watchdog;
+        # See htpc-update above: Type=oneshot has no start timeout by default.
+        # This unit's legitimate worst case is the widest of the four -- a
+        # full watchdogSeconds health poll (120s by default) followed by
+        # `nix-env --rollback` and a complete switch-to-configuration -- and
+        # 30min still clears that by more than an order of magnitude.
+        TimeoutStartSec = "30min";
       };
     };
 
@@ -741,8 +817,25 @@ in
         "network-online.target"
         "htpc-update-watchdog.service"
       ];
+      # Same reasoning as htpc-update above -- this script also ends by
+      # running htpc-update, which runs switch-to-configuration, so the unit
+      # is `activating` while a switch that changes its own ExecStart= is in
+      # progress. Its ExecStart embeds htpc-stage's and htpc-update's store
+      # paths, so it changes whenever they do.
+      restartIfChanged = false;
+      unitConfig.X-StopOnRemoval = false;
       serviceConfig = {
         Type = "oneshot";
+        # See htpc-update above: Type=oneshot has no start timeout by default,
+        # and this unit has the least bounded body of the four. `curl` above
+        # carries --max-time 20, but `nix copy --from` has no timeout of its
+        # own at all, and neither do htpc-stage's `nix path-info` and `nix
+        # store verify`. A stalled cache or a wedged nix daemon otherwise
+        # parks this unit in `activating` with no failure and no further
+        # journal line after "fetching". 30min is chosen to sit far above a
+        # legitimate multi-GB closure pull over the LAN, which is what makes
+        # it safe to fail on.
+        TimeoutStartSec = "30min";
         ExecStart = pkgs.writeShellScript "htpc-update-fetch" ''
           set -euo pipefail
           export PATH=${
@@ -758,6 +851,24 @@ in
           if [ -z "$pointer" ]; then
             echo "htpc-update-fetch: no pointer at ${cfg.cacheUrl}"
             exit 0
+          fi
+
+          # $pointer is an unauthenticated remote string -- whatever bytes
+          # answer at that URL -- and it reaches `nix copy` BELOW, before
+          # htpc-stage's own guard ever sees it. `nix copy --from <uri>
+          # <installable>` takes an *installable*, not a path: it evaluates
+          # (confirmed against nix 2.34.8). So without this guard, anyone able
+          # to control those bytes -- write access to the cache dataset, the
+          # nginx container serving it, LAN DNS or TLS interception -- serves
+          # `git+https://evil.example/x#p` and root's Nix evaluates and builds
+          # it on the next boot, bypassing every signature check because none
+          # is reached. This is the same defect class already closed inside
+          # htpc-stage, and deliberately the identical guard: see the long
+          # comment there for why it is a bash pattern match against the whole
+          # variable rather than a line-oriented grep.
+          if [[ ! $pointer =~ ^/nix/store/[0-9a-z]{32}-[^/[:space:]]+$ ]]; then
+            echo "htpc-update-fetch: $pointer is not a single literal store path; refusing" >&2
+            exit 1
           fi
 
           current=$(readlink -f /run/current-system)
