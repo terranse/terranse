@@ -31,7 +31,18 @@ let
       local reason="$1" pending="$2" reboot="$3"
       local staged age
       staged=$(cat ${stagedAt} 2>/dev/null || echo 0)
-      age=$(( $(date -u +%s) - staged ))
+      # A staged-at file that is missing, empty (an interrupted write), or
+      # otherwise not a plain integer must not reach the arithmetic below --
+      # a non-numeric string is a bash syntax error under `$(( ))` that would
+      # kill write_state under set -e, and "0" already means "nothing
+      # staged", which age_seconds should say plainly rather than reporting
+      # the distance from the Unix epoch.
+      [[ $staged =~ ^[0-9]+$ ]] || staged=0
+      if [ "$staged" -eq 0 ]; then
+        age=0
+      else
+        age=$(( $(date -u +%s) - staged ))
+      fi
       jq -n \
         --arg reason "$reason" \
         --arg pending "$pending" \
@@ -63,52 +74,83 @@ let
       [ -f ${verifyMarker} ] || exit 0
       pending=$(cat ${verifyMarker})
 
-      healthy=0
-      deadline=$(( $(date +%s) + ${toString cfg.watchdogSeconds} ))
-      while [ "$(date +%s)" -lt "$deadline" ]; do
-        if curl -fsS --max-time 5 ${cfg.healthUrl}/health >/dev/null 2>&1; then
-          ${lib.optionalString cfg.requireKioskUnit ''
-            # A backend answering /health while the screen renders nothing is
-            # the failure this narrows. It does not close it.
-            if ! systemctl --user --machine=${cfg.kioskUser}@.host \
-                 is-active --quiet home-player-shell.service; then
+      ${
+        if !cfg.requireHealthy then
+          ''
+            # No health endpoint exists to ask yet -- home-player (Task 7) is
+            # not deployed on this machine. Treating a fresh activation as
+            # "nothing to verify" -- neither healthy nor unhealthy -- is
+            # deliberate: rolling back on an absent backend would revert
+            # every good update and then permanently brick the update path,
+            # since htpc-stage refuses a bad-revisions entry forever. Flip
+            # roles.staged-updates.requireHealthy back to true in
+            # nix/machines.nix the moment home-player lands.
+            rm -f ${verifyMarker}
+            echo "htpc-update-watchdog: requireHealthy is off; leaving $pending as-is"
+            write_state none "$pending" 0
+            exit 0
+          ''
+        else
+          ''
+            healthy=0
+            deadline=$(( $(date +%s) + ${toString cfg.watchdogSeconds} ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              if curl -fsS --max-time 5 ${cfg.healthUrl}/health >/dev/null 2>&1; then
+                ${lib.optionalString cfg.requireKioskUnit ''
+                  # A backend answering /health while the screen renders nothing is
+                  # the failure this narrows. It does not close it.
+                  if ! systemctl --user --machine=${cfg.kioskUser}@.host \
+                       is-active --quiet home-player-shell.service; then
+                    sleep 5
+                    continue
+                  fi
+                ''}
+                healthy=1
+                break
+              fi
               sleep 5
-              continue
+            done
+
+            if [ "$healthy" -eq 1 ]; then
+              rm -f ${verifyMarker}
+              echo "htpc-update-watchdog: $pending is healthy"
+              write_state none "$pending" 0
+              exit 0
             fi
-          ''}
-          healthy=1
-          break
-        fi
-        sleep 5
-      done
 
-      if [ "$healthy" -eq 1 ]; then
-        rm -f ${verifyMarker}
-        echo "htpc-update-watchdog: $pending is healthy"
-        write_state none "$pending" 0
-        exit 0
-      fi
+            echo "htpc-update-watchdog: $pending never became healthy; rolling back" >&2
 
-      echo "htpc-update-watchdog: $pending never became healthy; rolling back" >&2
+            # Barred by exact path, and only this path. A later, different revision
+            # is unaffected -- otherwise the 15-minute timer would rollback-loop on
+            # the same closure forever.
+            printf '%s\n' "$pending" >> ${badRevisions}
+            rm -f ${pendingRoot} ${verifyMarker}
 
-      # Barred by exact path, and only this path. A later, different revision
-      # is unaffected -- otherwise the 15-minute timer would rollback-loop on
-      # the same closure forever.
-      printf '%s\n' "$pending" >> ${badRevisions}
-      rm -f ${pendingRoot} ${verifyMarker}
+            if ! nix-env -p ${systemProfile} --rollback; then
+              # No earlier generation exists (e.g. this is the first
+              # generation this role ever staged). $pending is already on
+              # the bad-revisions list above, so it will not be re-offered;
+              # the box just stays on it until a human intervenes, which
+              # state.json now says outright rather than claiming a
+              # rollback happened when it did not.
+              echo "htpc-update-watchdog: no earlier generation to roll back to" >&2
+              write_state rollback-failed "$pending" 0
+              exit 1
+            fi
 
-      nix-env -p ${systemProfile} --rollback
-      restored=$(readlink -f ${systemProfile})
-      booted=$(readlink -f /run/booted-system)
-      write_state rolled-back "$pending" 0
+            restored=$(readlink -f ${systemProfile})
+            booted=$(readlink -f /run/booted-system)
+            write_state rolled-back "$pending" 0
 
-      if [ "$(readlink -f "$restored/kernel")" != "$(readlink -f "$booted/kernel")" ]; then
-        "$restored/bin/switch-to-configuration" boot
-        systemctl reboot
-      else
-        "$restored/bin/switch-to-configuration" switch
-      fi
-      exit 1
+            if [ "$(readlink -f "$restored/kernel")" != "$(readlink -f "$booted/kernel")" ]; then
+              "$restored/bin/switch-to-configuration" boot
+              systemctl reboot
+            else
+              "$restored/bin/switch-to-configuration" switch
+            fi
+            exit 1
+          ''
+      }
     '';
   };
 
@@ -196,7 +238,16 @@ let
       fi
 
       "$pending/bin/switch-to-configuration" switch
-      exec ${lib.getExe htpc-update-watchdog}
+
+      # Not `exec`: switch-to-configuration can restart htpc-update.service
+      # itself, when the update touches this very role -- exactly the class
+      # of update most in need of a watchdog. `exec` would then either die
+      # along with the unit's own restart (no watchdog ever runs) or run the
+      # watchdog from inside the unit racing its own restart. A transient
+      # unit detaches the watchdog from htpc-update.service's lifecycle so
+      # it survives either way.
+      systemd-run --collect --unit=htpc-update-watchdog-run \
+        ${lib.getExe htpc-update-watchdog}
     '';
   };
 
@@ -205,6 +256,7 @@ let
     runtimeInputs = with pkgs; [
       coreutils
       gnugrep
+      jq
       nix
       systemd
     ];
@@ -216,15 +268,71 @@ let
       fi
       path="''${1:?usage: htpc-stage [--no-activate] <store-path>}"
 
+      # $path must name exactly one store object -- a literal path, not a
+      # Nix installable (a flake reference, ".", a subpath into an output,
+      # ...). Without this, the commands below evaluate whatever $path
+      # names instead of inspecting a store object, and `sudo htpc-stage .`
+      # run from a directory deploy controls evaluates and builds arbitrary
+      # Nix under root's trusted-user daemon.
+      case "$path" in
+        /nix/store/*) ;;
+        *)
+          echo "htpc-stage: $path must be a literal /nix/store path" >&2
+          exit 1
+          ;;
+      esac
+      if ! printf '%s\n' "$path" | grep -qE '^/nix/store/[0-9a-z]{32}-[^/]+$'; then
+        echo "htpc-stage: $path must name exactly one store object" >&2
+        exit 1
+      fi
+
       if [ ! -e "$path" ]; then
         echo "htpc-stage: $path is not in the store" >&2
         exit 1
       fi
 
       ${lib.optionalString cfg.requireSignatures ''
-        # The first thing this does, before the path becomes reachable from a
-        # GC root. A stolen deploy key can upload bytes; it cannot make the
-        # box run them.
+        # Everything above this line only checks shape and the local
+        # bad-revisions list; nothing has proven $path is trustworthy yet.
+        # Nix treats a content-addressed path as self-certifying -- `nix
+        # store verify` accepts it with zero real signatures -- and any
+        # unprivileged user can create one via `nix store add-path`. That is
+        # fine deep inside a closure (every fetched source tarball is a
+        # legitimate fixed-output/CA derivation) but must never be true of
+        # the top level about to be handed to switch-to-configuration, so
+        # the top level is checked on its own terms before the closure-wide
+        # check below runs. Only with all of these does a stolen deploy key
+        # merely upload bytes the box refuses to run, rather than granting
+        # root.
+        # `nix path-info --json` reports an object keyed by store path (not
+        # an array), so the query has to select by $path rather than by
+        # position.
+        info=$(nix path-info --json --json-format 1 "$path")
+        ca=$(printf '%s' "$info" | jq -r --arg p "$path" '.[$p].ca')
+        if [ "$ca" != "null" ]; then
+          echo "htpc-stage: $path is content-addressed at the top level; refusing" >&2
+          exit 1
+        fi
+        nsigs=$(printf '%s' "$info" | jq -r --arg p "$path" '.[$p].signatures | length')
+        if [ "$nsigs" -eq 0 ]; then
+          echo "htpc-stage: $path carries no signature at the top level; refusing" >&2
+          exit 1
+        fi
+        # Cheap defence in depth: the only thing this ever legitimately
+        # stages is a system closure's toplevel, never a bare derivation
+        # output.
+        case "$(basename "$path")" in
+          *-nixos-system-*) ;;
+          *)
+            echo "htpc-stage: $path does not look like a nixos-system toplevel" >&2
+            exit 1
+            ;;
+        esac
+
+        # The closure-wide check: everything $path transitively depends on
+        # must verify against a trusted key (or be legitimately
+        # content-addressed -- see above for why that allowance stops at the
+        # top level).
         nix store verify --recursive --sigs-needed 1 "$path"
       ''}
 
@@ -236,7 +344,9 @@ let
       fi
 
       # A GC root, so nix.gc cannot eat the closure between staging and
-      # activation.
+      # activation. $path is the same string validated above -- not a
+      # symlink target, not a re-resolved path -- so the root can only ever
+      # point at the one store object that was actually checked.
       ln -sfn "$path" ${pendingRoot}
       date -u +%s > ${stagedAt}
       echo "htpc-stage: staged $path"
@@ -305,6 +415,21 @@ in
         generation healthy. Off in the nixosTest, which runs no kiosk.
       '';
     };
+
+    requireHealthy = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Roll back a freshly activated generation that never reports
+        healthy. Off means "nothing to verify", not "healthy" -- the
+        watchdog clears its marker and leaves the generation in place
+        without adding it to bad-revisions. Needed until the home-player
+        role (Task 7) actually serves ${cfg.healthUrl}/health: otherwise
+        every update times out waiting on a backend that does not exist,
+        gets rolled back, and is then refused forever by htpc-stage's
+        bad-revisions check.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -321,6 +446,11 @@ in
 
     # Exactly one command, and its first action is to verify signatures. This
     # is the whole privilege CI has on the box.
+    #
+    # Do NOT add `cfg.deployUser` to `wheel` when that account is declared.
+    # base.nix already grants wheel `NOPASSWD:SETENV: ALL` -- putting deploy
+    # there, the reflex for "it's just an SSH account", makes this
+    # one-command rule irrelevant and hands CI passwordless root.
     security.sudo.extraRules = [
       {
         users = [ cfg.deployUser ];
@@ -426,10 +556,14 @@ in
           echo "htpc-update-fetch: fetching $pointer"
           nix copy --from "${cfg.cacheUrl}" "$pointer"
 
-          # Nobody is watching at boot, so this path activates immediately.
-          # It is what catches every push where wake-on-LAN did not land.
+          # This still goes through the ordinary idle check in htpc-update --
+          # someone may have just pressed the power button. A failed
+          # /system/activity request already reads as idle (home-player is
+          # not deployed yet), so this behaves the same as before; once that
+          # endpoint is real, this is what stops a kernel-update reboot from
+          # landing in a viewer's face on the very boot that woke the box up.
           ${lib.getExe htpc-stage} --no-activate "$pointer"
-          ${lib.getExe htpc-update} --force-idle
+          ${lib.getExe htpc-update}
         '';
       };
     };

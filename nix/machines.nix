@@ -31,7 +31,18 @@
       # role's defaults for healthUrl and kioskUser point at pieces that do
       # not exist on this machine until those land. A failed health check
       # reads as idle, so the update loop still works in the gap.
-      { name = "staged-updates"; }
+      {
+        name = "staged-updates";
+        settings = {
+          # home-player is not deployed on this machine yet, so there is no
+          # /health to poll. False means the watchdog treats a fresh
+          # activation as unverified-but-kept, not as a rollback trigger --
+          # the default (true) would roll back every good update and then
+          # permanently refuse it via bad-revisions. Flip this back to true
+          # (or delete the override) the moment home-player lands.
+          requireHealthy = false;
+        };
+      }
     ];
   };
 }
