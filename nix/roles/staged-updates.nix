@@ -347,6 +347,13 @@ let
           exit 1
         fi
 
+        # Load-bearing, not merely tidy: `nix store verify` (both the
+        # pinned call below and the closure-wide one at the end) passes a
+        # content-addressed path unconditionally, with zero signatures, by
+        # design -- that is what makes fixed-output derivations able to
+        # substitute at all. This CA ban on the *top level* is therefore
+        # the entire defence against a `nix store add-path` payload; verify
+        # itself provides none.
         ca=$(printf '%s' "$info" | jq -r --arg p "$path" '.[$p].ca')
         if [ "$ca" != "null" ]; then
           echo "htpc-stage: $path is content-addressed at the top level; refusing" >&2
@@ -357,28 +364,47 @@ let
         # unprivileged user attach an arbitrary signature with a key they
         # generated themselves (`nix key generate-secret` +
         # `nix store sign`). It is a cheap, early rejection of "not signed
-        # at all"; it is not the trust check. signingKeyName below is.
+        # at all"; it is not the trust check. The pinned verify below is.
         nsigs=$(printf '%s' "$info" | jq -r --arg p "$path" '.[$p].signatures | length')
         if [ "$nsigs" -eq 0 ]; then
           echo "htpc-stage: $path carries no signature at the top level; refusing" >&2
           exit 1
         fi
 
-        # The actual trust check. cache.nixos.org-1 is in
-        # trusted-public-keys so ordinary dependencies can be substituted,
-        # but a signature from it says nothing about who assembled *this*
-        # closure -- without this, any cache.nixos.org-signed, non-CA path
-        # whose basename contains "-nixos-system-" (a Hydra-built installer
-        # closure, say) would clear every check above and below. That is
-        # root by a different door: deploy stages a foreign, legitimately
-        # signed NixOS system with, for instance, root autologin and no
-        # firewall. Require a signature specifically from this box's own
-        # builder key, not merely from something trusted in general.
-        if ! printf '%s' "$info" | jq -e --arg p "$path" --arg key "${cfg.signingKeyName}:" \
-             '.[$p].signatures | any(startswith($key))' >/dev/null; then
-          echo "htpc-stage: $path is not signed by ${cfg.signingKeyName}; refusing" >&2
+        # requireSignatures is on but no builder key has been configured
+        # (roles.staged-updates.signingPublicKey is empty) -- refuse
+        # outright rather than fall back to whatever this box already
+        # trusts for substituting ordinary dependencies. cache.nixos.org-1
+        # is in trusted-public-keys, and a signature from it proves
+        # nothing about who assembled this closure; without a pinned key
+        # of its own this box has no way to tell "CI built this" from
+        # "any trusted third party signed something with -nixos-system-
+        # in its name," which is root by a different door with no
+        # forgery required. A plain shell variable, not a Nix-level
+        # if/else baked into the generated text, so shellcheck does not
+        # (correctly, in the empty-key case) see the verify call below as
+        # unreachable dead code -- it is unreachable only for as long as
+        # the key genuinely is not configured, which is the point.
+        signing_public_key=${lib.escapeShellArg cfg.signingPublicKey}
+        if [ -z "$signing_public_key" ]; then
+          echo "htpc-stage: roles.staged-updates.signingPublicKey is not configured; refusing all updates until it is" >&2
           exit 1
         fi
+
+        # The actual trust check, pinned to the builder's key material --
+        # not its name. A signature's key *name* is attacker-chosen and
+        # free to forge ("nix key generate-secret --key-name htpc-cache-1"
+        # costs any unprivileged user nothing, and the daemon accepts the
+        # resulting signature on a path it did not build); only the key
+        # material itself cannot be. --option trusted-public-keys here
+        # overrides the daemon's own list for this one invocation, so a
+        # payload carrying a genuine cache.nixos.org-1 signature (already
+        # trusted, for ordinary dependencies) *plus* a forged
+        # "htpc-cache-1:..."-named signature is refused: neither the fake
+        # name nor the real third party is this box's actual builder key.
+        nix store verify --sigs-needed 1 \
+          --option trusted-public-keys "$signing_public_key" \
+          "$path"
 
         # Cheap defence in depth: the only thing this ever legitimately
         # stages is a system closure's toplevel, never a bare derivation
@@ -394,8 +420,9 @@ let
         # The closure-wide check: everything $path transitively depends on
         # must verify against a trusted key (or be legitimately
         # content-addressed -- see above for why that allowance stops at the
-        # top level). An additional, narrower assertion on top of this, not
-        # a replacement for it.
+        # top level). An additional check on the rest of the closure, using
+        # the daemon's normal trusted-public-keys -- not a replacement for
+        # the pinned top-level check above.
         nix store verify --recursive --sigs-needed 1 "$path"
       ''}
 
@@ -470,23 +497,31 @@ in
       '';
     };
 
-    signingKeyName = lib.mkOption {
+    signingPublicKey = lib.mkOption {
       type = lib.types.str;
-      default = "htpc-cache-1";
+      default = "";
       description = ''
-        Name of the signing key the staged toplevel must itself carry a
-        signature from -- not merely any key this box trusts.
-        cache.nixos.org-1 is trusted too (for substituting ordinary
-        dependencies), but a signature from it proves nothing about who
-        assembled a given closure; without this check, any
-        cache.nixos.org-signed, non-CA nixos-system-* path -- a foreign,
-        Hydra-built installer closure, say -- would clear every other
-        check here. "htpc-cache-1" is the name Task 1's
-        `nix-store --generate-binary-cache-key htpc-cache-1 ...` step
-        generates. Until that key exists both in this box's
-        trusted-public-keys and in ship.sh's SIGNING_KEY_FILE, nothing can
-        ever satisfy this check and the update path is inert by design --
-        that is a human-gated prerequisite, not a regression.
+        The builder's actual public key -- the "name:base64" line
+        `nix-store --generate-binary-cache-key` emits -- pinned
+        cryptographically, not matched by name. A signature's key *name*
+        is attacker-chosen and free to forge: any unprivileged user can
+        `nix key generate-secret --key-name htpc-cache-1` and sign a path
+        they did not build, and the daemon accepts it. Only the key
+        material itself cannot be forged. A name-only check would also
+        miss the case where a payload carries both a forged
+        "htpc-cache-1:..." signature and a genuine signature from a key
+        this box trusts for something else entirely (cache.nixos.org-1,
+        for substituting ordinary dependencies) -- `nix store verify
+        --sigs-needed 1` is satisfied by *any* trusted signature, so that
+        combination clears a name check with no forgery of the trusted
+        key required.
+
+        Empty (the default) means the builder key has not been generated
+        yet -- a human-gated step (Task 1). With requireSignatures on,
+        htpc-stage then refuses every staged path outright, rather than
+        falling back to whatever this box already trusts for unrelated
+        purposes, so the update path is genuinely inert until this is
+        set -- not merely claimed to be.
       '';
     };
 
