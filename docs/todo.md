@@ -33,6 +33,16 @@
       explicit paths
 - [ ] Normalize commit trailer casing (`Co-authored-by:` vs `Co-Authored-By:`)
 
+### HTPC (NixOS)
+
+- [ ] Open human gates for the NixOS HTPC and its auto-update pipeline are
+      listed in `docs/superpowers/plans/2026-09-06-htpc-nixos.md`, section
+      "Open human gates and carry-forwards". Short version: the `deploy`
+      account and the builder key are not in `nix/roles/base.nix` yet, the
+      box's MAC and `roles.staged-updates.signingPublicKey` are still
+      placeholders, and `requireHealthy` is temporarily off. Nothing ships to
+      the box until those are filled in.
+
 ## Ansible
 
 - [ ] Fix auto creation of `appdata` location for each service; tricky part is to know what bounds a service, e.g. from a Dockerfile, and name it properly

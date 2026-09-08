@@ -10,6 +10,119 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-06-htpc-nixos-design.md`
 
+## Open human gates and carry-forwards
+
+Everything below is still open at the point this branch merges. It is recorded
+here, in a tracked file, because the working ledger for this plan lives under
+`.superpowers/sdd/`, which is gitignored and therefore does not merge -- this
+section is the only record that travels with the code. Written for someone who
+was not part of the original work.
+
+**Nothing on this list is a bug.** Each item is either hardware that does not
+exist yet, a credential only a human can create, or a deliberate temporary
+setting. The code is written so that every one of them fails closed or does
+nothing, rather than half-working.
+
+### Must be done before the box's first install
+
+- [ ] **`users.users.deploy` does not exist anywhere in `nix/`.** Task 1 is
+      described as "generate the keypairs", but the account CI pushes to was
+      never declared: `grep -rn deploy nix/` finds only
+      `roles.staged-updates.deployUser`, which names an account that is not
+      created. Both the `deploy` account (with the CI deploy key in
+      `openssh.authorizedKeys.keys`) and the builder's public key (in
+      `nix.settings.trusted-public-keys`) must go into `nix/roles/base.nix`
+      before `nixos-anywhere` runs. If they are forgotten, CI's first push is
+      simply refused and the fix is one more deploy -- but the box is then
+      unreachable by CI until someone notices.
+      Do **not** put `deploy` in `wheel`: `base.nix` grants wheel
+      `NOPASSWD:SETENV: ALL`, which would make the single-command sudo rule in
+      `nix/roles/staged-updates.nix` irrelevant and hand CI passwordless root.
+- [ ] **`nix/hosts/htpc/disko.nix` still assumes `/dev/nvme0n1`.** Confirm
+      against the real box (Task 3 Step 4) before writing anything.
+- [ ] **Task 3 Steps 4-8** (write the USB stick, enable wake-on-LAN in the
+      BIOS, run `nixos-anywhere`, post-install verification).
+
+### Deliberate temporary settings that must be flipped
+
+- [ ] **`roles.staged-updates.signingPublicKey` is `""`** (its default; nothing
+      overrides it). While it is empty and `requireSignatures` is on,
+      `htpc-stage` refuses **every** staged path outright -- by design, so the
+      update path is genuinely inert rather than falling back to whatever the
+      box already trusts. Set it, in `nix/machines.nix`, to the full
+      `name:base64` line that `nix-store --generate-binary-cache-key` emitted
+      in Task 1. The same key material also belongs in `base.nix`'s
+      `trusted-public-keys`.
+- [ ] **`roles.staged-updates.requireHealthy = false`** in `nix/machines.nix`.
+      There is no `/health` to poll until home-player is deployed (Task 7/9),
+      and `true` would roll back every good update and then permanently refuse
+      it via `bad-revisions`. Flip it back -- or delete the override -- the
+      moment home-player lands.
+- [ ] **The placeholder MAC** in
+      `tofu/deployments/edholm/configurations.tfvars` (`htpc.mac =
+      "REPLACE-WITH-THE-MAC-FROM-TASK-3-STEP-5"`). `local.host_macs` in
+      `main.tf` filters on a well-formed MAC, not on presence, so the
+      placeholder produces no DHCP reservation and blocks no `tofu apply`.
+      Replacing it with the real address is the whole of what turns the
+      reservation on. Then run Task 5 Steps 7-10.
+- [ ] **The `home-player` flake input does not exist yet.** Task 6 (create the
+      gitlab.com projects) is human-gated, and Tasks 7 and 9 cannot evaluate
+      without it. `scripts/ship.sh --bump` now asserts the input is present
+      and refuses loudly rather than letting `nix flake update home-player`
+      warn-and-exit-0 while the pipeline stays green -- so the `deploy-htpc`
+      job fails until `flake.nix` gains the input. That is the gate working,
+      not a regression.
+
+### Carry-forward into the kiosk work (Task 9)
+
+- [ ] **`LIBVA_DRIVER_NAME` will not reach the kiosk.**
+      `nix/roles/video.nix` sets `environment.sessionVariables.LIBVA_DRIVER_NAME
+      = "iHD"`, which is written to `/etc/set-environment` -- a file a
+      `systemd --user` unit does **not** source. The kiosk shell is a
+      home-manager user unit, so the WebKitGTK process may never see `iHD` and
+      will software-decode silently, with no error anywhere. Task 9 must
+      propagate it explicitly: `Environment=` on the user unit, or
+      `systemctl --user import-environment` /
+      `dbus-update-activation-environment` in the session script. Verify with
+      `vainfo` and by watching CPU during playback, not by reading config.
+
+### CI prerequisites (Task 6)
+
+- [ ] Project CI/CD variables on `gitlab.com/yarcod/terranse`, all masked:
+      `DEPLOY_SSH_KEY` (base64 of the deploy private key), `KNOWN_HOSTS`
+      (`ssh-keyscan` output), `CACHE_SIGNING_KEY` (the cache signing secret
+      key), `CI_PUSH_TOKEN` (project access token, `write_repository`,
+      Maintainer). The first three are now asserted with `:?` in
+      `.gitlab-ci.yml`, so a missing or misnamed one fails immediately and
+      says which.
+- [ ] **The job-token allowlist**, not a trigger token. See Task 6 Step 8: an
+      earlier draft of this plan told you to create a
+      `TERRANSE_TRIGGER_TOKEN`, which would be dead configuration.
+- [ ] **Task 10 Step 1** (the `nvmepool/nix-cache` dataset) and Steps 5-8;
+      **Task 11 Step 3** (the group runner token into 1Password) and
+      Steps 4-7; **Task 14 Steps 5-8** (deploy, prove the unsigned-path
+      refusal, `state.json`, the boot-time fetch).
+- [ ] **Tasks 6, 7, 8, 9 and 16** are human-gated in their entirety.
+
+### Known, accepted, not defects
+
+- **The `nix-store` volume is shared across the group runner.** The runner is
+  registered at group level with one writable Nix store volume, so any job
+  that can land on it could write a tampered store path a later `deploy-htpc`
+  reuses and signs with the real builder key -- satisfying every check the box
+  makes. The signature therefore proves "CI built this", which is only as
+  strong as who can run a job on this runner. Ruled documentation-only: a
+  dedicated project-scoped runner is a real change to a working shared runner.
+  The assumption is stated at the volume declaration in
+  `ansible/roles/docker/templates/gitlab-runner.yaml.j2`.
+- **The `staged-updates` VM test does not run in CI.** `nix flake check` needs
+  `/dev/kvm`, which the runner's LXC does not expose; the `flake-check` job
+  skips that one check loudly. Run `nix flake check -L` on a machine with KVM
+  before merging anything that touches `nix/roles/staged-updates.nix` -- that
+  test is the only thing that exercises the activation policy end to end.
+- **`just lint` is broken** for reasons predating this plan (`tests/static/` is
+  empty). Use `just validate-tofu`, `just test-unit` and `nix flake check`.
+
 ## Global Constraints
 
 - **The box is bare hardware with no OS today.** Because the disk layout is declared with **disko** rather than scanned off the machine, `nixosConfigurations.htpc` evaluates and builds on the laptop before the hardware is touched — so Tasks 1, 2 and 4 onwards need no box. Only Task 3 (the install) is hands-on.
@@ -1015,6 +1128,8 @@ Settings → CI/CD → Variables. All four **masked**, none protected (the defau
 | `CI_PUSH_TOKEN` | a project access token, scope `write_repository`, role Maintainer | lets the deploy job push the `flake.lock` bump back |
 | `KNOWN_HOSTS` | output of the command in Step 7 | |
 
+`deploy-htpc` also runs `sed`, which the `nixos/nix` image does not ship — the pipeline's `nix shell` line carries `nixpkgs#gnused` for that reason. Do not trim it.
+
 - [ ] **Step 7: Produce the `KNOWN_HOSTS` value**
 
 ```bash
@@ -1023,9 +1138,13 @@ ssh-keyscan gitlab.com htpc.edholm.cc 2>/dev/null
 
 Paste the whole output as the `KNOWN_HOSTS` variable. Without it the runner's `git+ssh` fetch and the closure push both hang on host-key confirmation inside a container with no TTY — the spec names this as the failure most likely to bite in this phase.
 
-- [ ] **Step 8: Set the trigger variable on `edholm/home-player`**
+- [ ] **Step 8: Allow home-player's job token to trigger terranse**
 
-Settings → CI/CD → Variables: `TERRANSE_TRIGGER_TOKEN`, masked, value from `edholm/terranse` → Settings → CI/CD → **Pipeline trigger tokens** → add one described `home-player`.
+**Do NOT create a `TERRANSE_TRIGGER_TOKEN` variable.** An earlier draft of this plan said to, and it would be dead configuration: GitLab's `trigger:` keyword — the multi-project syntax `.gitlab-ci.yml` uses — has no `token:` field. It authenticates with the upstream job's built-in `CI_JOB_TOKEN`. A hand-made pipeline trigger token is only ever read by the separate REST endpoint (`POST .../trigger/pipeline`), which nothing here calls.
+
+The real prerequisite is the job-token allowlist, and without it the trigger job fails with a permissions error that looks nothing like a missing variable:
+
+In `gitlab.com/yarcod/terranse` → Settings → CI/CD → **Token Access** (job token permissions), add `yarcod/home-player` to the allowlist of projects permitted to trigger it. Confirm the account running the pipeline has at least Developer on `terranse`.
 
 - [ ] **Step 9: Update the stale clone URL in the README**
 
