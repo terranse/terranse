@@ -22,4 +22,21 @@ volumes:
   # zero every time. Named, not a bind mount: only Nix ever reads it, and it
   # must not be pruned by the cache-prune timer (which filters on the
   # gitlab-runner managed label).
+  #
+  # KNOWN, ACCEPTED ASSUMPTION -- read this before treating the HTPC's update
+  # signature as proof of anything more than it is. This runner is registered
+  # at the GROUP level, and this store volume is shared and writable by every
+  # job that lands on it. So any job on this runner -- any project in the
+  # group, any branch, any contributor with pipeline access -- can write a
+  # tampered store path here that a later deploy-htpc job may reuse and then
+  # sign with the real builder key. The box's checks (pinned
+  # trusted-public-keys, top-level CA ban, recursive verify) would all pass,
+  # because they are all satisfied by a genuine builder signature.
+  #
+  # What the signature therefore proves is exactly "CI built this", and that
+  # is only as strong as the answer to "who can run a job on this runner".
+  # It is NOT a proof that the closure corresponds to the terranse commit the
+  # pipeline claims. Closing that properly means a dedicated project-scoped
+  # runner with its own store; that is a real change to a working shared
+  # runner and has been ruled out of scope deliberately, not overlooked.
   nix-store:
