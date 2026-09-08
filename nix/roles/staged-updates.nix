@@ -21,6 +21,14 @@ let
   # healthy. Its presence on a fresh boot is how a kernel update gets
   # watchdogged at all -- nothing can poll across a reboot.
   verifyMarker = "${stateDir}/verify-after-reboot";
+  # Guards two concurrent watchdog *runs* from both calling `nix-env
+  # --rollback` -- e.g. an operator-triggered htpc-update-apply racing the
+  # fifteen-minute timer, each detaching its own transient watchdog. See
+  # the comment in htpc-update-watchdog below for exactly what this does
+  # and does not protect against -- it is not what keeps the *declared*
+  # htpc-update-watchdog.service from racing switch-to-configuration; that
+  # is restartIfChanged on the service itself.
+  watchdogLock = "${stateDir}/watchdog.lock";
 
   systemProfile = "/nix/var/nix/profiles/system";
 
@@ -67,9 +75,58 @@ let
       jq
       nix
       systemd
+      util-linux
     ];
     text = ''
       ${writeStateFn}
+
+      # RemainAfterExit plus restartIfChanged=false on this unit (see
+      # systemd.services.htpc-update-watchdog below -- stopIfChanged=false
+      # sits alongside it as belt-and-braces, but restartIfChanged is what
+      # actually does the work: it short-circuits switch-to-configuration
+      # into skipping the unit before X-StopIfChanged is even read) mean
+      # switch-to-configuration never starts, stops, or restarts this
+      # *declared* unit at all, on any switch, once its boot-time run has
+      # finished -- so the flock below is NOT what protects against that.
+      # An earlier version of this comment claimed it did; it was wrong.
+      # Tracing switch-to-configuration-ng's actual unit-diff logic showed
+      # why that claim was wrong: a switch that changes this unit's own
+      # definition puts the changed unit in *both* units_to_stop and
+      # units_to_start (X-StopIfChanged defaults true) and BLOCKS on the
+      # start job -- and htpc-update writes the marker, then calls
+      # switch-to-configuration, then (only once that returns) detaches its
+      # own transient watchdog. So the declared unit would start, and
+      # acquire the lock, *before* the transient one exists at all -- it
+      # would win the lock, not lose it, block the outer switch for
+      # watchdogSeconds, and on an unhealthy result run a nested
+      # switch-to-configuration from inside a unit the outer switch is
+      # still blocking on, stopping that very unit mid-run and exiting 1 --
+      # failing the outer switch, and therefore htpc-update.service, all
+      # over again. The flock could not have closed that path; only keeping
+      # switch-to-configuration from ever touching the declared unit does.
+      #
+      # What the lock actually guards: two *transient* watchdogs running
+      # concurrently. htpc-update-apply.service (an operator accepting the
+      # "update ready" popup) and the fifteen-minute htpc-update.timer can
+      # both end up calling htpc-update around the same moment, and each
+      # successful switch detaches its own htpc-update-watchdog-run-$$
+      # transient unit. Without a lock, two such watchdogs polling the same
+      # unhealthy backend would both decide to roll back and both call
+      # `nix-env --rollback` -- the second `--rollback`, running after the
+      # first has already succeeded, lands on whatever generation preceded
+      # THIS one, silently rolling back two generations instead of one. The
+      # lock makes the second of any two concurrent watchdog runs a no-op
+      # instead.
+      #
+      # Losing this race is not an error -- the winner already has the work
+      # in hand -- so it must exit 0, not whatever `flock` would otherwise
+      # propagate. Do NOT "fix" this to exit 1: that reintroduces a failure
+      # this guard exists to avoid.
+      exec 200>${watchdogLock}
+      if ! flock -n 200; then
+        echo "htpc-update-watchdog: another instance already holds the lock; nothing to do" >&2
+        exit 0
+      fi
 
       [ -f ${verifyMarker} ] || exit 0
       pending=$(cat ${verifyMarker})
@@ -630,8 +687,46 @@ in
         "network-online.target"
         "home-player-backend.service"
       ];
+      # Without restartIfChanged = false, a switch that changes THIS unit's
+      # own definition (an update to this role) puts it in
+      # switch-to-configuration's units_to_stop AND units_to_start, and
+      # switch-to-configuration BLOCKS on the resulting start job -- so the
+      # declared unit runs, and acquires the flock in
+      # htpc-update-watchdog's own script, before htpc-update has had any
+      # chance to detach its own transient watchdog. That blocks the outer
+      # switch for up to watchdogSeconds, and on an unhealthy result the
+      # declared instance runs a nested switch-to-configuration from inside
+      # a unit the outer switch is still blocking on -- stopping that very
+      # unit mid-run and exiting 1, which fails the outer switch and
+      # therefore htpc-update.service. restartIfChanged = false is what
+      # stops switch-to-configuration from ever touching this unit on a
+      # definition change at all (it short-circuits into its
+      # units_to_skip list before X-StopIfChanged is even read, so
+      # stopIfChanged below is belt-and-braces, not load-bearing, here --
+      # kept in case that short-circuit is ever narrowed upstream, not
+      # because removing it changes today's behaviour). Combined with
+      # RemainAfterExit below, this unit is then started exactly once, by
+      # its boot-time multi-user.target want, and never again by any
+      # switch, changed-definition or not. The boot-time run itself is
+      # unaffected -- it still runs, and still blocks
+      # htpc-update-fetch.service (After = htpc-update-watchdog.service,
+      # below), which is the whole reason a boot that exists to verify a
+      # kernel update is not immediately handed a newer closure to stage
+      # instead. Do not remove restartIfChanged as "redundant" with
+      # RemainAfterExit -- RemainAfterExit alone still leaves the
+      # definition-changed path wide open; see the long comment in
+      # htpc-update-watchdog's own script.
+      restartIfChanged = false;
+      stopIfChanged = false;
       serviceConfig = {
         Type = "oneshot";
+        # Keeps this unit "active (exited)" after its boot-time run, so an
+        # unrelated switch (one that does NOT change this unit's own
+        # definition) does not restart it either -- switch-to-configuration
+        # otherwise restarts anything wanted-but-not-active, on every
+        # switch. restartIfChanged above closes the remaining, more
+        # dangerous case, where the definition DID change.
+        RemainAfterExit = true;
         ExecStart = lib.getExe htpc-update-watchdog;
       };
     };
