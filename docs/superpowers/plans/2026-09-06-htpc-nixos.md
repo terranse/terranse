@@ -72,6 +72,12 @@ nothing, rather than half-working.
       warn-and-exit-0 while the pipeline stays green -- so the `deploy-htpc`
       job fails until `flake.nix` gains the input. That is the gate working,
       not a regression.
+- [ ] **`deploy-htpc` calls `ship.sh htpc` without `--bump`.** Restoring the
+      flag is a one-line change to `.gitlab-ci.yml`, deliberately deferred
+      rather than left to fail loudly: with no `home-player` input, the guard
+      above would fail every run of this job from the moment the gitlab.com
+      projects exist until Task 7 lands. Re-add `--bump` there the same time
+      `flake.nix` gains the `home-player` input (Task 7's last step).
 
 ### Carry-forward into the kiosk work (Task 9)
 

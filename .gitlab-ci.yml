@@ -105,8 +105,12 @@ deploy-htpc:
       : "${CACHE_SIGNING_KEY:?unset or empty -- set it (the cache signing secret key) under Settings, CI/CD, Variables}"
       (umask 077; printf '%s' "$CACHE_SIGNING_KEY" > "$SIGNING_KEY_FILE")
     - export PUSH_REMOTE="https://oauth2:${CI_PUSH_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
+    # --bump is deliberately absent: flake.nix has no home-player input yet
+    # (that lands with plan Task 7, blocked on Task 6), and ship.sh's --bump
+    # guard correctly refuses to run without it. Re-add --bump here as the
+    # last step of that work.
     - nix shell nixpkgs#bash nixpkgs#git nixpkgs#openssh nixpkgs#wakeonlan nixpkgs#gawk nixpkgs#gnused
-        -c ./scripts/ship.sh htpc --bump
+        -c ./scripts/ship.sh htpc
   after_script:
     # $SIGNING_KEY_FILE, never the literal path: hardcoding it here means a
     # change to the variable above silently stops cleaning anything up, and
