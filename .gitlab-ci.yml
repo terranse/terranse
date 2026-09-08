@@ -12,15 +12,25 @@ variables:
   tags:
     - nix
   before_script:
-    - printf 'experimental-features = nix-command flakes\n' >> /etc/nix/nix.conf
-    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    # base64 because a masked CI variable cannot hold a multi-line PEM.
-    - printf '%s' "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/id_ed25519
-    - chmod 600 ~/.ssh/id_ed25519
-    # Without known_hosts the git+ssh flake input and the closure push both
-    # hang on host-key confirmation in a container with no TTY.
-    - printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-    - chmod 600 ~/.ssh/known_hosts
+    - |
+      set -eu
+      printf 'experimental-features = nix-command flakes\n' >> /etc/nix/nix.conf
+      mkdir -p ~/.ssh && chmod 700 ~/.ssh
+      # `:?`, not a bare "$VAR". An unset or misnamed CI variable otherwise
+      # writes a zero-byte key file and the job carries on, failing much
+      # later and somewhere else entirely -- inside a git+ssh flake fetch,
+      # with an error that names neither the variable nor the reason. Fail
+      # here, where the message can say which variable to set and where.
+      : "${DEPLOY_SSH_KEY:?unset or empty -- set it (base64 of the deploy private key) under Settings, CI/CD, Variables}"
+      : "${KNOWN_HOSTS:?unset or empty -- set it (ssh-keyscan output) under Settings, CI/CD, Variables}"
+      # umask, not a chmod afterwards: a default-umask create leaves the
+      # private key world-readable for the window between the two commands,
+      # and this runner is shared with every other job in the group.
+      # base64 because a masked CI variable cannot hold a multi-line PEM.
+      (umask 077; printf '%s' "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/id_ed25519)
+      # Without known_hosts the git+ssh flake input and the closure push both
+      # hang on host-key confirmation in a container with no TTY.
+      (umask 077; printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts)
 
 flake-check:
   extends: .nix
@@ -87,10 +97,19 @@ deploy-htpc:
     SIGNING_KEY_FILE: /run/htpc-cache-key
     PUSH_BRANCH: $CI_DEFAULT_BRANCH
   script:
-    - printf '%s' "$CACHE_SIGNING_KEY" > "$SIGNING_KEY_FILE"
-    - chmod 600 "$SIGNING_KEY_FILE"
+    - |
+      set -eu
+      # Same reasoning as the SSH key above: fail on the missing variable,
+      # not on the empty file it would otherwise produce, and create the file
+      # already restricted rather than fixing its mode a command later.
+      : "${CACHE_SIGNING_KEY:?unset or empty -- set it (the cache signing secret key) under Settings, CI/CD, Variables}"
+      (umask 077; printf '%s' "$CACHE_SIGNING_KEY" > "$SIGNING_KEY_FILE")
     - export PUSH_REMOTE="https://oauth2:${CI_PUSH_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
     - nix shell nixpkgs#bash nixpkgs#git nixpkgs#openssh nixpkgs#wakeonlan nixpkgs#gawk nixpkgs#gnused
         -c ./scripts/ship.sh htpc --bump
   after_script:
-    - rm -f /run/htpc-cache-key
+    # $SIGNING_KEY_FILE, never the literal path: hardcoding it here means a
+    # change to the variable above silently stops cleaning anything up, and
+    # the signing key is then left on a runner shared with every other job in
+    # the group.
+    - rm -f "$SIGNING_KEY_FILE"
