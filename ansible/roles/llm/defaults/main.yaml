@@ -23,7 +23,32 @@ llm_ollama_keep_alive: "-1"
 # Flash attention is a prerequisite for a quantised KV cache — setting
 # llm_ollama_kv_cache_type without it silently leaves the cache at f16.
 llm_ollama_flash_attention: "1"
-llm_ollama_kv_cache_type: "q8_0"
+
+# q4_0 rather than q8_0. Normally q4_0 KV costs measurable accuracy, but Qwen3.8
+# is a hybrid model: only ~16 of its 65 layers use full attention (measured —
+# KV costs 34,000 B/token against the 141,440 B/token the geometry implies for
+# 65 full-attention layers), and the linear-attention layers around them absorb
+# the quantisation noise. Upstream measured token-identical output between f16
+# and q4_0 on this exact architecture family (ggml-org/llama.cpp#21385). Halving
+# KV is what buys 128K instead of 64K — see llm_ollama_context_length.
+llm_ollama_kv_cache_type: "q4_0"
+
+# Ollama does NOT default to the model's advertised window. Unset, it picks
+# "4k/32k/256k based on VRAM" (`ollama serve --help`) — 32K on this 24Q slice,
+# while Qwen3.8 advertises 262144. Hermes reads the 262144 from /api/show and
+# sizes its context meter and compaction budget against it, so it believed it
+# was 12% full when the server was already out of room and every long turn came
+# back finish_reason="length". Hermes DOES try to correct this by sending
+# options.num_ctx, but Ollama's OpenAI-compatible /v1 endpoint ignores `options`
+# (verified live) — so this env var is the only thing that sets the real window.
+#
+# 131072 is the measured ceiling that stays 100% on the GPU. Ollama keeps a
+# 1936 MiB reserve, leaving a 19,269 MiB budget; 128K/q4_0 projects 19,111 MiB.
+# 160K projected 19,847 and 256K projected 22,055 — both spilled layers to CPU.
+# Keep llm_ollama_context_length and the Hermes model.context_length in
+# hermes.yaml in step: if Hermes thinks the window is larger than this, it will
+# never compact in time and the truncation returns.
+llm_ollama_context_length: "131072"
 
 # Minimum Ollama release. Model manifests declare an engine floor, so an old
 # Ollama cannot pull a newly published model — it fails with HTTP 412

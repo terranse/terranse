@@ -52,6 +52,14 @@
       value: "http://localhost:11434/v1"
     - key: model.default
       value: "{{ llm_default_model }}"
+    # Hermes otherwise takes the window from /api/show, which reports the
+    # model's architectural 262144 rather than what Ollama actually loaded.
+    # It sizes the context meter AND the compaction trigger
+    # (compression.threshold * window) off that number, so it sat at "12%
+    # used" while the server was full and never compacted. Must match
+    # llm_ollama_context_length.
+    - key: model.context_length
+      value: "{{ llm_ollama_context_length }}"
   loop_control:
     label: "{{ item.key }} = {{ item.value }}"
   register: llm_hermes_config_set
