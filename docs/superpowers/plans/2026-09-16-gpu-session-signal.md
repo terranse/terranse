@@ -945,21 +945,33 @@ EOF
 
 ---
 
-### Task 4: Prove the chain end to end
+### Task 4: Close and prove the chain end to end
 
 **Repo:** `gpu-manager`
 
-Test-only. This is the whole point of the feature, and it is the one thing no
-single earlier task demonstrates: a reported session ending eventually hands
-the card to the default tenant.
+This is the whole point of the feature, and the one thing no earlier task
+demonstrates: a reported session ending eventually hands the card to the
+default tenant. It also carries the one code change that makes that possible.
+
+**Why there is code here.** Releasing an idle game shuts the VM down
+(`planner.go` step 6) but leaves its claim in the store, and `loop.go`'s
+success loop re-affirms that claim `satisfied` because the VM is still in
+`sol.Assigned`. On the next pass the stale game claim scores idle-game (1)
+against the default tenant's background (0), so it wins the layout and the
+tenant pends — while the game itself cannot be started, its `activating`
+having been cleared. Result: the card sits free forever and the handback never
+happens. A claim whose VM has been released has been honoured and is done, so
+the release drops it.
 
 **Files:**
+- Modify: `internal/reconcile/loop.go` (the success loop in `ReconcileOnce`)
+- Modify: `internal/reconcile/planner.go` (a comment only — see Step 3)
 - Modify: `internal/reconcile/loop_test.go`
 
 **Interfaces:**
 - Consumes: `(*Activity).Report` (Task 1), `withDefaultTenant` and the
-  `fakeGPU`/`fakeVM` helpers (already in the file).
-- Produces: nothing.
+  `fakeGPU`/`fakeVM` helpers (already in the file), `Store.DeleteClaim`.
+- Produces: nothing later tasks depend on.
 
 - [ ] **Step 1: Write the tests**
 
@@ -1058,25 +1070,118 @@ func TestSilentReporterNeverCausesARelease(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them**
+- [ ] **Step 2: Run them to verify the chain test fails**
 
 Run: `cd /home/daniele/Repos/gpu-manager && go test ./internal/reconcile/ -run 'ReportedIdle|SilentReporter' -v`
-Expected: all three PASS. They should pass on the first run — Tasks 1-3 built
-the mechanism, and these assert the composition. If any fails, the bug is in
-the earlier task's code, not in the test: fix the code.
 
-- [ ] **Step 3: Verify the whole suite and commit**
+Expected:
+- `TestReportedIdleGameWithinGraceIsLeftAlone` PASSES
+- `TestSilentReporterNeverCausesARelease` PASSES
+- `TestReportedIdleGamePastGraceHandsTheCardToTheDefaultTenant` **FAILS** at
+  the last assertion: `the default tenant should hold the card now,
+  power=stopped`. The game is shut down (that part works), but its stale
+  claim outranks the default tenant on the next pass.
+
+If the chain test passes at this point, stop and re-read it — it is not
+exercising what it claims.
+
+- [ ] **Step 3: Drop the claim when its VM is released**
+
+In `internal/reconcile/loop.go`, `PlanSteps`'s idle-release step is the only
+thing that shuts down a VM that is still assigned its slice, so the claim
+that assignment came from has to go with it. In `ReconcileOnce`, replace the
+success loop:
+
+```go
+	// Success: claims assigned and fully executed are satisfied.
+	l.Store.mu.Lock()
+	for _, vm := range sol.Assigned {
+		if c, ok := l.Store.claims[vm]; ok {
+			c.Status = state.ClaimSatisfied
+			c.Reason, c.BlockedByActive = "", nil
+			l.Store.claims[vm] = c
+		}
+		delete(l.Store.activating, vm)
+	}
+```
+
+with:
+
+```go
+	// Which VMs this pass released for being idle past their grace period.
+	// Their claims have been honoured and their sessions have ended, so the
+	// claims are done -- and they must not be left behind: a stale game claim
+	// outranks the default tenant (idle game beats background) while being
+	// unable to start anything itself, which would strand the freed card.
+	released := map[string]bool{}
+	for _, st := range steps {
+		if st.Kind == StepShutdown && st.VM != "" && obs.Power[st.VM] == drivers.PowerRunning &&
+			l.Cfg.VMs[st.VM].Tier == "game" && obs.IdleFor[st.VM] >= l.Cfg.GracePeriod() {
+			released[st.VM] = true
+		}
+	}
+
+	// Success: claims assigned and fully executed are satisfied.
+	l.Store.mu.Lock()
+	for _, vm := range sol.Assigned {
+		if released[vm] {
+			delete(l.Store.claims, vm)
+			delete(l.Store.activating, vm)
+			continue
+		}
+		if c, ok := l.Store.claims[vm]; ok {
+			c.Status = state.ClaimSatisfied
+			c.Reason, c.BlockedByActive = "", nil
+			l.Store.claims[vm] = c
+		}
+		delete(l.Store.activating, vm)
+	}
+```
+
+In `internal/reconcile/planner.go`, extend the comment on the idle-release
+step (the `// 6. Release idle game VMs past grace…` block) with a pointer, so
+the two halves are findable from each other:
+
+```go
+	// 6. Release idle game VMs past grace by shutting them down (see step 1:
+	//    they cannot be suspended) -- but never one whose session we cannot
+	//    see. Unknown is not idle.
+	//
+	//    ReconcileOnce deletes the claim of anything released here: a claim
+	//    left behind outranks the default tenant but cannot start its own VM,
+	//    so the freed card would strand.
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `cd /home/daniele/Repos/gpu-manager && go test ./internal/reconcile/ -run 'ReportedIdle|SilentReporter' -v`
+Expected: all three PASS.
+
+- [ ] **Step 5: Verify the whole suite and commit**
+
+Run the full suite — the claim-lifecycle change touches arbitration, so a
+regression would show up in the existing claim tests, not the new ones:
 
 ```bash
 cd /home/daniele/Repos/gpu-manager
 gofmt -l . && go vet ./... && go test -race ./...
-git add internal/reconcile/loop_test.go
+git add internal/reconcile
 git commit -m "$(cat <<'EOF'
-test(reconcile): pin the whole chain from session end to handover
+fix(reconcile): drop a claim when its VM is released for being idle
 
-Session ends -> grace period elapses -> the game is shut down -> the
-default tenant takes the freed card. Plus the two cases that must NOT
-release: inside the grace period, and a reporter that has gone quiet
+Releasing an idle game shut the VM down and left its claim behind, which
+the success loop then re-affirmed `satisfied` because the VM was still
+assigned. Next pass that stale claim outranked the default tenant (idle
+game beats background) and won the layout -- while being unable to start
+anything, its activating flag long cleared. The freed card stranded and
+the handback never happened.
+
+A claim whose VM has been released for going idle has been honoured and
+its session has ended, so the release drops it.
+
+Also pins the whole chain: session ends -> grace elapses -> the game is
+shut down -> the default tenant takes the card. Plus the two cases that
+must NOT release: inside the grace period, and a reporter gone quiet
 (unknown is never idle, however long the silence).
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
@@ -1710,15 +1815,39 @@ supply side, which has no unit test harness. Record that in the commit.
 
 - [ ] **Step 3: Carry `host` in the local**
 
-In `tofu/deployments/edholm/main.tf`, inside the `gaming_vms_by_host` local's
-inner object (after `tier`), add:
+In `tofu/deployments/edholm/main.tf`, wrap the `gaming_vms_by_host` local's
+inner object in a `merge` that adds `host` only for game-tier VMs:
 
 ```hcl
+  gaming_vms_by_host = {
+    for host_key, mod in module.proxmox-vm : host_key => {
+      for name, id in mod.vm_ids : name => merge({
+        vmid   = id
+        mounts = try(var.hosts[host_key].vms[name].mounts, [])
+        # gpu-manager arbitrates the card by tier, so it has to travel with
+        # the VMID: without it every VM would look like a gaming VM and the
+        # AI VM could never be told apart from the one it displaces.
+        tier = try(var.hosts[host_key].vms[name].gpu_tier, "game")
+        },
         # The daemon probes Sunshine on this address to decide when a claim is
         # really satisfied. Without it `sunshine_reachable` is permanently
         # false and the wait-for-stream step never runs, so a handover reports
-        # done the moment the VM powers on.
-        host = "${name}.${var.domain}"
+        # done the moment the VM powers on, well before the stream is up.
+        #
+        # Game tier only. observe() dials this address on EVERY pass for any
+        # VM that has one, and an AI VM runs no Sunshine -- with *.edholm.cc
+        # resolving to the WAN IP and no hairpin NAT, that is a dial timeout
+        # every five seconds for nothing. StepWaitSunshine is game-only
+        # anyway.
+        #
+        # A `for … if` comprehension rather than a conditional: HCL requires a
+        # conditional's arms to have identical types, and `{host = string}` and
+        # `{}` do not. Same reason as hosts_wired below.
+        { for k, v in { host = "${name}.${var.domain}" } : k => v
+          if try(var.hosts[host_key].vms[name].gpu_tier, "game") == "game" }
+      )
+    }
+  }
 ```
 
 - [ ] **Step 4: Verify the plan produces it**
@@ -1729,8 +1858,8 @@ cd /home/daniele/Repos/terranse/tofu/deployments/edholm && tofu validate && \
   tofu plan -var-file=configurations.tfvars -refresh=false \
   -target='module.ansible-wiring.local_file.ansible_playbook' -no-color 2>&1 | grep -E '"host"|Plan:'
 ```
-Expected: the diff shows `+ "host": "gaming.edholm.cc"` and
-`+ "host": "ai-vm.edholm.cc"` inside `gaming_vms`. Do **not** apply.
+Expected: the diff shows `+ "host": "gaming.edholm.cc"` inside `gaming_vms`,
+and **no** `host` key under `ai-vm` (it is tier `ai`). Do **not** apply.
 
 - [ ] **Step 5: Commit**
 
