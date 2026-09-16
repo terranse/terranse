@@ -24,7 +24,7 @@ log "session ending for ${VM}"
 # after this hook has said it ended.
 systemctl --user stop sunshine-heartbeat.timer 2>/dev/null || true
 
-if curl -fsS -m 5 -X DELETE "{{ gpu_manager_api_url | mandatory('gpu_manager_api_url must name the gpu-manager API, e.g. http://192.168.1.200:8080') }}/v1/sessions/{{ gpu_manager_vm_name | default(ansible_hostname) }}" -o /dev/null 2>/dev/null; then
+if curl -fsS -m 5 -X DELETE "${API}/v1/sessions/${VM}" -o /dev/null 2>/dev/null; then
     log "reported session ended to ${API}"
 else
     log "could not report to ${API} (non-fatal)"

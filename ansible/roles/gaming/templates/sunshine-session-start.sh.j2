@@ -4,10 +4,9 @@
 #
 # Managed by Ansible - do not edit manually
 #
-# Deliberately not run in strict/errexit mode: this runs as a Sunshine
-# global_prep_cmd, so a non-zero exit aborts the stream/app launch. Session
-# bookkeeping is best-effort -- never let it block streaming. The script
-# always exits 0.
+# Deliberately NOT `set -e`: this runs as a Sunshine global_prep_cmd, so a
+# non-zero exit aborts the stream/app launch. Session bookkeeping is
+# best-effort -- never let it block streaming. The script always exits 0.
 #
 # This used to write a marker file into a shared directory. Nothing could read
 # it: the host had no such mount, and the filename did not match what the
@@ -24,7 +23,7 @@ log() {
 
 log "session starting for ${VM}"
 
-if curl -fsS -m 5 -X PUT "{{ gpu_manager_api_url | mandatory('gpu_manager_api_url must name the gpu-manager API, e.g. http://192.168.1.200:8080') }}/v1/sessions/{{ gpu_manager_vm_name | default(ansible_hostname) }}" -o /dev/null 2>/dev/null; then
+if curl -fsS -m 5 -X PUT "${API}/v1/sessions/${VM}" -o /dev/null 2>/dev/null; then
     log "reported session active to ${API}"
 else
     log "could not report to ${API} (non-fatal)"

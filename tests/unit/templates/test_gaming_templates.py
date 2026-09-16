@@ -27,8 +27,11 @@ class TestSunshineSessionHooks:
             gaming_jinja_env, "sunshine-session-start.sh.j2", sunshine_hook_vars
         )
 
-        assert "-X PUT" in body
-        assert "http://192.168.1.200:8080/v1/sessions/gaming" in body
+        # The URL is bound once and the request is built from it, rather than
+        # the whole URL being repeated at each use.
+        assert 'API="http://192.168.1.200:8080"' in body
+        assert 'VM="gaming"' in body
+        assert '-X PUT "${API}/v1/sessions/${VM}"' in body
 
     def test_stop_hook_reports_the_session_ended(
         self, gaming_jinja_env, sunshine_hook_vars
@@ -37,8 +40,9 @@ class TestSunshineSessionHooks:
             gaming_jinja_env, "sunshine-session-stop.sh.j2", sunshine_hook_vars
         )
 
-        assert "-X DELETE" in body
-        assert "http://192.168.1.200:8080/v1/sessions/gaming" in body
+        assert 'API="http://192.168.1.200:8080"' in body
+        assert 'VM="gaming"' in body
+        assert '-X DELETE "${API}/v1/sessions/${VM}"' in body
 
     @pytest.mark.parametrize(
         "name", ["sunshine-session-start.sh.j2", "sunshine-session-stop.sh.j2"]
@@ -49,7 +53,9 @@ class TestSunshineSessionHooks:
         """A non-zero exit from a global_prep_cmd aborts the stream."""
         body = self._render(gaming_jinja_env, name, sunshine_hook_vars)
 
-        assert "set -e" not in body
+        # A comment may name `set -e` to explain its absence; no line may be it.
+        commands = [ln.strip() for ln in body.splitlines() if not ln.strip().startswith("#")]
+        assert not any(c.startswith("set -e") or c.startswith("set -o errexit") for c in commands)
         assert body.rstrip().endswith("exit 0")
 
     @pytest.mark.parametrize(
