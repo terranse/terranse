@@ -10,35 +10,33 @@
                                       │ Connects to VM's Sunshine
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Gaming VM (suspended)                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │ Sunshine                                                                 │ │
-│  │  └── session-start.sh hook                                              │ │
-│  │       └── Writes to /mnt/gaming/session-state/hostname.session          │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                        Gaming VM (started on demand)                        │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │ Sunshine                                                               │ │
+│  │  ├── session-start.sh hook                                             │ │
+│  │  │     PUT /v1/sessions/gaming, then starts                            │ │
+│  │  │     sunshine-heartbeat.timer (re-PUTs every 60s)                    │ │
+│  │  └── session-stop.sh hook                                              │ │
+│  │        DELETE /v1/sessions/gaming, then stops the timer                │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
-                                      │ NFS
+                                      │ HTTP
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         NAS: /tank/gaming/session-state/                     │
-│                              hostname.session (JSON)                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      │ inotifywait
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Proxmox Host: session-watcher.sh                          │
-│                                                                              │
-│  1. Detects session file change                                              │
-│  2. Looks up VMID from /etc/gpu-manager/vm-map.json                         │
-│  3. Calls: qm resume <vmid>  (if suspended)                                  │
-│  4. VM wakes up, Sunshine accepts connection                                 │
-│                                                                              │
-│  On session end:                                                             │
-│  1. Detects status: "inactive" in session file                              │
-│  2. Schedules suspend after grace period (default: 5 minutes)               │
-│  3. Calls: qm suspend <vmid> --todisk                                        │
+│                       Proxmox Host: gpu-manager daemon                      │
+│                                                                             │
+│  A live session -- or one heartbeated within session_ttl_s                  │
+│  (default 180s) -- holds active-game priority: only an explicit             │
+│  --preempt-active claim outranks it. Silence reads as `unknown`,            │
+│  never as idle.                                                             │
+│                                                                             │
+│  On session end (the stop hook's DELETE):                                   │
+│  1. The idle clock starts                                                   │
+│  2. After grace_period_s (default 300s) the VM is shut down,                │
+│     freeing the card -- Proxmox refuses `qm suspend --todisk`               │
+│     for a VM with a passed-through PCI device                               │
+│  3. The configured default_tenant takes the card                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -179,7 +177,6 @@ Workstation (local NVMe)           NAS (NFS)
 │   linux-gaming-1        │       │ emulation/users/    (rw)    │
 │   linux-gaming-2        │       │ cloud-saves/        (rw)    │
 │   windows-gaming        │       │ sunshine-credentials (ro)   │
-│                         │       │ session-state/      (rw)    │
 │ games/steam/ (optional) │       │ games/steam/        (rw)    │
 └─────────────────────────┘       └─────────────────────────────┘
 ```
@@ -187,4 +184,7 @@ Workstation (local NVMe)           NAS (NFS)
 - **VM disks**: Local ZFS for performance, enables instant snapshots
 - **Game libraries**: Can be local (faster) or NFS (shared across VMs)
 - **Saves**: NFS for backup and sharing
-- **Session state**: NFS so host can monitor VM sessions
+- **Session state**: not stored at all -- the guest's Sunshine hooks report
+  session start and end to gpu-manager over HTTP
+  (`PUT`/`DELETE /v1/sessions/{vm}`), plus a 60s heartbeat while a session
+  is live

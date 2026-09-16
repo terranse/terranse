@@ -110,12 +110,19 @@
 
 # Deliberately NOT enabled: the session hooks start and stop the timer, so it
 # only runs while somebody is actually streaming.
+#
+# XDG_RUNTIME_DIR is what lets a `become`d user-scope call find the user
+# manager's socket; without it the reload silently reaches nothing and the
+# session start hook's `systemctl --user start sunshine-heartbeat.timer` fails
+# until the guest reboots.
 - name: Reload the user systemd so the heartbeat units are known
+  become: true
+  become_user: "{{ gaming_user }}"
   ansible.builtin.systemd:
     daemon_reload: true
     scope: user
-  become: true
-  become_user: "{{ gaming_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[gaming_user][1] | default(1000) }}"
   failed_when: false
 
 - name: Deploy Sunshine configuration

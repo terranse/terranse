@@ -4,6 +4,10 @@
 # before an active session decays to `unknown`. Not enabled -- the session
 # start hook starts it and the stop hook stops it, so nothing heartbeats
 # while nobody is streaming.
+#
+# There is deliberately no [Install] section, so there is nothing to enable:
+# a timer left running without a session would heartbeat `active` forever and
+# the card could never be freed.
 [Unit]
 Description=Heartbeat the live Sunshine session to gpu-manager
 
@@ -11,6 +15,3 @@ Description=Heartbeat the live Sunshine session to gpu-manager
 OnActiveSec=0
 OnUnitActiveSec=60
 AccuracySec=5s
-
-[Install]
-WantedBy=timers.target
