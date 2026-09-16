@@ -2008,6 +2008,19 @@ Not part of any task — `tofu apply` and `just apply` are the operator's call.
 1. `cd tofu/deployments/edholm && tofu apply -var-file=configurations.tfvars`
    — regenerates `ansible/playbooks/edholm.yaml` with `gpu_manager_api_url`,
    `gpu_manager_vm_name` and `host`.
+
+   **Check the regenerated playbook here**, because this is the one thing the
+   implementation could not verify for itself: this deployment's 1Password
+   provider needs an interactive biometric unlock, so `tofu plan` cannot run
+   unattended. Confirm `gaming_vms` shows `host: gaming.edholm.cc` and that
+   `ai-vm` has **no** `host` key (it is tier `ai`; a host on it would cost the
+   daemon a dial timeout every five seconds for a VM that runs no Sunshine).
+   `tofu validate` passing already proves the HCL type-checks. The specific
+   thing it cannot prove: that `module.proxmox-vm[host].vm_ids` enumerates VMs
+   under the same `name` keys used to index `var.hosts[host].vms[name]`. A
+   mismatch there would not error — it would fall through the `try(..., "game")`
+   default, and `ai-vm` would silently get a host. So check `ai-vm` has no
+   `host` key specifically, not just that `gaming` has one.
 2. Run the `workstation` host play — rebuilds and restarts the daemon with
    `session_ttl_s`, and drops the retired session-state plumbing.
 3. Run the `gaming` guest play — installs the new hooks and heartbeat units.
