@@ -38,3 +38,16 @@ class TestGPUManagerConfigTemplate:
         parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
 
         assert parsed["default_tenant"] == {"vm": "ai-vm", "profile": "Q-24C"}
+
+    def test_emits_the_session_ttl(self, gpu_manager_jinja_env, gpu_manager_vars):
+        parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
+
+        assert parsed["session_ttl_s"] == 180
+
+    def test_no_longer_emits_session_dir(self, gpu_manager_jinja_env, gpu_manager_vars):
+        """Sessions arrive over the API now; the directory nothing could read
+        is gone, and a config still naming it would be a lie about where the
+        daemon looks."""
+        parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
+
+        assert "session_dir" not in parsed

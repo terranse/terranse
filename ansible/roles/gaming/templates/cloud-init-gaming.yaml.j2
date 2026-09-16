@@ -16,7 +16,6 @@ packages:
 # Mount NFS shares before running scripts
 mounts:
   - [ "{{ nfs_server }}:/tank/gaming/drivers", /mnt/drivers, nfs, "ro,noatime,nfsvers=4.2", "0", "0" ]
-  - [ "{{ nfs_server }}:/tank/gaming/session-state", /mnt/gaming/session-state, nfs, "rw,noatime,nfsvers=4.2", "0", "0" ]
 
 write_files:
   # Driver installation script

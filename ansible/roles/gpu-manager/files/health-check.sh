@@ -18,7 +18,6 @@ set -euo pipefail
 
 # Configuration
 NFS_MOUNT="/mnt/gaming"
-SESSION_STATE_DIR="${NFS_MOUNT}/session-state"
 
 # Output format
 JSON_OUTPUT=false
@@ -162,17 +161,6 @@ check_nfs() {
             check_pass "nfs-read" "Read access OK"
         else
             check_fail "nfs-read" "Cannot read from NFS mount"
-        fi
-
-        # Check session state directory
-        if [[ -d "$SESSION_STATE_DIR" ]]; then
-            if [[ -w "$SESSION_STATE_DIR" ]]; then
-                check_pass "nfs-session-state" "Session state directory writable"
-            else
-                check_fail "nfs-session-state" "Session state directory not writable"
-            fi
-        else
-            check_warn "nfs-session-state" "Session state directory missing"
         fi
 
         # Check NFS responsiveness (timeout after 5s)

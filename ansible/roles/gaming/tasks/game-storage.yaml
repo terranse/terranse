@@ -22,7 +22,6 @@
     - /mnt/games/pc
     - /mnt/games/emulation
     - /mnt/sunshine-creds
-    - /mnt/gaming/session-state
     - /mnt/games/covers
 
 # =============================================================================
@@ -126,15 +125,6 @@
     state: mounted
   when: nfs_server is defined
 
-- name: Mount session state directory
-  ansible.posix.mount:
-    path: /mnt/gaming/session-state
-    src: "{{ nfs_server }}:/tank/gaming/session-state"
-    fstype: nfs
-    opts: "rw,noatime,nfsvers=4.2,async"
-    state: mounted
-  when: nfs_server is defined
-
 - name: Mount shared cover art cache
   ansible.posix.mount:
     path: /mnt/games/covers
@@ -165,7 +155,6 @@
         {{ m.name }} -> {{ m.path }}
       {% endfor %}
       Sunshine creds:  /mnt/sunshine-creds
-      Session state:   /mnt/gaming/session-state (GPU manager)
       Cover art:       /mnt/games/covers
 
       NFS Server: {{ nfs_server | default('Not configured — using virtiofs') }}

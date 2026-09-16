@@ -137,7 +137,7 @@ def gpu_manager_vars():
         "gpu_manager_listen": "0.0.0.0:8080",
         "gpu_manager_pf_address": "0000:0e:00.0",
         "gpu_manager_pci_mapping": "RTX-A5000",
-        "gpu_manager_session_dir": "/mnt/gaming/session-state",
+        "gpu_manager_session_ttl_s": 180,
         "gpu_manager_grace_period_s": 300,
         "gpu_manager_vf_release_timeout_s": 60,
         "gpu_manager_profiles": {

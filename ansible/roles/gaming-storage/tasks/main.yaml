@@ -67,14 +67,6 @@
       compression: lz4
       atime: off
 
-- name: Create session state dataset for Sunshine hooks
-  community.general.zfs:
-    name: "{{ gaming_base_path }}/session-state"
-    state: present
-    extra_zfs_properties:
-      compression: lz4
-      sync: disabled  # Performance - session state is transient
-
 - name: Create GPU drivers dataset
   community.general.zfs:
     name: "{{ gaming_base_path }}/drivers"
@@ -119,7 +111,6 @@
     - { path: "emulation/users", mode: "0777" }  # Users create their own subdirs
     - { path: "cloud-saves", mode: "0777" }
     - { path: "sunshine-credentials", mode: "0755" }
-    - { path: "session-state", mode: "0777" }  # VMs write session state here
     - { path: "drivers", mode: "0755" }  # GPU guest drivers (synced from host)
     - { path: "drivers/nvidia", mode: "0755" }
     - { path: "drivers/nvidia/linux", mode: "0755" }

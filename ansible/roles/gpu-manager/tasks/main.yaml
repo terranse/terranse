@@ -301,7 +301,8 @@
         /etc/gpu-manager/game-profiles.json
 
       Sessions:
-        {{ gpu_manager_session_dir }}
-        (absent => every session reads unknown: nothing is auto-suspended
-         and displacing a running holder needs --preempt-active)
+        Reported by the gaming guests' Sunshine hooks over the daemon's API,
+        decaying to unknown after {{ gpu_manager_session_ttl_s }}s of silence
+        (three missed heartbeats). Displacing a running holder needs
+        --preempt-active.
       ========================================
