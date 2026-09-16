@@ -39,14 +39,31 @@ module "proxmox-vm" {
 locals {
   gaming_vms_by_host = {
     for host_key, mod in module.proxmox-vm : host_key => {
-      for name, id in mod.vm_ids : name => {
+      for name, id in mod.vm_ids : name => merge({
         vmid   = id
         mounts = try(var.hosts[host_key].vms[name].mounts, [])
         # gpu-manager arbitrates the card by tier, so it has to travel with
         # the VMID: without it every VM would look like a gaming VM and the
         # AI VM could never be told apart from the one it displaces.
         tier = try(var.hosts[host_key].vms[name].gpu_tier, "game")
-      }
+        },
+        # The daemon probes Sunshine on this address to decide when a claim is
+        # really satisfied. Without it `sunshine_reachable` is permanently
+        # false and the wait-for-stream step never runs, so a handover reports
+        # done the moment the VM powers on, well before the stream is up.
+        #
+        # Game tier only. observe() dials this address on EVERY pass for any
+        # VM that has one, and an AI VM runs no Sunshine -- with *.edholm.cc
+        # resolving to the WAN IP and no hairpin NAT, that is a dial timeout
+        # every five seconds for nothing. StepWaitSunshine is game-only
+        # anyway.
+        #
+        # A `for … if` comprehension rather than a conditional: HCL requires a
+        # conditional's arms to have identical types, and `{host = string}` and
+        # `{}` do not. Same reason as hosts_wired below.
+        { for k, v in { host = "${name}.${var.domain}" } : k => v
+          if try(var.hosts[host_key].vms[name].gpu_tier, "game") == "game" }
+      )
     }
   }
 

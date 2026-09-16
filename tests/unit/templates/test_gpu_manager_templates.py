@@ -51,3 +51,17 @@ class TestGPUManagerConfigTemplate:
         parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
 
         assert "session_dir" not in parsed
+
+    def test_emits_host_when_the_vm_has_one(self, gpu_manager_jinja_env, gpu_manager_vars):
+        """Without `host` the daemon cannot probe Sunshine, so it reports a
+        claim satisfied the moment the VM starts -- before the stream is up."""
+        gpu_manager_vars["gaming_vms"]["gaming"]["host"] = "gaming.edholm.cc"
+
+        parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
+
+        assert parsed["vms"]["gaming"]["host"] == "gaming.edholm.cc"
+
+    def test_omits_host_when_the_vm_has_none(self, gpu_manager_jinja_env, gpu_manager_vars):
+        parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
+
+        assert "host" not in parsed["vms"]["ai-vm"]
