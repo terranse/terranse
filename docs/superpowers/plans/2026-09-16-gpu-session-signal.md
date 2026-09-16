@@ -965,7 +965,8 @@ the release drops it.
 
 **Files:**
 - Modify: `internal/reconcile/loop.go` (the success loop in `ReconcileOnce`)
-- Modify: `internal/reconcile/planner.go` (a comment only — see Step 3)
+- Modify: `internal/reconcile/planner.go` (a new `Step.IdleRelease` field, set
+  by the idle-release step — see Step 3)
 - Modify: `internal/reconcile/loop_test.go`
 
 **Interfaces:**
@@ -1085,12 +1086,54 @@ Expected:
 If the chain test passes at this point, stop and re-read it — it is not
 exercising what it claims.
 
-- [ ] **Step 3: Drop the claim when its VM is released**
+- [ ] **Step 3: Mark the idle-release step, and drop the released claim**
 
-In `internal/reconcile/loop.go`, `PlanSteps`'s idle-release step is the only
-thing that shuts down a VM that is still assigned its slice, so the claim
-that assignment came from has to go with it. In `ReconcileOnce`, replace the
-success loop:
+`PlanSteps`'s idle-release step is the only thing that shuts down a VM that is
+still assigned its slice, so the claim that assignment came from has to go
+with it. The loop therefore needs to tell an idle release apart from a
+displacement — and it must not re-derive the predicate, or there would be two
+copies of "is this an idle release" free to drift apart. Mark it on the step
+instead.
+
+In `internal/reconcile/planner.go`, add a field to `Step`:
+
+```go
+type Step struct {
+	Kind StepKind
+	VM   string
+	// MdevType is the vGPU type the step concerns: the type to wait for on
+	// StepWaitGPUFree, the type to configure on StepSetProfile.
+	MdevType string
+	// IdleRelease marks a shutdown planned by step 6 below: a game released
+	// for sitting idle past its grace period, rather than one displaced to
+	// make room for a claimant. ReconcileOnce drops the released VM's claim,
+	// so the two kinds of shutdown have to be distinguishable.
+	IdleRelease bool
+}
+```
+
+and set it where step 6 plans that shutdown — the `for vm, p := range obs.Power`
+loop at the end of `PlanSteps`:
+
+```go
+			steps = append(steps, Step{Kind: StepShutdown, VM: vm, IdleRelease: true})
+```
+
+While there, extend that step's comment so the two halves are findable from
+each other:
+
+```go
+	// 6. Release idle game VMs past grace by shutting them down (see step 1:
+	//    they cannot be suspended) -- but never one whose session we cannot
+	//    see. Unknown is not idle.
+	//
+	//    Marked IdleRelease, because ReconcileOnce deletes the claim of
+	//    anything released here: a claim left behind outranks the default
+	//    tenant but cannot start its own VM, so the freed card would strand.
+```
+
+Then in `internal/reconcile/loop.go`, `ReconcileOnce`, replace the success
+loop:
 
 ```go
 	// Success: claims assigned and fully executed are satisfied.
@@ -1108,15 +1151,14 @@ success loop:
 with:
 
 ```go
-	// Which VMs this pass released for being idle past their grace period.
-	// Their claims have been honoured and their sessions have ended, so the
-	// claims are done -- and they must not be left behind: a stale game claim
-	// outranks the default tenant (idle game beats background) while being
-	// unable to start anything itself, which would strand the freed card.
+	// A claim whose VM this pass released for sitting idle is done: it was
+	// honoured, and the session it was made for has ended. It must not be
+	// left behind -- a stale game claim outranks the default tenant (idle
+	// game beats background) while being unable to start anything itself,
+	// which would strand the card the release just freed.
 	released := map[string]bool{}
 	for _, st := range steps {
-		if st.Kind == StepShutdown && st.VM != "" && obs.Power[st.VM] == drivers.PowerRunning &&
-			l.Cfg.VMs[st.VM].Tier == "game" && obs.IdleFor[st.VM] >= l.Cfg.GracePeriod() {
+		if st.IdleRelease {
 			released[st.VM] = true
 		}
 	}
@@ -1138,19 +1180,10 @@ with:
 	}
 ```
 
-In `internal/reconcile/planner.go`, extend the comment on the idle-release
-step (the `// 6. Release idle game VMs past grace…` block) with a pointer, so
-the two halves are findable from each other:
-
-```go
-	// 6. Release idle game VMs past grace by shutting them down (see step 1:
-	//    they cannot be suspended) -- but never one whose session we cannot
-	//    see. Unknown is not idle.
-	//
-	//    ReconcileOnce deletes the claim of anything released here: a claim
-	//    left behind outranks the default tenant but cannot start its own VM,
-	//    so the freed card would strand.
-```
+Note `PlanSteps` has an existing test that compares whole `[]Step` values with
+`reflect.DeepEqual`; adding a field changes nothing for steps that leave it
+false, but if any such test fails, fix the test's expectation rather than
+dropping the field.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
