@@ -4,6 +4,16 @@
 # User for gaming sessions
 gaming_user: gamer
 
+# The VM's name as gpu-manager's config keys it (its `vms:` map). It happens to
+# equal this guest's hostname today, but it is a contract with the daemon's
+# config, not an incidental hostname, so it gets a name of its own.
+gpu_manager_vm_name: "{{ ansible_hostname }}"
+
+# gpu_manager_api_url is deliberately NOT defaulted. The session hooks pass it
+# through `mandatory`, so a deployment that forgets it fails at template time
+# rather than silently installing hooks that report nowhere -- which is exactly
+# the failure this replaced.
+
 # GPU type (set by OpenTofu)
 # gpu_type: nvidia_vgpu
 

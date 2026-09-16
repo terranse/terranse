@@ -1,45 +1,38 @@
 #!/bin/bash
 # Sunshine Session Start Hook
-# Notifies GPU manager that a gaming session is active
+# Tells gpu-manager on the Proxmox host that a session is live here.
 #
 # Managed by Ansible - do not edit manually
+#
+# Deliberately not run in strict/errexit mode: this runs as a Sunshine
+# global_prep_cmd, so a non-zero exit aborts the stream/app launch. Session
+# bookkeeping is best-effort -- never let it block streaming. The script
+# always exits 0.
+#
+# This used to write a marker file into a shared directory. Nothing could read
+# it: the host had no such mount, and the filename did not match what the
+# daemon looked for. The daemon has an HTTP API and this guest can reach it.
 
-# Deliberately NOT `set -e`: this runs as a Sunshine global_prep_cmd, so a
-# non-zero exit aborts the stream/app launch. Session-state bookkeeping is
-# best-effort — never let it block streaming. The script always exits 0.
+API="{{ gpu_manager_api_url | mandatory('gpu_manager_api_url must name the gpu-manager API, e.g. http://192.168.1.200:8080') }}"
+# The VM's name as gpu-manager's config keys it (its `vms:` map), which is not
+# necessarily this machine's hostname.
+VM="{{ gpu_manager_vm_name | default(ansible_hostname) }}"
 
-SESSION_STATE_DIR="{{ sunshine_session_state_dir | default('/mnt/gaming/session-state') }}"
-VM_ID="{{ vm_id | default(ansible_hostname) }}"
-HOSTNAME=$(hostname)
-SESSION_FILE="${SESSION_STATE_DIR}/${HOSTNAME}.session"
-
-# Log function
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sunshine-hook] $1" >> /var/log/sunshine-hooks.log 2>/dev/null || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sunshine-hook] $1" >> /var/log/sunshine-hooks.log 2>&1 || true
 }
 
-log "Session starting for VM: ${VM_ID}"
+log "session starting for ${VM}"
 
-# Write the session state file only if the directory is writable (it may be an
-# NFS mount that isn't present on this VM). All failures are swallowed.
-if mkdir -p "${SESSION_STATE_DIR}" 2>/dev/null && [ -w "${SESSION_STATE_DIR}" ]; then
-    if cat > "${SESSION_FILE}.tmp" 2>/dev/null << EOF
-{
-    "vm_id": "${VM_ID}",
-    "hostname": "${HOSTNAME}",
-    "session_start": "$(date -Iseconds)",
-    "gpu_profile": "{{ vgpu_profile | default('Q-8C') }}",
-    "user": "${SUNSHINE_CLIENT_NAME:-unknown}",
-    "status": "active"
-}
-EOF
-    then
-        mv "${SESSION_FILE}.tmp" "${SESSION_FILE}" 2>/dev/null || true
-        log "Session state written to ${SESSION_FILE}"
-    fi
+if curl -fsS -m 5 -X PUT "{{ gpu_manager_api_url | mandatory('gpu_manager_api_url must name the gpu-manager API, e.g. http://192.168.1.200:8080') }}/v1/sessions/{{ gpu_manager_vm_name | default(ansible_hostname) }}" -o /dev/null 2>/dev/null; then
+    log "reported session active to ${API}"
 else
-    log "Session-state dir ${SESSION_STATE_DIR} not writable — skipping (non-fatal)"
+    log "could not report to ${API} (non-fatal)"
 fi
+
+# Heartbeat while the session lives, so a crashed session decays to `unknown`
+# instead of reading active forever and pinning the card.
+systemctl --user start sunshine-heartbeat.timer 2>/dev/null || true
 
 {% if sunshine_session_start_extra is defined %}
 # Custom session start commands

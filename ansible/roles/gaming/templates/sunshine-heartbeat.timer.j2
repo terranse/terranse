@@ -1,0 +1,16 @@
+# Managed by Ansible - do not edit manually
+#
+# 60s against the daemon's session_ttl_s of 180: three chances to be heard
+# before an active session decays to `unknown`. Not enabled -- the session
+# start hook starts it and the stop hook stops it, so nothing heartbeats
+# while nobody is streaming.
+[Unit]
+Description=Heartbeat the live Sunshine session to gpu-manager
+
+[Timer]
+OnActiveSec=0
+OnUnitActiveSec=60
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

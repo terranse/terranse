@@ -86,6 +86,38 @@
     dest: /opt/sunshine/hooks/session-stop.sh
     mode: '0755'
 
+# The heartbeat units live in the Sunshine user's own systemd, because that is
+# what the session hooks can start and stop without privileges -- the hooks run
+# as that user.
+- name: Create the user systemd directory
+  ansible.builtin.file:
+    path: "/home/{{ gaming_user }}/.config/systemd/user"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+
+- name: Deploy the session heartbeat units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/home/{{ gaming_user }}/.config/systemd/user/{{ item }}"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
+  loop:
+    - sunshine-heartbeat.service
+    - sunshine-heartbeat.timer
+
+# Deliberately NOT enabled: the session hooks start and stop the timer, so it
+# only runs while somebody is actually streaming.
+- name: Reload the user systemd so the heartbeat units are known
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+  become: true
+  become_user: "{{ gaming_user }}"
+  failed_when: false
+
 - name: Deploy Sunshine configuration
   ansible.builtin.template:
     src: sunshine.conf.j2

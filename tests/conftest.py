@@ -148,3 +148,30 @@ def gpu_manager_vars():
             "ai-vm": {"vmid": 114, "tier": "ai"},
         },
     }
+
+
+@pytest.fixture
+def gaming_templates_dir(ansible_dir):
+    """Return the gaming role's templates directory."""
+    return ansible_dir / "roles" / "gaming" / "templates"
+
+
+@pytest.fixture
+def gaming_jinja_env(gaming_templates_dir):
+    """Return a Jinja2 environment for the gaming role's templates."""
+    env = Environment(
+        loader=FileSystemLoader(str(gaming_templates_dir)),
+        keep_trailing_newline=True,
+    )
+    env.filters["mandatory"] = _mandatory
+    return env
+
+
+@pytest.fixture
+def sunshine_hook_vars():
+    """Return the variables the Sunshine session hooks consume."""
+    return {
+        "gpu_manager_api_url": "http://192.168.1.200:8080",
+        "gpu_manager_vm_name": "gaming",
+        "gaming_user": "gamer",
+    }

@@ -285,6 +285,11 @@ hosts = {
             lutris_enabled     = "true"
             game_storage_mount = "true"
             snapshot_on_boot   = "true"
+            # gpu-manager's API, as the *guest* can reach it: workstation's LAN
+            # address on vmbr0. The netbird name does not resolve in here.
+            gpu_manager_api_url = "http://192.168.1.200:8080"
+            # gpu-manager's config keys this VM `gaming`.
+            gpu_manager_vm_name = "gaming"
           }
         }]
       }
