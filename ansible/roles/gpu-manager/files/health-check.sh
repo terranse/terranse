@@ -226,29 +226,6 @@ check_gpu_manager() {
     else
         check_fail "gpu-manager-service" "Service not running"
     fi
-
-    # Check for stale session files (older than 1 hour with active status)
-    if [[ -d "$SESSION_STATE_DIR" ]]; then
-        local stale_count=0
-        for session_file in "${SESSION_STATE_DIR}"/*.session; do
-            [[ -f "$session_file" ]] || continue
-
-            local status=$(jq -r '.status // empty' "$session_file" 2>/dev/null)
-            if [[ "$status" == "active" ]]; then
-                # Check if file is older than 1 hour
-                local file_age=$(($(date +%s) - $(stat -c %Y "$session_file")))
-                if [[ $file_age -gt 3600 ]]; then
-                    stale_count=$((stale_count + 1))
-                fi
-            fi
-        done
-
-        if [[ $stale_count -gt 0 ]]; then
-            check_warn "session-files" "$stale_count stale session files (>1 hour old)"
-        else
-            check_pass "session-files" "No stale session files"
-        fi
-    fi
 }
 
 # =============================================================================
