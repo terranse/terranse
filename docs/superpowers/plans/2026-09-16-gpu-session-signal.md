@@ -88,7 +88,10 @@ when the card will come free.
 - Modify `tofu/deployments/edholm/main.tf` — carry `host` in `gaming_vms`.
 - Modify `tofu/deployments/edholm/configurations.tfvars` —
   `gpu_manager_api_url`.
-- Modify `tests/conftest.py`, `tests/unit/templates/test_templates.py`.
+- Modify `tests/conftest.py`; create `tests/unit/templates/test_gaming_templates.py`;
+  modify `tests/unit/templates/test_gpu_manager_templates.py`.
+  (`tests/unit/templates/test_templates.py` covers the docker-compose
+  templates and carries unrelated in-flight edits — leave it alone.)
 
 **computer-configs**
 - Modify `home/terminal.nix` — the `gpu` function's `status` verb.
@@ -1239,7 +1242,7 @@ EOF
 - Modify: `tofu/deployments/edholm/configurations.tfvars` (the gaming VM's
   `roles[].vars`, around line 275)
 - Modify: `tests/conftest.py`
-- Modify: `tests/unit/templates/test_templates.py`
+- Create: `tests/unit/templates/test_gaming_templates.py`
 
 **Interfaces:**
 - Consumes: `PUT`/`DELETE /v1/sessions/{vm}` from Task 2.
@@ -1278,9 +1281,21 @@ def sunshine_hook_vars():
     }
 ```
 
-Append to `tests/unit/templates/test_templates.py`:
+Create `tests/unit/templates/test_gaming_templates.py` with this header, then
+the class below:
 
 ```python
+"""Tests for the gaming role's Jinja2 templates.
+
+The Sunshine session hooks are the only thing that tells gpu-manager whether
+somebody is streaming, so a hook that reports to the wrong place silently
+disables the daemon's whole idle-release path.
+"""
+
+import pytest
+from jinja2.exceptions import UndefinedError
+
+
 class TestSunshineSessionHooks:
     """Tests for the hooks that tell gpu-manager about streaming sessions.
 
@@ -1373,19 +1388,13 @@ class TestSunshineSessionHooks:
         assert "OnUnitActiveSec=60" in body
 ```
 
-`UndefinedError` needs importing at the top of
-`tests/unit/templates/test_templates.py`:
-
-```python
-from jinja2.exceptions import UndefinedError
-```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run:
 ```bash
 cd /home/daniele/Repos/terranse && uv run --with pytest --with jinja2 --with pyyaml \
-  pytest tests/unit/templates/test_templates.py -k Sunshine -q
+  pytest tests/unit/templates/test_gaming_templates.py -q
 ```
 Expected: FAIL — the hooks still write session files, and the two heartbeat
 templates do not exist (`TemplateNotFound`).
@@ -1646,7 +1655,7 @@ EOF
 - Modify: `ansible/roles/gpu-manager/defaults/main.yaml` and
   `templates/gpu-manager.config.yaml.j2`
 - Modify: `tests/conftest.py` (the `gpu_manager_vars` fixture),
-  `tests/unit/templates/test_templates.py`
+  `tests/unit/templates/test_gpu_manager_templates.py`
 
 **Interfaces:**
 - Consumes: `session_ttl_s` from Task 1's config change.
@@ -1659,7 +1668,7 @@ In `tests/conftest.py`, in the `gpu_manager_vars` fixture, replace
 `"gpu_manager_session_ttl_s": 180,`.
 
 Append to the `TestGPUManagerConfigTemplate` class in
-`tests/unit/templates/test_templates.py`:
+`tests/unit/templates/test_gpu_manager_templates.py`:
 
 ```python
     def test_emits_the_session_ttl(self, gpu_manager_jinja_env, gpu_manager_vars):
@@ -1681,7 +1690,7 @@ Append to the `TestGPUManagerConfigTemplate` class in
 Run:
 ```bash
 cd /home/daniele/Repos/terranse && uv run --with pytest --with jinja2 --with pyyaml \
-  pytest tests/unit/templates/test_templates.py -k GPUManager -q
+  pytest tests/unit/templates/test_gpu_manager_templates.py -q
 ```
 Expected: FAIL — `session_ttl_s` is not emitted, `session_dir` still is (and
 the other tests in the class now fail on the renamed fixture key, because the
@@ -1806,7 +1815,7 @@ Independent of Tasks 1-6; can be done at any point.
 - Modify: `tofu/deployments/edholm/main.tf:40-50` (the `gaming_vms_by_host`
   local)
 - Modify: `tests/conftest.py` (the `gpu_manager_vars` fixture)
-- Modify: `tests/unit/templates/test_templates.py`
+- Modify: `tests/unit/templates/test_gpu_manager_templates.py`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -1838,7 +1847,7 @@ Append to the `TestGPUManagerConfigTemplate` class:
 Run:
 ```bash
 cd /home/daniele/Repos/terranse && uv run --with pytest --with jinja2 --with pyyaml \
-  pytest tests/unit/templates/test_templates.py -k "host" -q
+  pytest tests/unit/templates/test_gpu_manager_templates.py -k "host" -q
 ```
 Expected: the `omits` test PASSES (that path already works); the `emits` test
 PASSES too, because the template's conditional is already correct. **If both
