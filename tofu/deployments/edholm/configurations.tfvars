@@ -162,7 +162,20 @@ hosts = {
           ]
         }
       },
-      { name = "gpu-manager" }
+      {
+        name = "gpu-manager"
+        vars = {
+          # Leave the card doing something when a game gives it back. ai-vm is
+          # claimed at the bottom of the priority order, so a gaming claim
+          # still displaces it without having to preempt; and the claim is
+          # edge-triggered, so `qm shutdown 114` sticks until the card next
+          # changes hands. Q-24C because the A5000 permits only one slice.
+          gpu_manager_default_tenant = {
+            vm      = "ai-vm"
+            profile = "Q-24C"
+          }
+        }
+      }
     ]
 
     lxcs = {

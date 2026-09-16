@@ -12,6 +12,12 @@ profiles:
   {{ name }}: {vram_mb: {{ p.vram_mb }}, max_instances: {{ p.max_instances }}, mdev_type: {{ p.mdev_type }}}
 {% endfor %}
 
+{% if gpu_manager_default_tenant | default({}) %}
+# The VM that picks the card up when another tenant releases it. Claimed at
+# the bottom of the priority order, so any real claim still wins.
+default_tenant: {vm: {{ gpu_manager_default_tenant.vm }}, profile: {{ gpu_manager_default_tenant.profile }}}
+{% endif %}
+
 vms:
 {% for name, vm in gaming_vms | dictsort %}
   {{ name }}: {vmid: {{ vm.vmid }}, tier: {{ vm.tier | default('game') }}{% if vm.host is defined %}, host: {{ vm.host }}{% endif %}}

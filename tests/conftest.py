@@ -107,3 +107,44 @@ def mock_secrets():
 def mock_ansible_env():
     """Return mock ansible_env for templates."""
     return {"HOME": "/home/testuser"}
+
+
+@pytest.fixture
+def gpu_manager_templates_dir(ansible_dir):
+    """Return the gpu-manager role's templates directory."""
+    return ansible_dir / "roles" / "gpu-manager" / "templates"
+
+
+@pytest.fixture
+def gpu_manager_jinja_env(gpu_manager_templates_dir):
+    """Return a Jinja2 environment for the gpu-manager role's templates."""
+    env = Environment(
+        loader=FileSystemLoader(str(gpu_manager_templates_dir)),
+        keep_trailing_newline=True,
+    )
+    env.filters["mandatory"] = _mandatory
+    return env
+
+
+@pytest.fixture
+def gpu_manager_vars():
+    """Return the variables the gpu-manager config template consumes.
+
+    Mirrors the role's defaults plus the facts the role sets at run time and
+    the `gaming_vms` map tofu injects.
+    """
+    return {
+        "gpu_manager_listen": "0.0.0.0:8080",
+        "gpu_manager_pf_address": "0000:0e:00.0",
+        "gpu_manager_pci_mapping": "RTX-A5000",
+        "gpu_manager_session_dir": "/mnt/gaming/session-state",
+        "gpu_manager_grace_period_s": 300,
+        "gpu_manager_vf_release_timeout_s": 60,
+        "gpu_manager_profiles": {
+            "Q-24C": {"vram_mb": 24576, "max_instances": 1, "mdev_type": "nvidia-666"},
+        },
+        "gaming_vms": {
+            "gaming": {"vmid": 111, "tier": "game"},
+            "ai-vm": {"vmid": 114, "tier": "ai"},
+        },
+    }

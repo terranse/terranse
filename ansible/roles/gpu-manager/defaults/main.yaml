@@ -21,6 +21,21 @@ gpu_manager_grace_period_s: 300
 # A virtual function stays held for a few seconds after its QEMU exits.
 gpu_manager_vf_release_timeout_s: 60
 
+# The VM that takes the card when another tenant releases it, so an idle card
+# ends up doing something instead of nothing.
+#
+# Off by default: an empty map emits no stanza, and the daemon then leaves a
+# freed card alone. Declared per-deployment (see the gpu-manager host_role in
+# configurations.tfvars) rather than here, because which VM is the fallback is
+# a property of the deployment, not of the role.
+#
+# The claim is made at the bottom of the priority order -- below even an idle
+# game -- so it never blocks a VM somebody actually asked for, and it is
+# edge-triggered: the tenant takes the card when another tenant releases it,
+# never merely because the card is sitting free. So stopping it by hand sticks
+# until the card next changes hands.
+gpu_manager_default_tenant: {}
+
 # The RTX A5000's real vGPU types. nvidia-666 is RTXA5000-24Q: the whole
 # 24 GB card, so exactly one tenant at a time.
 gpu_manager_profiles:
