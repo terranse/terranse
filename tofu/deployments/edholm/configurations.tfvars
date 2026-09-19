@@ -319,6 +319,16 @@ hosts = {
 
         roles = [{
           name = "llm"
+          vars = {
+            # Strings, not booleans — the module declares vars as map(string).
+            #
+            # NInfer is the live backend: measured 39.5 tok/s against Ollama's
+            # 27.3 at the same 131072 window. Ollama stays installed and one
+            # variable flip away, because NInfer serves exactly one model and
+            # has no structured-output support.
+            llm_ninfer_enabled = "true"
+            llm_backend        = "ninfer"
+          }
         }]
       }
     }
