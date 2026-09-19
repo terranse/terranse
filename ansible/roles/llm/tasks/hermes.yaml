@@ -30,7 +30,11 @@
     path: /etc/profile.d/hermes-llm.sh
     state: absent
 
-- name: Point Hermes at the local Ollama endpoint
+# TODO: when llm_ninfer_api_key is set (i.e. once this is exposed over ipid),
+# Hermes needs the matching bearer token. The config key for that is NOT yet
+# verified — run `hermes config list` on-box to find its name, then add it to
+# the loop below guarded on llm_backend == 'ninfer'.
+- name: Point Hermes at the active inference backend
   ansible.builtin.shell: |
     set -euo pipefail
     # The installer puts hermes in ~/.local/bin, which only a login shell adds
@@ -46,20 +50,31 @@
   become: true
   become_user: "{{ llm_user }}"
   loop:
+    # Both names select the same OpenAI-compatible profile — `ollama` is an
+    # alias of `custom` — but the alias also switches on Hermes's Ollama-specific
+    # discovery, which probes the native /api/show. NInfer serves only /v1 and
+    # 404s that, so NInfer must use the bare `custom` name.
     - key: model.provider
-      value: ollama
+      value: "{{ 'custom' if llm_backend == 'ninfer' else 'ollama' }}"
     - key: model.base_url
-      value: "http://localhost:11434/v1"
+      value: "{{ 'http://localhost:' ~ llm_ninfer_port ~ '/v1' if llm_backend == 'ninfer' else 'http://localhost:11434/v1' }}"
+    # NInfer rejects any "model" value that is not the artifact's own
+    # identity.model_id, including an absent one.
     - key: model.default
-      value: "{{ llm_default_model }}"
-    # Hermes otherwise takes the window from /api/show, which reports the
-    # model's architectural 262144 rather than what Ollama actually loaded.
-    # It sizes the context meter AND the compaction trigger
-    # (compression.threshold * window) off that number, so it sat at "12%
-    # used" while the server was full and never compacted. Must match
-    # llm_ollama_context_length.
+      value: "{{ llm_ninfer_model_id if llm_backend == 'ninfer' else llm_default_model }}"
+    # Hermes otherwise takes the window from the backend's own discovery, which
+    # for Ollama reports the model's architectural 262144 rather than what was
+    # actually loaded. It sizes the context meter AND the compaction trigger
+    # (compression.threshold * window) off that number, so it sat at "12% used"
+    # while the server was full and never compacted, and every long turn came
+    # back finish_reason="length". Must match the live backend's real window.
     - key: model.context_length
-      value: "{{ llm_ollama_context_length }}"
+      value: "{{ llm_ninfer_max_context if llm_backend == 'ninfer' else llm_ollama_context_length }}"
+    # Hermes generates conversation titles with a response_format=json_schema
+    # request. NInfer does not implement structured outputs and returns 400, so
+    # every new conversation would open with an error banner. Ollama handles it.
+    - key: title_generation.enabled
+      value: "{{ 'false' if llm_backend == 'ninfer' else 'true' }}"
   loop_control:
     label: "{{ item.key }} = {{ item.value }}"
   register: llm_hermes_config_set
