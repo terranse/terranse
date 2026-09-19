@@ -1,9 +1,9 @@
 # Managed by Ansible (terranse llm role) — DO NOT EDIT.
 #
-# ComfyUI and the LLM cannot share this GPU: Qwen3.8 holds ~17 GiB of the 24 GiB
-# vGPU slice and is pinned resident by OLLAMA_KEEP_ALIVE=-1, while Flux wants
-# 12-17 GiB. Running both reproduces the evict/reload thrash that made this box
-# feel slow in the first place.
+# ComfyUI and the LLM cannot share this GPU: Qwen3.8 holds ~19-20 GiB of the
+# 24 GiB vGPU slice (and under Ollama is pinned resident by OLLAMA_KEEP_ALIVE=-1),
+# while Flux wants 12-17 GiB. Running both reproduces the evict/reload thrash
+# that made this box feel slow in the first place.
 #
 # So this unit is deliberately NOT enabled at boot. Start it when you want to
 # generate images; it evicts the LLM on the way in and restores it on the way
@@ -20,9 +20,11 @@ Type=simple
 Restart=no
 TimeoutStartSec=600
 
-# Evict the LLM. Stopping ollama frees the whole slice; the keep-alive setting
-# means nothing short of stopping it will.
-ExecStartPre=/usr/bin/systemctl stop ollama
+# Evict the LLM. Stopping it frees the whole slice; Ollama's keep-alive setting
+# means nothing short of stopping it will. Named from llm_backend rather than
+# hard-coded: starting ollama back up while NInfer held the slice would leave
+# both fighting over 24 GiB and whichever lost dead on an allocation error.
+ExecStartPre=/usr/bin/systemctl stop {{ llm_backend }}
 
 ExecStart=/usr/bin/docker run --rm --name comfyui \
   --gpus all \
@@ -36,7 +38,7 @@ ExecStart=/usr/bin/docker run --rm --name comfyui \
 ExecStop=/usr/bin/docker stop comfyui
 
 # Give the LLM back whether ComfyUI exited cleanly or crashed.
-ExecStopPost=/usr/bin/systemctl start ollama
+ExecStopPost=/usr/bin/systemctl start {{ llm_backend }}
 
 [Install]
 WantedBy=multi-user.target
