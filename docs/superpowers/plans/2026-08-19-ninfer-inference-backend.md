@@ -579,13 +579,15 @@ Decision gate:
 
 ---
 
-## Task 4 (SHELVED): Codify the NInfer build and artifact download
+## Task 4 (DONE 2026-09-20): Codify the NInfer build and artifact download
 
-> **Shelved 2026-08-22.** The spike measured NInfer at 1.3x, not the 1.8x the
-> README implied, and the stalls that prompted this work were already fixed by
-> `OLLAMA_KEEP_ALIVE=-1` plus resolving the two-model contention. Kept here
-> because the spike is reproducible from the pinned ref and checksum in "Spike
-> results" — reopen if decode speed becomes the binding constraint again.
+> ~~**Shelved 2026-08-22.**~~ **Unshelved and implemented 2026-09-20.** The
+> steps below are as-built with three corrections, all recorded in "Promotion":
+> the artifact URL is pinned to a HuggingFace *revision* (upstream replaced the
+> one on `main` with an incompatible file), the unit carries
+> `--max-context 131072` rather than 65536, and the image tag is the only thing
+> that still names the engine — the branch the pinned commit sat on has been
+> force-moved.
 
 
 Only start this once Task 3's gate says go.
@@ -745,7 +747,7 @@ git commit -m "feat(ansible): build the NInfer engine and fetch its model artifa
 
 ---
 
-## Task 5 (SHELVED): The backend switch
+## Task 5 (DONE 2026-09-20): The backend switch
 
 **Files:**
 
@@ -910,7 +912,7 @@ git commit -m "feat(ansible): select the active inference backend with llm_backe
 
 ---
 
-## Task 6 (SHELVED): Point Hermes at whichever backend is live
+## Task 6 (DONE 2026-09-20): Point Hermes at whichever backend is live
 
 **Files:**
 
@@ -1299,6 +1301,147 @@ tuned Ollama for a week, and revisit if decode speed is still the binding
 constraint. Task 8 (Open WebUI in front of the Hermes gateway) is worth more
 per hour of work than Task 4-7, and it is backend-agnostic by construction.
 
+> **Superseded 2026-09-20.** Tasks 4-6 are now implemented and NInfer is the
+> live backend. What changed the answer was not the decode margin — it is
+> 1.45x at the production window, still modest — but that the week on tuned
+> Ollama surfaced a harder ceiling: Ollama cannot exceed 131072 tokens on this
+> slice at all, and reaching even that took `OLLAMA_CONTEXT_LENGTH` plus q4_0
+> KV. NInfer reaches the same window with 1.33 GiB of slack and is faster while
+> doing it. The five costs listed above are all still real and all still paid —
+> in particular Devstral is now unreachable, and `llm_backend: ollama` is the
+> one-line way back. See "Promotion" below.
+
+## Promotion (2026-09-20)
+
+NInfer is the live backend on `ai-vm`. Tasks 4-6 are implemented; Task 7's A/B
+is re-run below at the production window.
+
+### What actually unblocked it: ECC
+
+The 2026-08-20 deployment note claimed the card had "no ECC reduction". It was
+reading the *guest* vGPU profile size, which is the constant 24,576 MiB and
+cannot show ECC at all. On the Proxmox **host**:
+
+```
+nvidia-smi --query-gpu=memory.total    23028 MiB     # ECC on
+nvidia-smi -e 0 ; reboot
+nvidia-smi --query-gpu=memory.total    24564 MiB     # ECC off, +1,536 MiB
+```
+
+ECC is a property of the **physical** card, so only a host reboot applies it —
+`nvidia-smi -e 0` inside the guest is a no-op, and the setting survives
+independently of any VM. That 1,536 MiB is what moved NInfer from a 96K ceiling
+to the full 131072: at 131072 the KV arena needs 5,306,938,624 B plus
+1,073,741,824 B of headroom, and with ECC on only 5,121,457,152 B remained after
+weights — **185 MB short**. With ECC off:
+
+```
+KV capacity auto resolved=131072 tokens pages=2048/2048 runtime=4.94 GiB
+  free-after-weights=6.27 GiB free-after-startup=1.39 GiB
+  headroom=1.00 GiB slack=1.33 GiB
+```
+
+Reverting is `nvidia-smi -e 1` on the host plus a reboot — at which point
+`llm_ninfer_max_context` must drop to 98304 or NInfer will refuse to start.
+This is the one piece of the setup that is **not** in Ansible: it lives on the
+Proxmox host, needs a reboot to take effect, and a reboot there stops every
+guest. Worth codifying in the host GPU role with an explicit, opt-in reboot.
+
+### Benchmark at the production window (131072, ECC off)
+
+| | Ollama 128K/q4_0 | NInfer 131072/int8 |
+|---|---|---|
+| Decode | 27.31 tok/s | **39.53 tok/s** (1.45x) |
+| VRAM while serving | 19,111 MiB | 22,293 MiB of 24,576 |
+| Weights load | — | 16.67 GiB in 22.5 s |
+| Max window on this slice | 131072 (hard ceiling) | 131072 with 1.33 GiB slack |
+
+1.45x, not the 1.3x recorded in August (64K, ECC on) nor the 1.75x measured at
+64K with ECC off — a bigger KV arena costs decode speed, so quote the number at
+the window actually deployed. The decode margin is *not* the reason to promote
+it: Ollama's 131072 is a hard ceiling reached only with `OLLAMA_CONTEXT_LENGTH`
+and q4_0 KV, while NInfer reaches the same window with room left over.
+
+**Tool-calling gate (never run in August at this config): pass.**
+
+```
+tool_calls: [{"function":{"arguments":"{\"city\":\"Oslo\"}","name":"get_weather"},
+              "id":"call_3f8529074c02e7b2","type":"function"}]
+```
+
+### Three ways the August spike had rotted
+
+1. **The artifact on `main` changed.** `resolve/main/qwen3_8_27b.ninfer` now
+   serves 20,437,336,576 B / sha `0634abb0...`, not the 18,210,531,328 B /
+   `eec39564...` this plan pins. HF history: `dc370fb6295a 2026-09-06 "Update
+   artifact with DFlash2 companion weights"`. Every engine ref tried (403fc56d,
+   v0.6.2, master) hard-errors on it: `artifact object was not consumed by the
+   selected target: dflash2/feature_projection`, and `--spec dflash2` is
+   `invalid speculative backend`. Fixed by pinning the URL to revision
+   `18dfc887423f`, which checksums exactly. **The engine ref and the artifact
+   revision are a matched pair.**
+2. **The branch was force-updated**, exactly as this plan predicted.
+   `release/v0.6.0-rtx3090` now points at `49590eba`, not `403fc56d`. The
+   pinned SHA still resolves, so the `git` task heals a drifted tree — but the
+   branch name is now worthless as a reference.
+3. **Tasks 4-7 were never implemented.** There was no `ninfer.yaml`, no unit
+   template, no `llm_backend`. The only committed artifact was this document.
+
+### Deviations from the plan as written
+
+- `--max-context 131072`, not 65536, and `--kv-capacity auto` rather than a
+  fixed number — `auto` is what the spike verified and it reports its own
+  arithmetic on startup, which is how the 185 MB shortfall was diagnosed.
+- `--prefill-chunk 1024` dropped: not in the verified spike invocation.
+- The unit runs as root like its sibling `comfyui.service`, rather than the
+  plan's `User={{ llm_user }}` — both only shell out to `/usr/bin/docker`, and
+  this avoids a docker-group dependency for `llm`.
+- `Conflicts=` also names `comfyui.service`, and **`comfyui.service.j2` now
+  evicts and restores `{{ llm_backend }}` instead of a hard-coded `ollama`**.
+  As written it would have started Ollama on top of a running NInfer whenever
+  ComfyUI stopped.
+- Hermes's `model.provider` is `custom` for NInfer, not the plan's `ollama`.
+  The two names select the same OpenAI-compatible profile, but the `ollama`
+  alias also switches on native `/api/show` discovery, which NInfer 404s.
+- Hermes needs `title_generation.enabled: false` for NInfer: title generation
+  sends `response_format: json_schema`, which NInfer answers with 400.
+
+### Boot ordering: gaming vs ai-vm is a race
+
+`ai-vm` has **no `onboot`**; it comes up only because gpu-manager claims it as
+`default_tenant`. `gaming` has `onboot = true`. Both want the single 24Q slice.
+On this reboot:
+
+```
+01:12:28  gpu-manager started
+01:12:35  gpu-manager: qmstart 114 (ai-vm)          <- won
+01:12:39  pve-guests: start VM 111 (gaming)
+01:12:39  pve-guests: could not find a free device for 'hostpci0'   <- lost
+```
+
+It resolved the way we want, but by 4 seconds, and nothing enforces it. A boot
+where `pve-guests` wins leaves `gaming` holding the card with no Sunshine
+session and `ai-vm` down until gpu-manager preempts it a grace period later.
+`gaming`'s `onboot = true` predates gpu-manager's `default_tenant` and the two
+now express contradictory intent — one of them should go. Not changed here:
+it is a design decision, not a bug fix.
+
+### Still open
+
+- **The Ansible run has not been executed end to end.** The unit and Hermes
+  config on `ai-vm` were installed from the rendered template and match it
+  byte for byte, but `just setup ai-vm` needs a 1Password unlock for the vault
+  password, so the idempotency check (`changed=0`) is still owed.
+- **`tofu/` changes are inert until applied from the main checkout.** The
+  tfvars now declares `llm_ninfer_enabled` / `llm_backend`, but the generated
+  playbook still carries `vars: {}` — a deploy from `main` today would reset
+  the backend to Ollama.
+- **This branch is behind `main`** (it predates the gpu-manager default-tenant
+  work) and needs a rebase before merge.
+- **Port 8080 is bound to 0.0.0.0 with `auth: disabled`**, same as Ollama's
+  11434. Set `llm_ninfer_api_key` from the vault before exposing it over ipid.
+- **Devstral is now unreachable.** NInfer serves exactly one artifact.
+
 ## Deployment notes (2026-08-20)
 
 Tasks 1 and 2 are deployed to `ai-vm` and verified. Four things came up that the plan as written did not anticipate:
@@ -1307,7 +1450,7 @@ Tasks 1 and 2 are deployed to `ai-vm` and verified. Four things came up that the
 
 2. **Two fixes from the previous session were never actually committed.** Commit `e62b0e5` ("wire Hermes through its own config, not OPENAI_* env vars") has a message describing changes to `hermes.yaml` and `ollama.yaml`, but its diff contains **only** the deletion of `templates/hermes-llm.sh.j2`. `main` therefore still had the old env-var Hermes wiring and the non-idempotent model pull, and the deploy failed on a template the same commit had deleted. Both fixes are restored here. Worth remembering: a commit message is not evidence the change landed — `git show --stat` is.
 
-3. **The guest reports the full 24,576 MiB**, with no ECC reduction. NInfer's C1 profile (19,641 MiB) fits comfortably; the plan's worry that ECC overhead might squeeze it was unfounded. C8 at 22-23 GiB is plausible too, though C1 remains the right choice for single-user latency.
+3. ~~**The guest reports the full 24,576 MiB**, with no ECC reduction.~~ **Wrong — corrected 2026-09-20.** The guest reports its *profile* size (24,576 MiB = the 24Q slice), which is a constant and says nothing about ECC. The field that answers the question is `nvidia-smi --query-gpu=memory.total` on the **host**, which read **23,028 MiB** — i.e. ECC was on the whole time and was costing 1,536 MiB. The plan's original worry was right and this note talked everyone out of it; it is exactly the 185 MB that later blocked a 131072-token KV arena. NInfer's C1 profile did still fit at 64K, which is why the error went unnoticed. See "Promotion" below.
 
 4. **Deploying from a worktree needs manual wiring.** `ansible/playbooks/edholm.yaml` and `ansible/inventory/edholm.yaml` are tofu-generated and gitignored, and `terraform.tfstate` lives only in the main checkout — so `tofu apply` from a worktree would see empty state and try to recreate every VM. Do not run it. Instead copy the generated playbook in, and write an inventory whose `project_path` is the **absolute** path to the main checkout's deployment dir (the generated one uses a relative path that would resolve to the worktree's stateless copy). This is only safe while the branch leaves `tofu/` untouched — Task 4 changes tfvars, so it must be applied from the main checkout after merging.
 
