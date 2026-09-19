@@ -105,3 +105,29 @@ class TestSunshineSessionHooks:
         )
 
         assert "OnUnitActiveSec=60" in body
+
+    def test_stop_hook_stops_the_heartbeat_service_too(
+        self, gaming_jinja_env, sunshine_hook_vars
+    ):
+        """Stopping only the timer leaves an in-flight heartbeat alive, whose PUT
+        then lands after our DELETE -- the session sticks `active` and the card is
+        never freed. Observed on the real host."""
+        body = self._render(
+            gaming_jinja_env, "sunshine-session-stop.sh.j2", sunshine_hook_vars
+        )
+
+        stop = next(ln for ln in body.splitlines() if "systemctl --user stop" in ln)
+        assert "sunshine-heartbeat.timer" in stop
+        assert "sunshine-heartbeat.service" in stop
+
+    @pytest.mark.parametrize(
+        "name", ["sunshine-session-start.sh.j2", "sunshine-session-stop.sh.j2"]
+    )
+    def test_hooks_do_not_log_where_they_cannot_write(
+        self, gaming_jinja_env, sunshine_hook_vars, name
+    ):
+        """The hooks run as the Sunshine user, which cannot write /var/log."""
+        body = self._render(gaming_jinja_env, name, sunshine_hook_vars)
+
+        assert "/var/log/sunshine-hooks.log" not in body
+        assert "systemd-cat" in body

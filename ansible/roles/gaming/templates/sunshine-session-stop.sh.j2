@@ -14,15 +14,25 @@
 API="{{ gpu_manager_api_url | mandatory('gpu_manager_api_url must name the gpu-manager API, e.g. http://192.168.1.200:8080') }}"
 VM="{{ gpu_manager_vm_name | default(ansible_hostname) }}"
 
+# systemd-cat, not a file in /var/log: these hooks run as the Sunshine user,
+# which cannot write there, so every log line was silently lost and the
+# redirect itself printed a permission error into Sunshine's own log. The
+# journal is readable with `journalctl -t sunshine-hook`.
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sunshine-hook] $1" >> /var/log/sunshine-hooks.log 2>&1 || true
+    echo "$1" | systemd-cat -t sunshine-hook -p info 2>/dev/null || true
 }
 
 log "session ending for ${VM}"
 
-# Stop heartbeating first, or the timer could re-report the session active
-# after this hook has said it ended.
-systemctl --user stop sunshine-heartbeat.timer 2>/dev/null || true
+# Stop heartbeating first, or a heartbeat could re-report the session active
+# after this hook has said it ended -- which would leave the session stuck
+# `active` and the card never freed.
+#
+# The SERVICE is stopped as well as the timer, and that is the whole point:
+# stopping a timer does not touch a service instance it already launched, so
+# an in-flight heartbeat's PUT would land after our DELETE. Observed doing
+# exactly that on the real host before this was fixed.
+systemctl --user stop sunshine-heartbeat.timer sunshine-heartbeat.service 2>/dev/null || true
 
 if curl -fsS -m 5 -X DELETE "${API}/v1/sessions/${VM}" -o /dev/null 2>/dev/null; then
     log "reported session ended to ${API}"

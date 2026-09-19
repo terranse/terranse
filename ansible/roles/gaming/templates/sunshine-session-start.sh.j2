@@ -17,8 +17,12 @@ API="{{ gpu_manager_api_url | mandatory('gpu_manager_api_url must name the gpu-m
 # necessarily this machine's hostname.
 VM="{{ gpu_manager_vm_name | default(ansible_hostname) }}"
 
+# systemd-cat, not a file in /var/log: these hooks run as the Sunshine user,
+# which cannot write there, so every log line was silently lost and the
+# redirect itself printed a permission error into Sunshine's own log. The
+# journal is readable with `journalctl -t sunshine-hook`.
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [sunshine-hook] $1" >> /var/log/sunshine-hooks.log 2>&1 || true
+    echo "$1" | systemd-cat -t sunshine-hook -p info 2>/dev/null || true
 }
 
 log "session starting for ${VM}"
