@@ -1,0 +1,57 @@
+---
+# Build the NInfer engine and fetch its model artifact.
+#
+# Upstream publishes no Linux binary, so the image is built on-box from a
+# pinned commit. That build is 45-90 minutes on 8 cores, hence the async block
+# and the "is this image already here" guard in front of it.
+
+- name: Ensure the NInfer directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ llm_user }}"
+    group: "{{ llm_user }}"
+    mode: '0755'
+  loop:
+    - /opt/ninfer
+    - "{{ llm_ninfer_src_dir }}"
+    - "{{ llm_ninfer_model_dir }}"
+
+# `version` is the pinned SHA, so this also heals a tree left on some other ref
+# by a manual build.
+- name: Check out the pinned NInfer source
+  ansible.builtin.git:
+    repo: "{{ llm_ninfer_repo }}"
+    dest: "{{ llm_ninfer_src_dir }}"
+    version: "{{ llm_ninfer_ref }}"
+  become: true
+  become_user: "{{ llm_user }}"
+
+- name: Read the images already built
+  ansible.builtin.command: docker images --format '{% raw %}{{.Repository}}:{{.Tag}}{% endraw %}'
+  register: llm_ninfer_images
+  changed_when: false
+
+- name: Build the NInfer image
+  ansible.builtin.command: "docker build --tag ninfer-3090:{{ llm_ninfer_ref }} ."
+  args:
+    chdir: "{{ llm_ninfer_src_dir }}"
+  when: "'ninfer-3090:' ~ llm_ninfer_ref not in llm_ninfer_images.stdout"
+  changed_when: true
+  async: 7200
+  poll: 60
+
+# get_url with a checksum is idempotent on its own: it skips the download when
+# the existing file already matches and re-fetches a truncated one. The checksum
+# is also the only thing standing between us and the wrong artifact — upstream
+# serves a different, incompatible file from the same filename on `main`.
+- name: Download the Qwen3.8-27B artifact
+  ansible.builtin.get_url:
+    url: "{{ llm_ninfer_model_url }}"
+    dest: "{{ llm_ninfer_model_dir }}/qwen3_8_27b.ninfer"
+    checksum: "sha256:{{ llm_ninfer_model_sha256 }}"
+    owner: "{{ llm_user }}"
+    group: "{{ llm_user }}"
+    mode: '0644'
+  async: 3600
+  poll: 30

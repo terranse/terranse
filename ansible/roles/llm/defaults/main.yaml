@@ -122,3 +122,56 @@ llm_comfyui_image: "yanwk/comfyui-boot:cu124-slim"
 # {url, dest, checksum} — dest is relative to llm_comfyui_dir, checksum is the
 # "sha256:..." form get_url expects, so a truncated download fails loudly.
 llm_comfyui_models: []
+
+# --- NInfer ----------------------------------------------------------------
+#
+# NInfer — a native SM86 CUDA inference engine (Apache-2.0). Faster than Ollama
+# on this hardware but single-model and single-purpose, so it does not replace
+# Ollama; llm_backend picks which one is live. The A5000 is GA102/sm_86, the
+# same as the RTX 3090 this fork targets, and upstream has no device gating.
+llm_ninfer_enabled: false
+llm_ninfer_repo: "https://github.com/Don-Chad/ninfer-3090"
+
+# Pinned commit, not a branch: the default branch is a release branch that
+# upstream force-updates, and a silently different build is the last thing we
+# want between two benchmark runs. This is not hypothetical — the branch this
+# commit once sat on (release/v0.6.0-rtx3090) has since been force-moved, so
+# only the SHA still names the engine these flags were verified against.
+llm_ninfer_ref: "403fc56d71576aa1feddb771cfed3264e7378b20"
+
+llm_ninfer_src_dir: /opt/ninfer/src
+llm_ninfer_model_dir: /opt/ninfer/models
+
+# Pinned to a HuggingFace REVISION, not to `main`. Upstream replaced the
+# artifact on main with one carrying DFlash2 companion weights, which the
+# engine above cannot consume — it aborts with "artifact object was not
+# consumed by the selected target: dflash2/feature_projection", and the
+# `--spec dflash2` that would consume them does not exist in this build. The
+# engine ref and the artifact revision are a matched pair; move both or
+# neither.
+llm_ninfer_model_url: "https://huggingface.co/neroued/Qwen3.8-27B-NInfer/resolve/18dfc887423f/qwen3_8_27b.ninfer"
+llm_ninfer_model_sha256: "eec39564993d6e9c7d5e383382a760f093465c9d163ec9a1bd6b80199514bf3e"
+llm_ninfer_port: 8080
+
+# NInfer advertises the artifact's own identity.model_id and rejects a request
+# whose "model" field is anything else — including omitting it, which returns
+# 400. Confirm with: curl -s http://ai-vm.edholm.cc:8080/v1/models
+llm_ninfer_model_id: "qwen3.8-27b"
+
+# Matches llm_ollama_context_length so a backend switch does not move the
+# window under Hermes. This only fits with ECC DISABLED on the physical A5000:
+# at 131072 the KV cache needs 5,306,938,624 B plus 1,073,741,824 B headroom,
+# and with ECC on there were only 5,121,457,152 B left after weights — 185 MB
+# short. `nvidia-smi -e 0` on the Proxmox host returns ~1,536 MiB, which covers
+# it eight times over. If a host rebuild re-enables ECC, this must drop to
+# 98304 or NInfer will refuse to start.
+llm_ninfer_max_context: "131072"
+
+# Empty means the server runs without auth, which is fine on the LAN. Set this
+# from the vault before exposing the port over ipid.
+llm_ninfer_api_key: ""
+
+# Which inference backend owns the GPU. Both stay installed; only the selected
+# one is enabled and started. They cannot coexist — Ollama holds ~19.1 GiB and
+# NInfer ~20.0 GiB of a 24 GiB slice — so the unit file also declares Conflicts=.
+llm_backend: ollama

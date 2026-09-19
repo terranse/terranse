@@ -79,6 +79,14 @@
 - name: Set up Ollama
   ansible.builtin.include_tasks: ollama.yaml
 
+- name: Set up the NInfer inference engine
+  ansible.builtin.include_tasks: ninfer.yaml
+  when: llm_ninfer_enabled | bool
+
+# Before Hermes: Hermes must be configured against a backend that is already up.
+- name: Select the active inference backend
+  ansible.builtin.include_tasks: backend.yaml
+
 - name: Set up Hermes agent CLI
   ansible.builtin.include_tasks: hermes.yaml
 

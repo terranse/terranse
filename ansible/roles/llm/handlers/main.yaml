@@ -19,3 +19,9 @@
   ansible.builtin.systemd:
     name: hermes-gateway
     state: restarted
+
+- name: Restart ninfer
+  ansible.builtin.systemd:
+    name: ninfer
+    state: restarted
+  when: llm_backend == 'ninfer'

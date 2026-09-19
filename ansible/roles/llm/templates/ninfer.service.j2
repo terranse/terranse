@@ -1,0 +1,37 @@
+# Managed by Ansible (terranse llm role) — DO NOT EDIT.
+[Unit]
+Description=NInfer inference server (Qwen3.8-27B, sm_86)
+After=network-online.target docker.service
+Requires=docker.service
+# Ollama and NInfer cannot share the 24 GiB slice — Ollama holds ~19.1 GiB at
+# its 128K window and NInfer ~20.0 GiB. Whichever starts second dies on an
+# allocation error, so make the exclusion explicit rather than accidental.
+Conflicts=ollama.service comfyui.service
+
+[Service]
+# --rm plus an explicit ExecStartPre: if the unit is killed uncleanly the
+# container name would otherwise linger and block the next start.
+ExecStartPre=-/usr/bin/docker rm -f ninfer
+ExecStart=/usr/bin/docker run --rm --name ninfer \
+  --gpus all \
+  --publish {{ llm_ninfer_port }}:8080 \
+  --volume {{ llm_ninfer_model_dir }}:/models:ro \
+  ninfer-3090:{{ llm_ninfer_ref }} \
+  ninfer-serve /models/qwen3_8_27b.ninfer \
+  --host 0.0.0.0 --port 8080 \
+{% if llm_ninfer_api_key | length > 0 %}
+  --api-key {{ llm_ninfer_api_key }} \
+{% endif %}
+  --max-context {{ llm_ninfer_max_context }} --kv-capacity auto \
+  --max-concurrency 1 --max-pending-requests 16 \
+  --kv-dtype int8 \
+  --spec mtp --draft-tokens 3 --lm-head-draft
+ExecStop=/usr/bin/docker stop ninfer
+ExecStopPost=-/usr/bin/docker rm -f ninfer
+# Loading an 18 GiB artifact off disk and building the KV arena takes ~90s.
+TimeoutStartSec=600
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

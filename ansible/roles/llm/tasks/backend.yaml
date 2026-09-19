@@ -1,0 +1,50 @@
+---
+# Enable exactly one inference backend. The loser is stopped and disabled but
+# left installed, so switching back is a variable flip and a re-run.
+
+- name: Validate llm_backend
+  ansible.builtin.assert:
+    that:
+      - llm_backend in ['ollama', 'ninfer']
+    fail_msg: "llm_backend must be 'ollama' or 'ninfer', got '{{ llm_backend }}'"
+
+- name: Require NInfer to be installed before selecting it
+  ansible.builtin.assert:
+    that:
+      - llm_ninfer_enabled | bool
+    fail_msg: >-
+      llm_backend is 'ninfer' but llm_ninfer_enabled is false, so no image or
+      artifact was built. Set llm_ninfer_enabled = "true" in the ai-vm role
+      vars as well.
+  when: llm_backend == 'ninfer'
+
+- name: Install the NInfer systemd unit
+  ansible.builtin.template:
+    src: ninfer.service.j2
+    dest: /etc/systemd/system/ninfer.service
+    mode: '0644'
+  when: llm_ninfer_enabled | bool
+  notify:
+    - Reload systemd
+    - Restart ninfer
+
+- name: Flush handlers so the unit is registered before it is enabled
+  ansible.builtin.meta: flush_handlers
+
+# Stop the loser first: starting the winner while the loser still holds VRAM
+# fails with an allocation error rather than a useful message. failed_when is
+# off because on a first run ninfer.service may not exist yet, and "cannot stop
+# a unit that was never installed" is not worth failing a play over.
+- name: Stop and disable the unselected backend
+  ansible.builtin.systemd:
+    name: "{{ 'ollama' if llm_backend == 'ninfer' else 'ninfer' }}"
+    enabled: false
+    state: stopped
+  failed_when: false
+
+- name: Enable and start the selected backend
+  ansible.builtin.systemd:
+    name: "{{ 'ninfer' if llm_backend == 'ninfer' else 'ollama' }}"
+    enabled: true
+    state: started
+    daemon_reload: true
