@@ -22,12 +22,17 @@ test = [
     "jinja2>=3.1.0",
 ]
 
-# Installed by a bare `uv sync`, so `just lint` works without a separate step.
-# The heavier molecule/pytest stack stays in the `test` extra behind `just install-test`.
+# Installed by a bare `uv sync`, so `just lint` and `just test-unit` both work
+# without a separate step. The unit tests only render templates and parse YAML,
+# so they cost three small wheels; the heavy molecule/docker/vagrant stack stays
+# in the `test` extra behind `just install-test`.
 [dependency-groups]
 dev = [
     "ansible-lint>=24.0.0",
     "yamllint>=1.35.0",
+    "pytest>=8.0.0",
+    "pyyaml>=6.0.0",
+    "jinja2>=3.1.0",
 ]
 
 [tool.setuptools]
