@@ -238,9 +238,16 @@ hosts = {
         memory    = 32768
         disk_size = "64G"
         clone     = "ubuntu-2604-base"
-        # Set by hand in the Proxmox UI: the streaming box should come back up
-        # on its own after a host reboot rather than sit powered off.
-        onboot = true
+        # Deliberately NOT auto-started. gaming and ai-vm both claim the whole
+        # 24Q slice, so only one can hold it, and gpu-manager's default_tenant
+        # is what decides who does. With onboot set, pve-guests raced that
+        # decision at every host boot: on 2026-09-20 gpu-manager started ai-vm
+        # at 01:12:35 and pve-guests failed gaming four seconds later with
+        # "could not find a free device for 'hostpci0'". Had the race gone the
+        # other way, gaming would have sat on the card with nobody streaming
+        # while the LLM stayed down until the idle grace period expired.
+        # Claiming the card (`gpu gaming`) is what starts this VM now.
+        onboot = false
         # DHCP on purpose. The guest registers its hostname in DNS when it takes
         # a lease, which is what makes gaming.edholm.cc resolve to it on the LAN.
         # A static address means no lease and no registration, so the name falls
