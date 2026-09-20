@@ -56,20 +56,31 @@
     - Reload systemd
     - Restart ollama
 
+# Only when Ollama is the selected backend. ninfer.service declares
+# Conflicts=ollama.service, so starting Ollama here stops NInfer -- and
+# backend.yaml, a few tasks later, stops Ollama and starts NInfer again. That
+# round trip is invisible in the play's output and costs a 90s artifact reload
+# on every single run, for a service that is about to be stopped anyway.
 - name: Enable and start Ollama
   ansible.builtin.systemd:
     name: ollama
     enabled: true
     state: started
     daemon_reload: true
+  when: llm_backend == 'ollama'
 
 - name: Flush handlers so the bind takes effect before pulling models
   ansible.builtin.meta: flush_handlers
 
+# `ollama list` talks to the server, so it can only answer while the server is
+# the live backend. Under NInfer the pull below is skipped with it: models are
+# fetched by whichever backend is selected, and flipping back to Ollama re-runs
+# this role and pulls whatever is missing then.
 - name: Read the models already present
   ansible.builtin.command: ollama list
   register: llm_ollama_installed
   changed_when: false
+  when: llm_backend == 'ollama'
 
 # Ask which models are missing rather than pulling unconditionally and trying to
 # read "did anything download" back out of the progress output: `ollama pull`
@@ -78,7 +89,9 @@
 - name: Pull configured models
   ansible.builtin.command: "ollama pull {{ item }}"
   loop: "{{ llm_ollama_models }}"
-  when: item not in llm_ollama_installed.stdout
+  when:
+    - llm_backend == 'ollama'
+    - item not in llm_ollama_installed.stdout
   changed_when: true
   async: 3600
   poll: 30

@@ -5,10 +5,14 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
+# Symmetric with "Restart ninfer": restarting the backend that is not
+# selected would start it, and starting Ollama stops NInfer through the
+# ninfer unit's Conflicts=.
 - name: Restart ollama
   ansible.builtin.systemd:
     name: ollama
     state: restarted
+  when: llm_backend == 'ollama'
 
 - name: Restart docker
   ansible.builtin.systemd:
