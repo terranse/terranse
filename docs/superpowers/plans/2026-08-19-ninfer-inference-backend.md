@@ -1428,14 +1428,17 @@ it is a design decision, not a bug fix.
 
 ### Still open
 
-- **The Ansible run has not been executed end to end.** The unit and Hermes
-  config on `ai-vm` were installed from the rendered template and match it
-  byte for byte, but `just setup ai-vm` needs a 1Password unlock for the vault
-  password, so the idempotency check (`changed=0`) is still owed.
-- **`tofu/` changes are inert until applied from the main checkout.** The
-  tfvars now declares `llm_ninfer_enabled` / `llm_backend`, but the generated
-  playbook still carries `vars: {}` — a deploy from `main` today would reset
-  the backend to Ollama.
+- ~~**The Ansible run has not been executed end to end.**~~ **Done
+  2026-09-20**: the play ran clean against `ai-vm` (`ok=88 changed=3`) and a
+  second run reported `changed=0`. It also exposed a real defect — the role
+  started Ollama unconditionally before selecting a backend, and the unit's
+  `Conflicts=` meant every deploy evicted the live engine for the ~90s it took
+  to reload the artifact afterwards. Now gated on `llm_backend`.
+- ~~**`tofu/` changes are inert until applied from the main checkout.**~~
+  **Applied 2026-09-20**: the generated playbook now carries
+  `llm_backend: ninfer` / `llm_ninfer_enabled: "true"`, so a deploy from `main`
+  no longer resets the backend to Ollama. The apply also flipped `gaming`'s
+  `start_at_node_boot` off, which settles the boot race below.
 - **This branch is behind `main`** (it predates the gpu-manager default-tenant
   work) and needs a rebase before merge.
 - **Port 8080 is bound to 0.0.0.0 with `auth: disabled`**, same as Ollama's
