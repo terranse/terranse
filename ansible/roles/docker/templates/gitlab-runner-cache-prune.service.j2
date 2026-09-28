@@ -11,7 +11,12 @@ Type=oneshot
 # The label filter restricts removal to runner-managed objects, so the runner's
 # own config volume is spared, and Docker skips volumes attached to a running job
 # container, making this safe to run while pipelines execute.
-ExecStart=/usr/bin/docker system prune -af --volumes --filter label=com.gitlab.gitlab-runner.managed=true
+#
+# The cache volumes are named, and since Docker 23 `system prune --volumes`
+# removes anonymous volumes only, `-a` notwithstanding (it widens images, not
+# volumes). Only `volume prune --all` reaches them, so it runs as its own step.
+ExecStart=/usr/bin/docker system prune -af --filter label=com.gitlab.gitlab-runner.managed=true
+ExecStart=/usr/bin/docker volume prune -af --filter label=com.gitlab.gitlab-runner.managed=true
 RemainAfterExit=no
 
 StandardOutput=journal

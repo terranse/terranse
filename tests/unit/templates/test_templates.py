@@ -416,3 +416,48 @@ class TestTemplateDiscovery:
 
         unknown = actual_templates - known_templates
         assert not unknown, f"Unknown templates found: {unknown}"
+
+
+class TestGitlabRunnerCachePrune:
+    """The runner cache prune must actually reclaim the runner's cache volumes."""
+
+    RUNNER_LABEL = "label=com.gitlab.gitlab-runner.managed=true"
+
+    def _exec_starts(self, jinja_env):
+        rendered = jinja_env.get_template(
+            "gitlab-runner-cache-prune.service.j2"
+        ).render()
+        return [
+            line.split("=", 1)[1]
+            for line in rendered.splitlines()
+            if line.startswith("ExecStart=")
+        ]
+
+    def test_prunes_named_runner_volumes(self, jinja_env):
+        """Cache volumes are named, and since Docker 23 only `volume prune --all`
+        removes named volumes: `system prune --volumes` stops at anonymous ones,
+        whatever `-a` says (it widens images only)."""
+        volume_prunes = [
+            cmd for cmd in self._exec_starts(jinja_env) if " volume prune " in cmd
+        ]
+        assert volume_prunes, "no `docker volume prune` step: named cache volumes are never removed"
+        for cmd in volume_prunes:
+            flags = cmd.split()
+            assert "-af" in flags or ("--all" in flags and "-f" in flags), cmd
+            assert self.RUNNER_LABEL in cmd, f"unscoped volume prune: {cmd}"
+
+    def test_every_prune_is_scoped_to_runner_objects(self, jinja_env):
+        for cmd in self._exec_starts(jinja_env):
+            assert self.RUNNER_LABEL in cmd, f"unscoped prune: {cmd}"
+
+    def test_runs_every_three_days_by_default(self, jinja_env):
+        rendered = jinja_env.get_template(
+            "gitlab-runner-cache-prune.timer.j2"
+        ).render()
+        assert "OnCalendar=*-*-1/3 00:00:00" in rendered, rendered
+
+    def test_schedule_stays_overridable(self, jinja_env):
+        rendered = jinja_env.get_template(
+            "gitlab-runner-cache-prune.timer.j2"
+        ).render(gitlab_runner_cache_prune_schedule="daily")
+        assert "OnCalendar=daily" in rendered, rendered
