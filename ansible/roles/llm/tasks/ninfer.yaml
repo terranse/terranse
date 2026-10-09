@@ -32,14 +32,39 @@
   register: llm_ninfer_images
   changed_when: false
 
-- name: Build the NInfer image
-  ansible.builtin.command: "docker build --tag ninfer-3090:{{ llm_ninfer_ref }} ."
-  args:
-    chdir: "{{ llm_ninfer_src_dir }}"
-  when: "'ninfer-3090:' ~ llm_ninfer_ref not in llm_ninfer_images.stdout"
-  changed_when: true
-  async: 7200
-  poll: 60
+# The SM-count patch is applied to a scratch export, not the checkout: a
+# patched checkout is "locally modified" to the git task above, which then
+# either fails or resets it on every run.
+- name: Build the patched NInfer image
+  when: llm_ninfer_image not in llm_ninfer_images.stdout
+  block:
+    - name: Copy the SM-count patch
+      ansible.builtin.copy:
+        src: ninfer-sm-count.patch
+        dest: /opt/ninfer/ninfer-sm-count.patch
+        mode: '0644'
+
+    - name: Export a patched build tree
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rm -rf {{ llm_ninfer_build_dir }}
+        mkdir -p {{ llm_ninfer_build_dir }}
+        git -c safe.directory={{ llm_ninfer_src_dir }} -C {{ llm_ninfer_src_dir }} archive HEAD \
+          | tar -x -C {{ llm_ninfer_build_dir }}
+        patch -p1 -d {{ llm_ninfer_build_dir }} < /opt/ninfer/ninfer-sm-count.patch
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Build the NInfer image
+      ansible.builtin.command: >-
+        docker build --tag {{ llm_ninfer_image }}
+        --build-arg NINFER_SM_COUNT={{ llm_ninfer_sm_count }} .
+      args:
+        chdir: "{{ llm_ninfer_build_dir }}"
+      changed_when: true
+      async: 7200
+      poll: 60
 
 # get_url with a checksum is idempotent on its own: it skips the download when
 # the existing file already matches and re-fetches a truncated one. The checksum

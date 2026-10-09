@@ -128,7 +128,8 @@ llm_comfyui_models: []
 # NInfer — a native SM86 CUDA inference engine (Apache-2.0). Faster than Ollama
 # on this hardware but single-model and single-purpose, so it does not replace
 # Ollama; llm_backend picks which one is live. The A5000 is GA102/sm_86, the
-# same as the RTX 3090 this fork targets, and upstream has no device gating.
+# same as the RTX 3090 this fork targets, but it is NOT a drop-in: see
+# llm_ninfer_sm_count.
 llm_ninfer_enabled: false
 llm_ninfer_repo: "https://github.com/Don-Chad/ninfer-3090"
 
@@ -140,7 +141,18 @@ llm_ninfer_repo: "https://github.com/Don-Chad/ninfer-3090"
 llm_ninfer_ref: "403fc56d71576aa1feddb771cfed3264e7378b20"
 
 llm_ninfer_src_dir: /opt/ninfer/src
+llm_ninfer_build_dir: /opt/ninfer/build
 llm_ninfer_model_dir: /opt/ninfer/models
+
+# Upstream hardcodes the RTX 3090's 82 SMs into the cooperative-launch budgets
+# of its GDN gating kernel. The A5000 has 64, so an unpatched build dies with
+# cudaErrorCooperativeLaunchTooLarge on any prefill of roughly 641-768,
+# 1281-1664 or 2689-3456 new tokens — an agent hits one within a few turns,
+# and the client only sees a dropped connection (Hermes: RemoteProtocolError). files/ninfer-sm-count.patch makes the count
+# a build argument. The tag carries it, so changing it forces a rebuild; edit
+# the patch and you must bump the tag suffix by hand.
+llm_ninfer_sm_count: 64
+llm_ninfer_image: "ninfer-3090:{{ llm_ninfer_ref }}-sm{{ llm_ninfer_sm_count }}"
 
 # Pinned to a HuggingFace REVISION, not to `main`. Upstream replaced the
 # artifact on main with one carrying DFlash2 companion weights, which the

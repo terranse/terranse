@@ -16,7 +16,7 @@ ExecStart=/usr/bin/docker run --rm --name ninfer \
   --gpus all \
   --publish {{ llm_ninfer_port }}:8080 \
   --volume {{ llm_ninfer_model_dir }}:/models:ro \
-  ninfer-3090:{{ llm_ninfer_ref }} \
+  {{ llm_ninfer_image }} \
   ninfer-serve /models/qwen3_8_27b.ninfer \
   --host 0.0.0.0 --port 8080 \
 {% if llm_ninfer_api_key | length > 0 %}
