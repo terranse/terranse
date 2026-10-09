@@ -3,5 +3,6 @@
   "log-opts": {
     "max-size": "{{ docker_log_max_size }}",
     "max-file": "{{ docker_log_max_file }}"
-  }
+  }{% if docker_dns %},
+  "dns": {{ docker_dns | tojson }}{% endif %}
 }

@@ -7,10 +7,14 @@
 # "authentication", and made authentication.edholm.cc resolve to 211
 # addresses, which is what made authentik return intermittent 502s.
 #
+# It also pins container DNS (docker_dns), because the restart this very task
+# triggers is what broke resolution on CT 106 on 2026-09-03 -- see the comment
+# on docker_dns in vars/main.yaml.
+#
 # This runs unconditionally, not from install.yaml, because that block is
 # skipped wherever Docker is already present -- i.e. on every host that
 # already has the problem.
-- name: Cap container log size
+- name: Configure the Docker daemon
   become: true
   template:
     src: daemon.json.j2

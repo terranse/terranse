@@ -4,6 +4,8 @@ These tests verify that docker-compose templates render valid YAML
 and contain expected service configurations.
 """
 
+import json
+
 import pytest
 import yaml
 from pathlib import Path
@@ -365,6 +367,43 @@ class TestGitlabRunnerTemplate:
         assert "nix-store" in parsed["volumes"]
 
 
+class TestDaemonJsonTemplate:
+    """Tests for daemon.json.j2, the Docker daemon configuration."""
+
+    VARS = {
+        "docker_log_driver": "json-file",
+        "docker_log_max_size": "50m",
+        "docker_log_max_file": "3",
+        "docker_dns": ["192.168.1.1"],
+    }
+
+    def _render(self, jinja_env, **overrides):
+        template = jinja_env.get_template("daemon.json.j2")
+        return json.loads(template.render(**{**self.VARS, **overrides}))
+
+    def test_renders_valid_json(self, jinja_env):
+        """The template must produce parseable JSON; dockerd refuses to start otherwise."""
+        parsed = self._render(jinja_env)
+        assert parsed["log-driver"] == "json-file"
+        assert parsed["log-opts"]["max-size"] == "50m"
+        assert parsed["log-opts"]["max-file"] == "3"
+
+    def test_pins_container_dns(self, jinja_env):
+        """Pin resolvers so containers never inherit a stale host /etc/resolv.conf.
+
+        Regression test for 2026-09-03: restarting dockerd to apply the log cap
+        restarted every container on CT 106, and each one snapshotted a host
+        resolv.conf that still pointed at a NetBird resolver (100.95.64.17) the
+        LXC had no route to. Prowlarr, Sonarr and Radarr then had no external
+        DNS at all for nine days.
+        """
+        assert self._render(jinja_env)["dns"] == ["192.168.1.1"]
+
+    def test_dns_omitted_when_unset(self, jinja_env):
+        """With no resolvers configured, leave the key out rather than emit null."""
+        assert "dns" not in self._render(jinja_env, docker_dns=[])
+
+
 class TestTemplateDiscovery:
     """Tests to verify all templates are accounted for."""
 
@@ -395,6 +434,9 @@ class TestTemplateDiscovery:
         """Verify we know about all templates in the directory."""
         known_templates = {
             "common.yaml.j2",
+            "daemon.json.j2",
+            "gitlab-runner-cache-prune.service.j2",
+            "gitlab-runner-cache-prune.timer.j2",
             "jellyfin.yaml.j2",
             "gluetun.yaml.j2",
             "serverarr.yaml.j2",

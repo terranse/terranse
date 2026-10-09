@@ -5,3 +5,22 @@ docker_group: container-data
 docker_log_driver: json-file
 docker_log_max_size: 50m
 docker_log_max_file: "3"
+
+# Resolvers handed to every container, pinned here rather than inherited.
+#
+# Docker snapshots the host's /etc/resolv.conf into each container when the
+# container *starts*, and never revisits it while it runs. On 2026-09-03 the
+# daemon restart that applied the log cap above restarted every container on
+# CT 106 at 20:33, while the host's resolv.conf still named a NetBird resolver
+# (100.95.64.17) that the LXC has no route to. Docker's embedded resolver kept
+# forwarding there, so Prowlarr, Sonarr, Radarr and Bazarr resolved container
+# names fine but every public name -- indexers included -- failed with EAGAIN
+# for nine days. The host's resolv.conf was corrected before 21:17, so lidarr,
+# restarted at 21:17, was fine: same image, same create time, different
+# resolver. qBittorrent was unaffected throughout because it runs in gluetun's
+# namespace and uses gluetun's own resolver.
+#
+# Pinning the LAN resolver makes container DNS independent of whatever the host
+# happens to have in resolv.conf at start time. Set to [] to inherit instead.
+docker_dns:
+  - 192.168.1.1
