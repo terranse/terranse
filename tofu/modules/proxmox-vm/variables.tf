@@ -81,6 +81,10 @@ variable "configuration" {
     # "background". Only meaningful for VMs that claim a vGPU.
     gpu_tier = optional(string, "game")
     roles    = optional(list(object({ name = string, vars = optional(map(string), {}) })), [])
+    # Extra vars files for this VM's play, relative to ansible/playbooks/ --
+    # e.g. ["../secrets.yaml"] for a role that reads vaulted variables. Opt-in,
+    # so a play only decrypts the secrets it actually needs.
+    vars_files = optional(list(string), [])
   }))
 }
 

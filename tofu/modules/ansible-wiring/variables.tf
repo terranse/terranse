@@ -3,7 +3,9 @@ variable "hosts" {
 }
 
 variable "ansible_plays" {
-  type = list(any)
+  # `any`, not list(any): a list must hold one element type, but VM plays carry
+  # vars_files and container plays do not.
+  type = any
 }
 
 variable "ansible_root" {

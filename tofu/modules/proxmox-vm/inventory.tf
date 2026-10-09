@@ -36,8 +36,9 @@ output "ansible_plays" {
     for name, config in var.configuration : {
       name  = "Configuration of ${name}"
       hosts = "${name}.${var.domain}"
-      roles = [for r in config.roles : { role = r.name, vars = r.vars }]
-      vars  = {}
+      roles      = [for r in config.roles : { role = r.name, vars = r.vars }]
+      vars       = {}
+      vars_files = config.vars_files
     }
     if length(config.roles) > 0
   ]

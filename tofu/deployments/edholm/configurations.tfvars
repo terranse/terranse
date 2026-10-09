@@ -326,6 +326,10 @@ hosts = {
           rombar      = false
         }]
 
+        # The llm role reads llm_hermes_api_key from the vault; without this
+        # the play fails at the Hermes API server step.
+        vars_files = ["../secrets.yaml"]
+
         roles = [{
           name = "llm"
           vars = {
