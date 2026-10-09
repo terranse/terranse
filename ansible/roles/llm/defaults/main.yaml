@@ -179,6 +179,26 @@ llm_ninfer_model_id: "qwen3.8-27b"
 # 98304 or NInfer will refuse to start.
 llm_ninfer_max_context: "131072"
 
+# Two lanes, so Hermes and pi are served side by side instead of one queueing
+# behind the other's whole turn. They share ONE KV pool, and admission reserves
+# prompt + max output up front, so once a Hermes session nears the window the
+# other client still waits. Decode is batched: ~20 tok/s each, ~41 combined.
+llm_ninfer_max_concurrency: 2
+
+# Explicit, not `auto`. auto keeps 1 GiB of sizing headroom, and with two lanes
+# that leaves the pool 56 MB short of a full window, so the server refuses to
+# start at max_context 131072 (auto with a 129024 window does fit). Explicit
+# skips the headroom: measured 2026-10-09 at 131072 with 2 lanes, 1.09 GiB is
+# still free after startup, VRAM is flat at 22,606 MiB because everything is
+# preallocated, and a concurrent 60k + 20k prompt pair ran clean. Set it to
+# "auto" if you go back to 1 lane.
+llm_ninfer_kv_capacity: "131072"
+
+# How long a request may queue for a lane before NInfer answers 503. Upstream's
+# 30s default is shorter than one Hermes turn, so a second client (pi) failed
+# with "expired while waiting for admission" instead of waiting its turn.
+llm_ninfer_pending_timeout_ms: 300000
+
 # Empty means the server runs without auth, which is fine on the LAN. Set this
 # from the vault before exposing the port over ipid.
 llm_ninfer_api_key: ""

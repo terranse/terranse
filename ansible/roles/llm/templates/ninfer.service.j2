@@ -22,8 +22,9 @@ ExecStart=/usr/bin/docker run --rm --name ninfer \
 {% if llm_ninfer_api_key | length > 0 %}
   --api-key {{ llm_ninfer_api_key }} \
 {% endif %}
-  --max-context {{ llm_ninfer_max_context }} --kv-capacity auto \
-  --max-concurrency 1 --max-pending-requests 16 \
+  --max-context {{ llm_ninfer_max_context }} --kv-capacity {{ llm_ninfer_kv_capacity }} \
+  --max-concurrency {{ llm_ninfer_max_concurrency }} --max-pending-requests 16 \
+  --pending-timeout-ms {{ llm_ninfer_pending_timeout_ms }} \
   --kv-dtype int8 \
   --spec mtp --draft-tokens 3 --lm-head-draft
 ExecStop=/usr/bin/docker stop ninfer
