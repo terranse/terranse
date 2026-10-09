@@ -19,6 +19,11 @@ packer/*/downloaded_iso_path/
 # Worktrees
 .worktrees/
 
+# Local agent state: Claude Code settings and worktrees, and a stray
+# agent-memory directory -- per machine, never part of the repo.
+/.claude/
+/ansible/memory/
+
 # Python build artifacts
 *.egg-info/
 __pycache__/
