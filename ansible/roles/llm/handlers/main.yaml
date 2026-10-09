@@ -5,6 +5,11 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
+# The restarts below reload systemd themselves rather than relying on the
+# handler above: the drivers role (pulled in with include_role) defines its own
+# "Reload systemd", which shadows this one and runs AFTER these restarts -- so
+# a changed unit was restarted from its old definition until the next run.
+
 # Symmetric with "Restart ninfer": restarting the backend that is not
 # selected would start it, and starting Ollama stops NInfer through the
 # ninfer unit's Conflicts=.
@@ -12,6 +17,7 @@
   ansible.builtin.systemd:
     name: ollama
     state: restarted
+    daemon_reload: true
   when: llm_backend == 'ollama'
 
 - name: Restart docker
@@ -23,9 +29,11 @@
   ansible.builtin.systemd:
     name: hermes-gateway
     state: restarted
+    daemon_reload: true
 
 - name: Restart ninfer
   ansible.builtin.systemd:
     name: ninfer
     state: restarted
+    daemon_reload: true
   when: llm_backend == 'ninfer'
