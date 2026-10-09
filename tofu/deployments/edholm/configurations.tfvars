@@ -203,7 +203,9 @@ hosts = {
       vagrant-runner = {
         memory    = 16384
         cores     = 8
-        disk_size = "64G"
+        # Grown to 128G on the host at some point; Proxmox cannot shrink a
+        # container disk, so declaring less makes every apply try to.
+        disk_size = "128G"
 
         roles = [
           { name = "vagrant-runner" }
