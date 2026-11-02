@@ -2,8 +2,8 @@
 # Headless install tooling for game-sync.
 #
 # Steam installs go through the Steam client already running in the session, so
-# they only need xdotool to confirm its dialog. Epic has no client running, so it
-# uses legendary to install and umu-launcher with a pinned GE-Proton to launch.
+# need nothing here. Epic has no client running, so it uses legendary to install
+# and umu-launcher with a pinned GE-Proton to launch.
 #
 # Guarded by game_sync_install_enabled so a host that only plays games does not
 # carry an installer it never runs.
@@ -11,12 +11,6 @@
 - name: Install headless game installers
   when: game_sync_install_enabled | bool
   block:
-    - name: Install xdotool to confirm Steam's install dialog
-      ansible.builtin.apt:
-        name: xdotool
-        state: present
-      become: true
-
     # umu-launcher only ships per-distro packages. resolute is Ubuntu 26.04.
     - name: Read the installed umu-launcher version
       ansible.builtin.command: dpkg-query -W -f=${Version} python3-umu-launcher
