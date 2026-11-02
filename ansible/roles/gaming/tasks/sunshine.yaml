@@ -24,11 +24,18 @@
     state: present
 
 # Install Sunshine from package or AppImage
-- name: Check if Sunshine is installed
-  ansible.builtin.command: which sunshine
+# Compare versions rather than just checking the binary exists, or bumping
+# sunshine_version would never reach a machine that already has Sunshine.
+- name: Read the installed Sunshine version
+  ansible.builtin.command: dpkg-query -W -f=${Version} sunshine
   register: sunshine_installed
   changed_when: false
   failed_when: false
+
+- name: Decide whether Sunshine needs installing
+  ansible.builtin.set_fact:
+    _sunshine_wanted: "{{ sunshine_version | regex_replace('^v', '') }}"
+    _sunshine_needs_install: "{{ (sunshine_version | regex_replace('^v', '')) not in sunshine_installed.stdout }}"
 
 - name: Create Sunshine directory
   ansible.builtin.file:
@@ -41,17 +48,18 @@
   # dependencies (the generic debian-bookworm build depends on libmfx1, which
   # no longer exists on Ubuntu 26.04).
   ansible.builtin.get_url:
-    url: "https://github.com/LizardByte/Sunshine/releases/download/{{ sunshine_version }}/sunshine-ubuntu-{{ ansible_distribution_version }}-amd64.deb"
+    url: "https://github.com/LizardByte/Sunshine/releases/download/{{ sunshine_version }}/sunshine_{{ _sunshine_wanted }}-1+ubuntu{{ ansible_distribution_version }}_amd64.deb"
     dest: /tmp/sunshine.deb
     mode: '0644'
     force: true # always fetch the OS-matched build; never reuse a stale download
-  when: sunshine_installed.rc != 0
+  when: _sunshine_needs_install | bool
 
 - name: Install Sunshine package
   ansible.builtin.apt:
     deb: /tmp/sunshine.deb
     state: present
-  when: sunshine_installed.rc != 0
+  when: _sunshine_needs_install | bool
+  notify: Restart sunshine
 
 - name: Clean up Sunshine download
   ansible.builtin.file:
@@ -134,9 +142,22 @@
     mode: '0644'
   notify: Restart sunshine
 
+# game-sync owns the per-game entries in this file, so a role run merges by name
+# instead of replacing it: wiping them would leave every game without a launch
+# entry until game-sync next changes the list.
+- name: Read the current Sunshine apps
+  ansible.builtin.slurp:
+    src: "/home/{{ gaming_user }}/.config/sunshine/apps.json"
+  register: _sunshine_apps_file
+  failed_when: false
+
 - name: Deploy Sunshine apps configuration
-  ansible.builtin.template:
-    src: sunshine-apps.json.j2
+  vars:
+    _role_apps: "{{ lookup('ansible.builtin.template', 'sunshine-apps.json.j2') | from_json }}"
+    _current_apps: "{{ ((_sunshine_apps_file.content | default('') | b64decode) or '{}') | from_json }}"
+    _other_apps: "{{ _current_apps.apps | default([]) | rejectattr('name', 'in', _role_apps.apps | map(attribute='name') | list) | list }}"
+  ansible.builtin.copy:
+    content: "{{ _role_apps | combine({'apps': _role_apps.apps + _other_apps}) | to_nice_json(indent=2) }}\n"
     dest: "/home/{{ gaming_user }}/.config/sunshine/apps.json"
     owner: "{{ gaming_user }}"
     group: "{{ gaming_user }}"
