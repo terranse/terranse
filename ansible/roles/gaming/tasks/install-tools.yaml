@@ -84,14 +84,15 @@
         method: system
       become: true
 
-    # Heroic shares legendary's login and installs. game-sync links it up when it
-    # opens Heroic; this only lets the sandbox reach them.
+    # Heroic shares legendary's login, installs and prefixes. game-sync links it up
+    # when it opens Heroic; this only lets the sandbox reach them.
     - name: Let Heroic reach legendary's library and Proton
       ansible.builtin.command: >-
         flatpak override --system
         --filesystem={{ legendary_config_dir }}
         --filesystem={{ epic_install_dir }}
         --filesystem={{ epic_proton_dir | dirname }}
+        --filesystem={{ epic_prefix_dir }}
         com.heroicgameslauncher.hgl
       become: true
       changed_when: false
