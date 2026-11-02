@@ -63,7 +63,7 @@ game_sync_package: game-sync-service
 # The repo is private and the VM holds no GitHub credentials, so install the
 # wheel shipped with this role (see files/). Rebuild it with `uv build` in
 # game-sync-service and drop the new wheel here to upgrade.
-game_sync_wheel: game_sync_service-0.3.6-py3-none-any.whl
+game_sync_wheel: game_sync_service-0.3.9-py3-none-any.whl
 # Set to install from a URL instead — a public repo, an index, or a git+ssh
 # remote backed by a deploy key. Empty means "use the vendored wheel".
 game_sync_package_url: ""
@@ -76,6 +76,8 @@ umu_version: "1.4.4"
 epic_proton_version: GE-Proton11-11
 epic_proton_dir: "/opt/proton/{{ epic_proton_version }}-x86_64"
 epic_install_dir: "{{ steam_library_path }}/epic"
+# Local disk: Proton prefixes can hang on the virtiofs pool (no POSIX locks).
+epic_prefix_dir: /var/lib/game-sync/prefixes
 # Lives in the HomeNetwork vault, not Infrastructure (verified 2026-08-18).
 op_steam_api_item: "Steam Web API"
 op_steam_api_vault: "HomeNetwork"
