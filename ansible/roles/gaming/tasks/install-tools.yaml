@@ -1,10 +1,9 @@
 ---
-# Headless install tooling for game-sync (couch install).
+# Headless install tooling for game-sync.
 #
-# steamcmd and legendary are what game-sync shells out to when a game is
-# installed from the TV. Both write into the shared game pool, so the machine
-# running them does not have to be the machine that plays them — which is the
-# whole reason installing never needs the gaming VM awake.
+# Steam installs go through the Steam client already running in the session, so
+# they only need xdotool to confirm its dialog. Epic has no client running, so it
+# uses legendary to install and umu-launcher with a pinned GE-Proton to launch.
 #
 # Guarded by game_sync_install_enabled so a host that only plays games does not
 # carry an installer it never runs.
@@ -12,43 +11,56 @@
 - name: Install headless game installers
   when: game_sync_install_enabled | bool
   block:
-    # steamcmd lives in multiverse and its licence prompt blocks a non-
-    # interactive apt run, so accept it up front via debconf.
-    - name: Enable the multiverse component for steamcmd
-      ansible.builtin.apt_repository:
-        repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} multiverse"
-        state: present
-        filename: multiverse
-      become: true
-
-    - name: Pre-accept the Steam licence
-      ansible.builtin.debconf:
-        name: steam
-        question: steam/question
-        value: "I AGREE"
-        vtype: select
-      become: true
-
-    - name: Pre-accept the Steam licence note
-      ansible.builtin.debconf:
-        name: steam
-        question: steam/license
-        value: ""
-        vtype: note
-      become: true
-
-    - name: Install steamcmd
+    - name: Install xdotool to confirm Steam's install dialog
       ansible.builtin.apt:
-        name: steamcmd
+        name: xdotool
         state: present
-        update_cache: true
+      become: true
+
+    # umu-launcher only ships per-distro packages. resolute is Ubuntu 26.04.
+    - name: Read the installed umu-launcher version
+      ansible.builtin.command: dpkg-query -W -f=${Version} python3-umu-launcher
+      register: _umu_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Install umu-launcher
+      ansible.builtin.apt:
+        deb: "https://github.com/Open-Wine-Components/umu-launcher/releases/download/{{ umu_version }}/python3-umu-launcher_{{ umu_version }}-1_amd64_ubuntu-{{ ansible_distribution_release }}.deb"
+      become: true
+      when: umu_version not in _umu_installed.stdout
+
+    # Epic's Proton, separate from the unpinned copy inside Flatpak Steam, so a
+    # new build can't change how an installed game behaves.
+    - name: Create the Proton directory
+      ansible.builtin.file:
+        path: "{{ epic_proton_dir | dirname }}"
+        state: directory
+        mode: '0755'
+      become: true
+
+    - name: Install the pinned GE-Proton
+      ansible.builtin.unarchive:
+        src: "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{{ epic_proton_version }}/{{ epic_proton_version }}-x86_64.tar.gz"
+        dest: "{{ epic_proton_dir | dirname }}"
+        remote_src: true
+        creates: "{{ epic_proton_dir }}/proton"
+      become: true
+
+    - name: Create the Epic install directory on the pool
+      ansible.builtin.file:
+        path: "{{ epic_install_dir }}"
+        state: directory
+        owner: "{{ gaming_user }}"
+        group: "{{ gaming_user }}"
+        mode: '0755'
       become: true
 
     # legendary is a Python app; the system interpreter is externally managed
     # (PEP 668) on Ubuntu 26.04, so it gets its own venv like game-sync does.
     - name: Install legendary into its own venv
       ansible.builtin.pip:
-        name: legendary-gl
+        name: "legendary-gl=={{ legendary_version }}"
         state: present
         virtualenv: /opt/legendary
         virtualenv_command: python3 -m venv
@@ -61,45 +73,28 @@
         state: link
       become: true
 
-    # The Guard refresh token and legendary's auth both live here rather than in
-    # a home directory, so a rebuild of the host does not throw the logins away.
-    - name: Create the shared installer state directory
+    # Heroic is the Epic library screen. legendary does the automation, because
+    # Heroic has no headless list or install and raises dialogs on failure.
+    - name: Install Heroic
+      community.general.flatpak:
+        name: com.heroicgameslauncher.hgl
+        state: present
+        method: system
+      become: true
+
+    # On local disk: gpu-manager's virtiofs mounts are not the place for the login.
+    - name: Create legendary's config directory
       ansible.builtin.file:
-        path: "{{ item }}"
+        path: "{{ legendary_config_dir }}"
         state: directory
         owner: "{{ gaming_user }}"
         group: "{{ gaming_user }}"
-        # 0700: config.vdf is a live Steam session token and legendary's
-        # directory holds Epic auth. These are credentials, not saves.
         mode: '0700'
       become: true
-      loop:
-        - "{{ game_sync_state_dir }}"
-        - "{{ game_sync_state_dir }}/steamcmd"
-        - "{{ game_sync_state_dir }}/legendary"
 
-    - name: Report what still needs a human
-      ansible.builtin.debug:
-        msg: |
-          ========================================
-          Headless installers ready.
-
-          STILL REQUIRED, ONCE, BY HAND — steamcmd cannot log in
-          non-interactively until a Steam Guard refresh token is cached:
-
-            sudo -u {{ gaming_user }} steamcmd +login {{ steam_username | default('<user>') }}
-
-          Enter the Guard code when prompted, then quit. The token expires
-          after some months; when it does, install jobs fail with
-          "Steam login expired — reseed the steamcmd token on the worker".
-
-          Epic needs the equivalent:  sudo -u {{ gaming_user }} legendary auth
-          ========================================
-      when: steam_username | length > 0
-
-    - name: Warn when Steam installs cannot work
+    - name: Point out the one manual step
       ansible.builtin.debug:
         msg: >-
-          steam_username is unset, so game-sync will not offer Steam installs.
-          Set it (and seed the Guard token) to enable them.
-      when: steam_username | length == 0
+          Epic needs one manual login. Get a code from https://legendary.gl/epiclogin, then run:
+          sudo -u {{ gaming_user }} -H LEGENDARY_CONFIG_PATH={{ legendary_config_dir }}
+          /opt/legendary/bin/legendary auth --code <CODE>

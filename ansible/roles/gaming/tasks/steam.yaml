@@ -182,12 +182,12 @@
 - name: Extract Proton-GE version
   ansible.builtin.set_fact:
     proton_ge_version: "{{ proton_ge_release.json.tag_name }}"
-    # Match the tarball for THIS release exactly ("GE-Proton11-1.tar.gz"). Taking
-    # the first `*.tar.gz` asset grabbed "GE-Proton11-1-aarch64.tar.gz" — an ARM64
-    # Proton, installed on an x86_64 guest, every time.
+    # Match the x86_64 tarball for THIS release exactly. Taking the first
+    # `*.tar.gz` asset grabbed the aarch64 build — an ARM64 Proton, installed on
+    # an x86_64 guest, every time.
     proton_ge_url: >-
       {{ proton_ge_release.json.assets
-         | selectattr('name', 'equalto', proton_ge_release.json.tag_name ~ '.tar.gz')
+         | selectattr('name', 'equalto', proton_ge_release.json.tag_name ~ '-x86_64.tar.gz')
          | map(attribute='browser_download_url') | first }}
 
 - name: Check if Proton-GE is installed

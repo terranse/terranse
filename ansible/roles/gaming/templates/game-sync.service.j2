@@ -11,6 +11,10 @@ ExecStart=/usr/local/bin/game-sync-service --config /etc/game-sync/game-sync.con
 Restart=on-failure
 RestartSec=10
 Environment=HOME=/home/{{ gaming_user }}
+# The session's runtime dir and bus: flatpak, Steam URIs and restarting Sunshine
+# all need them, and a system unit gets neither by default.
+Environment=XDG_RUNTIME_DIR=/run/user/{{ getent_passwd[gaming_user][1] | default(1001) }}
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{{ getent_passwd[gaming_user][1] | default(1001) }}/bus
 
 # Working directory for cover art cache
 WorkingDirectory=/var/lib/game-sync

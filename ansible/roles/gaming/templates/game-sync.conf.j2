@@ -57,14 +57,9 @@ steam_web_api_key = {{ steam_web_api_key }}
 steam_id = {{ steam_id }}
 
 [install]
-# Headless installs via steamcmd/legendary. Off by default: the endpoints
-# answer 503 rather than 500 when this is unset.
+# Steam installs go through the running Steam client; Epic uses legendary.
 enabled = {{ game_sync_install_enabled | lower }}
-steamcmd_cmd = {{ steamcmd_cmd }}
 legendary_cmd = {{ legendary_cmd }}
-# Required for Steam installs. steamcmd logs in non-interactively only once a
-# Guard refresh token is cached on disk — seed it BY HAND, once, as the service
-# user: `steamcmd +login {{ steam_username | default('<user>') }}` and enter the
-# Steam Guard code. The token expires after some months; when it does, jobs
-# fail with "Steam login expired — reseed the steamcmd token on the worker".
-steam_username = {{ steam_username }}
+legendary_config_dir = {{ legendary_config_dir }}
+epic_install_dir = {{ epic_install_dir }}
+epic_proton_dir = {{ epic_proton_dir }}
