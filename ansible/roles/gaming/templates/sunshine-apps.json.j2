@@ -15,6 +15,15 @@
       "image-path": "steam.png",
       "cmd": "",
       "auto-detach": true
+    },
+    {
+      {# Blocks while Heroic is open, so quitting Heroic ends the stream. #}
+      "name": "Heroic",
+      "image-path": "",
+      "cmd": "/opt/game-sync/bin/game-sync-epic heroic",
+      "auto-detach": false,
+      "wait-all": false,
+      "exit-timeout": 30
     }
 
   ]

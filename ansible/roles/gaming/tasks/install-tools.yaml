@@ -68,6 +68,13 @@
         state: link
       become: true
 
+    # game-sync tells gamescope which window to show, for games Steam didn't start.
+    - name: Install the X11 tools for gamescope focus
+      ansible.builtin.apt:
+        name: [x11-utils, xdotool]
+        state: present
+      become: true
+
     # Heroic is the Epic library screen. legendary does the automation, because
     # Heroic has no headless list or install and raises dialogs on failure.
     - name: Install Heroic
@@ -76,6 +83,18 @@
         state: present
         method: system
       become: true
+
+    # Heroic shares legendary's login and installs. game-sync links it up when it
+    # opens Heroic; this only lets the sandbox reach them.
+    - name: Let Heroic reach legendary's library and Proton
+      ansible.builtin.command: >-
+        flatpak override --system
+        --filesystem={{ legendary_config_dir }}
+        --filesystem={{ epic_install_dir }}
+        --filesystem={{ epic_proton_dir | dirname }}
+        com.heroicgameslauncher.hgl
+      become: true
+      changed_when: false
 
     # On local disk: gpu-manager's virtiofs mounts are not the place for the login.
     - name: Create legendary's config directory
