@@ -17,6 +17,7 @@
       register: _umu_installed
       changed_when: false
       failed_when: false
+      check_mode: false
 
     - name: Install umu-launcher
       ansible.builtin.apt:
