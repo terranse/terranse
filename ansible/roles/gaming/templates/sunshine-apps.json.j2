@@ -24,7 +24,16 @@
       "auto-detach": false,
       "wait-all": false,
       "exit-timeout": 30
-    }
+    }{% if retroarch_enabled | bool %},
+    {
+      {# Browses every ROM; only a curated few get their own card. #}
+      "name": "ES-DE",
+      "image-path": "",
+      "cmd": "/opt/game-sync/bin/game-sync-retro es-de",
+      "auto-detach": false,
+      "wait-all": false,
+      "exit-timeout": 30
+    }{% endif %}
 
   ]
 }

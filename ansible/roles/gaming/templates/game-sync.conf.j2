@@ -42,6 +42,11 @@ gog_enabled = {{ gog_enabled | lower }}
 steam_enabled = {{ steam_enabled | lower }}
 retroarch_enabled = {{ retroarch_enabled | lower }}
 retroarch_rom_path = /mnt/games/emulation/roms
+# Where this role already keeps saves; the service's own default is elsewhere.
+retroarch_save_dir = /mnt/games/emulation/users/{{ gaming_user }}/saves
+# Store-less games, one folder and game.toml each. Prefixes stay on local disk.
+local_games_dir = /var/lib/game-sync/games
+local_prefix_dir = /var/lib/game-sync/local-prefixes
 
 [metadata]
 # IGDB via Twitch client-credentials; SteamGridDB static bearer key.
