@@ -54,12 +54,12 @@
 # Link to shared ROM storage
 - name: Check if shared ROM storage is mounted
   ansible.builtin.stat:
-    path: /mnt/games/emulation/roms
+    path: /mnt/games/pc/emulation/roms
   register: roms_share
 
 - name: Create symlink to shared ROMs
   ansible.builtin.file:
-    src: /mnt/games/emulation/roms
+    src: /mnt/games/pc/emulation/roms
     dest: "/home/{{ gaming_user }}/ROMs"
     state: link
     owner: "{{ gaming_user }}"
@@ -69,12 +69,12 @@
 # Link to user-specific saves
 - name: Check if user saves directory exists
   ansible.builtin.stat:
-    path: "/mnt/games/emulation/users/{{ gaming_user }}"
+    path: "/mnt/games/pc/emulation/users/{{ gaming_user }}"
   register: user_saves
 
 - name: Create user saves directory on NFS
   ansible.builtin.file:
-    path: "/mnt/games/emulation/users/{{ gaming_user }}/saves"
+    path: "/mnt/games/pc/emulation/users/{{ gaming_user }}/saves"
     state: directory
     owner: "{{ gaming_user }}"
     group: "{{ gaming_user }}"
@@ -83,13 +83,99 @@
 
 - name: Link RetroArch saves to NFS
   ansible.builtin.file:
-    src: "/mnt/games/emulation/users/{{ gaming_user }}/saves"
+    src: "/mnt/games/pc/emulation/users/{{ gaming_user }}/saves"
     dest: "/home/{{ gaming_user }}/.config/retroarch/saves"
     state: link
     owner: "{{ gaming_user }}"
     group: "{{ gaming_user }}"
     force: true
   when: user_saves.stat.exists | default(false)
+
+# The Flatpak can't see cores under /usr/lib, so they go in its own folder.
+- name: Create RetroArch's own folders
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+  loop:
+    - "{{ retroarch_flatpak_config }}/cores"
+    - "/mnt/games/pc/classics"
+    - "/mnt/games/pc/emulation/roms"
+    - "/mnt/games/pc/emulation/users/{{ gaming_user }}/saves"
+
+- name: Download RetroArch cores
+  ansible.builtin.unarchive:
+    src: "https://buildbot.libretro.com/nightly/linux/x86_64/latest/{{ item }}_libretro.so.zip"
+    dest: "{{ retroarch_flatpak_config }}/cores"
+    remote_src: true
+    creates: "{{ retroarch_flatpak_config }}/cores/{{ item }}_libretro.so"
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+  loop: "{{ retroarch_cores }}"
+
+# ES-DE starts games with RetroArch's main config, so saves have to be sent to the
+# same folder as a card's launch or each game would keep two sets.
+- name: Keep saves in one place whoever starts RetroArch
+  ansible.builtin.lineinfile:
+    path: "{{ retroarch_flatpak_config }}/retroarch.cfg"
+    regexp: "^{{ item.key }} ="
+    line: '{{ item.key }} = "{{ item.value }}"'
+    create: true
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
+  loop:
+    - {key: savefile_directory, value: "/mnt/games/pc/emulation/users/{{ gaming_user }}/saves"}
+    - {key: savestate_directory, value: "/mnt/games/pc/emulation/users/{{ gaming_user }}/saves/states"}
+    - {key: savefiles_in_content_dir, value: "false"}
+    - {key: savestates_in_content_dir, value: "false"}
+
+# Extracted rather than run as an AppImage, which would need FUSE.
+- name: Create ES-DE's folder
+  ansible.builtin.file:
+    path: /opt/es-de
+    state: directory
+    mode: '0755'
+
+- name: Download ES-DE
+  ansible.builtin.get_url:
+    url: "{{ esde_url }}"
+    dest: /opt/es-de/ES-DE_x64.AppImage
+    mode: '0755'
+
+- name: Extract ES-DE
+  ansible.builtin.command:
+    cmd: ./ES-DE_x64.AppImage --appimage-extract
+    chdir: /opt/es-de
+    creates: /opt/es-de/squashfs-root/AppRun
+
+- name: Let everyone read ES-DE
+  ansible.builtin.file:
+    path: /opt/es-de
+    state: directory
+    mode: a+rX
+    recurse: true
+
+- name: Create ES-DE's settings folder
+  ansible.builtin.file:
+    path: "/home/{{ gaming_user }}/ES-DE/settings"
+    state: directory
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0755'
+
+- name: Point ES-DE at the ROMs
+  ansible.builtin.copy:
+    dest: "/home/{{ gaming_user }}/ES-DE/settings/es_settings.xml"
+    content: |
+      <?xml version="1.0"?>
+      <string name="ROMDirectory" value="/mnt/games/pc/emulation/roms" />
+    force: false
+    owner: "{{ gaming_user }}"
+    group: "{{ gaming_user }}"
+    mode: '0644'
 
 - name: Display RetroArch setup info
   ansible.builtin.debug:

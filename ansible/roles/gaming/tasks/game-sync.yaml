@@ -15,6 +15,7 @@
     - /etc/game-sync
     - /var/lib/game-sync
     - /var/lib/game-sync/covers
+    - /var/lib/game-sync/local-prefixes
 
 # Ubuntu 26.04 marks the system interpreter externally-managed (PEP 668), so a
 # system-wide `pip3 install` refuses to run. Install into a dedicated venv and
