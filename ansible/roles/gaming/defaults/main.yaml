@@ -35,6 +35,9 @@ sunshine_enabled: true
 sunshine_version: v2026.914.233613
 steam_enabled: true
 retroarch_enabled: false
+retroarch_flatpak_config: "/home/{{ gaming_user }}/.var/app/org.libretro.RetroArch/config/retroarch"
+retroarch_cores: [mupen64plus_next, mgba]
+esde_url: https://gitlab.com/es-de/emulationstation-de/-/package_files/357718352/download
 
 # Storage configuration
 game_storage_mount: true
@@ -63,7 +66,7 @@ game_sync_package: game-sync-service
 # The repo is private and the VM holds no GitHub credentials, so install the
 # wheel shipped with this role (see files/). Rebuild it with `uv build` in
 # game-sync-service and drop the new wheel here to upgrade.
-game_sync_wheel: game_sync_service-0.4.0-py3-none-any.whl
+game_sync_wheel: game_sync_service-0.4.1-py3-none-any.whl
 # Set to install from a URL instead — a public repo, an index, or a git+ssh
 # remote backed by a deploy key. Empty means "use the vendored wheel".
 game_sync_package_url: ""

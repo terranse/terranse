@@ -41,13 +41,16 @@ epic_enabled = {{ epic_enabled | lower }}
 gog_enabled = {{ gog_enabled | lower }}
 steam_enabled = {{ steam_enabled | lower }}
 retroarch_enabled = {{ retroarch_enabled | lower }}
-retroarch_rom_path = /mnt/games/emulation/roms
+retroarch_rom_path = /mnt/games/pc/emulation/roms
+esde_cmd = /opt/es-de/squashfs-root/AppRun
 # The Flatpak can't see apt's cores under /usr/lib, so they live in its own folder.
 retroarch_core_dir = /home/{{ gaming_user }}/.var/app/org.libretro.RetroArch/config/retroarch/cores
-# Where this role already keeps saves; the service's own default is elsewhere.
-retroarch_save_dir = /mnt/games/emulation/users/{{ gaming_user }}/saves
+# On the games pool with everything else, not the small emulation share.
+# Few enough ROMs that each can have a card; lower this as the collection grows.
+retroarch_showcase_cap = 20
+retroarch_save_dir = /mnt/games/pc/emulation/users/{{ gaming_user }}/saves
 # Store-less games, one folder and game.toml each. Prefixes stay on local disk.
-local_games_dir = /var/lib/game-sync/games
+local_games_dir = /mnt/games/pc/classics
 local_prefix_dir = /var/lib/game-sync/local-prefixes
 
 [metadata]
