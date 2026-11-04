@@ -144,17 +144,17 @@
     url: "{{ esde_url }}"
     dest: /opt/es-de/ES-DE_x64.AppImage
     mode: '0755'
-  register: esde_download
 
 - name: Extract ES-DE
   ansible.builtin.command:
     cmd: ./ES-DE_x64.AppImage --appimage-extract
     chdir: /opt/es-de
-    creates: "{{ omit if esde_download is changed else '/opt/es-de/squashfs-root/AppRun' }}"
+    creates: /opt/es-de/squashfs-root/AppRun
 
 - name: Let everyone read ES-DE
   ansible.builtin.file:
-    path: /opt/es-de/squashfs-root
+    path: /opt/es-de
+    state: directory
     mode: a+rX
     recurse: true
 
