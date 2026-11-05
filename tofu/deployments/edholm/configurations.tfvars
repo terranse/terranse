@@ -305,7 +305,7 @@ hosts = {
 
       ai-vm = {
         cores     = 8
-        memory    = 32768
+        memory    = 24576
         disk_size = "150G"
         clone     = "ubuntu-2604-base"
 
