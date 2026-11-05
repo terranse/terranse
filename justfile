@@ -131,6 +131,21 @@ secrets machine dest="/var/lib/dev-secrets/env" owner="default-user":
        sudo install -m 0600 -o {{ owner }} -g users /dev/stdin {{ dest }}"
     echo "secrets installed on {{ machine }}.{{ domain }} at {{ dest }}"
 
+# Set the HTPC's two login passwords from 1Password. Each is hashed in a pipe
+# on this machine and only the hash crosses SSH, on stdin: no password or hash
+# is ever in the repo, the Nix store or a command line. Re-running is rotation.
+htpc-passwords:
+    #!{{ bash }}
+    set +x
+    {
+      for pair in "vuxna:HTPC Vuxna" "barn:HTPC Barn"; do
+        user="${pair%%:*}"
+        item="${pair#*:}"
+        printf '%s:%s\n' "$user" "$(op read "op://HomeNetwork/$item/password" | mkpasswd -s)"
+      done
+    } | ssh default-user@htpc.{{ domain }} "sudo chpasswd -e"
+    echo "passwords set on htpc.{{ domain }}"
+
 # Build a NixOS container's rootfs tarball and put it on the Proxmox node.
 # Only needed to CREATE the container -- updates go through deploy-nixos.
 push-lxc-template machine node="192.168.1.200":

@@ -105,6 +105,7 @@
         // {
           registry = import ./nix/tests/registry.nix { inherit lib pkgs; };
           staged-updates = import ./nix/tests/staged-updates.nix { inherit pkgs; };
+          htpc-accounts = import ./nix/tests/htpc-accounts.nix { inherit pkgs; };
         };
 
       formatter.x86_64-linux = pkgs.nixfmt-tree;

@@ -4,6 +4,7 @@
   imports = [
     ./hardware.nix
     ./disko.nix
+    ./accounts.nix
   ];
 
   # A statement about which release this machine's state was created under,
