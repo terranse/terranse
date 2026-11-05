@@ -12,6 +12,8 @@
     "usb_storage"
     "usbhid"
     "sd_mod"
+    # The I219-LM, for SSH before the disk is unlocked.
+    "e1000e"
   ];
   boot.kernelModules = [ "kvm-intel" ];
 
@@ -28,4 +30,29 @@
   # assertion catches the case where it would.
   services.zfs.autoScrub.enable = true;
   services.zfs.trim.enable = true;
+
+  # Only `home` and `var` hold anything a generation cannot rebuild. The months
+  # and years are spelled out as zero because sanoid's defaults keep six months.
+  services.sanoid = {
+    enable = true;
+    datasets =
+      lib.genAttrs
+        [
+          "rpool/home"
+          "rpool/var"
+        ]
+        (_: {
+          autosnap = true;
+          autoprune = true;
+          hourly = 24;
+          daily = 7;
+          monthly = 0;
+          yearly = 0;
+        });
+  };
+
+  # 8 GB of RAM has Plasma, Android and video to run, and ZFS's cache would
+  # otherwise compete with them for it.
+  boot.kernelParams = [ "zfs.zfs_arc_max=1073741824" ];
+  zramSwap.enable = true;
 }

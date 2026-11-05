@@ -24,6 +24,13 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Signed boot. Imported by nix/hosts/htpc/boot.nix only. A release tag, as
+    # upstream's own instructions use.
+    lanzaboote = {
+      url = "github:nix-community/lanzaboote/v1.2.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -46,27 +53,32 @@
         lib.nixosSystem {
           inherit system;
           specialArgs = { inherit inputs hostname; };
-          modules =
-            [
-              # Firmware and a disk, or a container. Nothing else in the flake
-              # branches on it. A typo names the machine and lists the valid
-              # kinds rather than failing with a bare "attribute missing".
-              (profiles.${kind} or (throw (
-                "nix/machines.nix: machine '${hostname}' has unknown kind '${kind}'. "
-                + "Valid kinds are: "
-                + lib.concatStringsSep ", " (builtins.attrNames profiles)
-                + "."
-              )))
-              ./nix/hosts/${hostname}
-              roleModules.base
-              { networking.hostName = hostname; }
-            ]
-            # A typo'd role name fails here with a message naming the offender,
-            # not with a bare "attribute missing" three frames deeper.
-            ++ registry.modulesFor roleModules hostname roles
-            # Presence in the list is what turns a role on; `settings` splice
-            # into that role's own namespace.
-            ++ map (r: { roles.${r.name} = { enable = true; } // (r.settings or { }); }) roles;
+          modules = [
+            # Firmware and a disk, or a container. Nothing else in the flake
+            # branches on it. A typo names the machine and lists the valid
+            # kinds rather than failing with a bare "attribute missing".
+            (profiles.${kind} or (throw (
+              "nix/machines.nix: machine '${hostname}' has unknown kind '${kind}'. "
+              + "Valid kinds are: "
+              + lib.concatStringsSep ", " (builtins.attrNames profiles)
+              + "."
+            ))
+            )
+            ./nix/hosts/${hostname}
+            roleModules.base
+            { networking.hostName = hostname; }
+          ]
+          # A typo'd role name fails here with a message naming the offender,
+          # not with a bare "attribute missing" three frames deeper.
+          ++ registry.modulesFor roleModules hostname roles
+          # Presence in the list is what turns a role on; `settings` splice
+          # into that role's own namespace.
+          ++ map (r: {
+            roles.${r.name} = {
+              enable = true;
+            }
+            // (r.settings or { });
+          }) roles;
         };
 
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
@@ -103,9 +115,7 @@
       # deployed. The installer is excluded by name -- it is x86_64-linux too,
       # and a check would build a 1GB ISO on every `nix flake check`.
       checks.x86_64-linux =
-        lib.mapAttrs' (
-          name: cfg: lib.nameValuePair "machine-${name}" cfg.config.system.build.toplevel
-        ) (
+        lib.mapAttrs' (name: cfg: lib.nameValuePair "machine-${name}" cfg.config.system.build.toplevel) (
           lib.filterAttrs (
             name: cfg: name != "installer" && cfg.pkgs.stdenv.hostPlatform.system == "x86_64-linux"
           ) self.nixosConfigurations
