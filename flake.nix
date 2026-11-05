@@ -125,6 +125,7 @@
           staged-updates = import ./nix/tests/staged-updates.nix { inherit pkgs; };
           night-updates = import ./nix/tests/night-updates.nix { inherit pkgs; };
           htpc-accounts = import ./nix/tests/htpc-accounts.nix { inherit pkgs; };
+          update-host = import ./nix/tests/update-host.nix { inherit pkgs; };
           htpc-eval = import ./nix/tests/htpc-eval.nix {
             inherit pkgs;
             config = self.nixosConfigurations.htpc.config;
