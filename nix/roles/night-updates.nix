@@ -63,17 +63,53 @@ let
     '';
   };
 
+  updateInFlightFn = ''
+    # htpc-update-fetch runs its switch inside its own unit, so only the process
+    # shows that one.
+    update_in_flight() {
+      local unit
+      for unit in htpc-update.service htpc-update-apply.service; do
+        if [ "$(systemctl show -P ActiveState "$unit")" = activating ]; then
+          return 0
+        fi
+      done
+      pgrep -f switch-to-configuration >/dev/null
+    }
+  '';
+
   # Asked for from outside the job, a moment after it ends, so the timer has its
   # next elapse by then: while the unit it triggers is active a timer has none,
   # and with none no alarm is armed for the next night.
   htpc-night-suspend = pkgs.writeShellApplication {
     name = "htpc-night-suspend";
-    runtimeInputs = [ pkgs.coreutils ];
+    runtimeInputs = with pkgs; [
+      coreutils
+      procps
+      systemd
+    ];
     text = ''
-      if ! ${cfg.suspendCommand}; then
+      ${updateInFlightFn}
+
+      # htpc-update's timer can fire between the job's last look and this. Usually
+      # that is a moment's work, and giving up would leave the box awake until
+      # someone puts it to sleep, because the next night's wake finds it awake.
+      ask() {
+        local waited=0
+        while update_in_flight && [ "$waited" -lt 120 ]; do
+          sleep 2
+          waited=$(( waited + 2 ))
+        done
+        if update_in_flight; then
+          echo "htpc-night: an update is still under way; not suspending" >&2
+          exit 1
+        fi
+        ${cfg.suspendCommand}
+      }
+
+      if ! ask; then
         echo "htpc-night: suspend failed; trying once more" >&2
         sleep 5
-        ${cfg.suspendCommand}
+        ask
       fi
     '';
   };
@@ -104,6 +140,13 @@ let
               rm -f ${resuspendMarker}
             fi
           done
+
+          # A pending suspend of the job's own would otherwise fire after the next
+          # wake, on a clock that stood still, and put the box to sleep under
+          # whoever woke it. When this sleep is that suspend, its request has
+          # already been accepted, so stopping what is left of it changes nothing.
+          timeout 20 systemctl stop htpc-night-suspend.timer htpc-night-suspend.service ||
+            echo "htpc-night: could not cancel a pending suspend" >&2
 
           # Worked out rather than asked of the timer, which reports nothing while
           # the job is running. Only a timer that is really stopped has no schedule,
@@ -249,17 +292,7 @@ let
           [ -n "$(systemctl list-units --plain --no-legend --state=active,activating 'htpc-update-watchdog-run-*')" ]
       }
 
-      # htpc-update-fetch runs its switch inside its own unit, so only the process
-      # shows that one.
-      update_in_flight() {
-        local unit
-        for unit in htpc-update.service htpc-update-apply.service; do
-          if [ "$(systemctl show -P ActiveState "$unit")" = activating ]; then
-            return 0
-          fi
-        done
-        pgrep -f switch-to-configuration >/dev/null
-      }
+      ${updateInFlightFn}
 
       settle() {
         while { update_in_flight || watchdog_running; } && [ "$(date +%s)" -lt "$hard_deadline" ]; do
@@ -429,6 +462,9 @@ in
         Type = "oneshot";
         ExecStart = lib.getExe htpc-night;
         TimeoutStartSec = "30min";
+        # The sleep hook stops a run on purpose. A oneshot otherwise counts that
+        # as a failure.
+        SuccessExitStatus = "SIGTERM";
       };
     };
 
@@ -450,6 +486,8 @@ in
         RemainAfterExit = true;
         ExecStart = "${lib.getExe htpc-night} --after-boot";
         TimeoutStartSec = "30min";
+        # As on htpc-night.service.
+        SuccessExitStatus = "SIGTERM";
       };
     };
   };

@@ -20,6 +20,8 @@ pkgs.testers.runNixOSTest {
         fi
         ${pkgs.systemd}/bin/systemctl show -P NextElapseUSecRealtime htpc-night.timer \
           > /var/lib/fake-suspend-next
+        ${pkgs.systemd}/bin/systemctl show -P ActiveState htpc-night.service \
+          > /var/lib/fake-suspend-unit
         pending=no
         marker=no
         [ -e /var/lib/htpc-update/verify-after-reboot ] && pending=yes
@@ -205,6 +207,27 @@ pkgs.testers.runNixOSTest {
         if check:
             machine.fail("systemctl is-failed --quiet htpc-night.service")
 
+    def fire_from_timer():
+        # Only a run the timer started puts the timer in its running state, with
+        # no next elapse. One started by hand leaves it waiting, and a test of
+        # that would pass against the bug.
+        due = machine.succeed(
+            "systemctl show -P NextElapseUSecRealtime --timestamp=unix htpc-night.timer"
+        ).strip().lstrip("@")
+        machine.succeed(
+            "systemctl reset-failed htpc-night.service htpc-update-fetch.service htpc-update.service",
+            f"date -s @{int(due) - 3}",
+            f"echo {due} > {run_dir}/scheduled-wake",
+            f"{hook} post suspend",
+        )
+        machine.wait_until_succeeds(
+            "[ \"$(systemctl show -P ActiveState htpc-night.service)\" = activating ]", timeout=30
+        )
+        assert machine.succeed("systemctl show -P SubState htpc-night.timer").strip() == "running"
+        assert not machine.succeed(
+            "systemctl show -P NextElapseUSecRealtime htpc-night.timer"
+        ).strip(), "the premise is gone: a timer with a running job still has a next elapse"
+
     def run_night():
         start_night()
         night_finished()
@@ -285,30 +308,41 @@ pkgs.testers.runNixOSTest {
         reset()
         # With the cache down the run stays in its network wait.
         machine.succeed("systemctl stop fake-cache.service")
-        timed_wake()
-        start_night()
+        fire_from_timer()
         machine.wait_until_succeeds(f"test -e {marker}", timeout=30)
-        assert night_state() == "activating"
 
         now = int(machine.succeed("date +%s"))
         machine.succeed(f"{hook} pre suspend")
         scheduled = int(machine.succeed(f"cat {run_dir}/scheduled-wake"))
         assert machine.succeed(f"date -d @{scheduled} +%H:%M:%S").strip() == "03:30:00"
         assert now < scheduled <= now + 25 * 3600, (now, scheduled)
-        assert night_state() != "activating", "the run outlived the Sleep"
-        machine.fail(f"test -e {marker}")
         # Stopped, the timer has its next elapse, which is what arms the alarm.
         assert machine.succeed(
             "systemctl show -P NextElapseUSecRealtime htpc-night.timer"
         ).strip(), "the timer has no next elapse to wake the box"
+        assert night_state() != "activating", "the run outlived the Sleep"
+        machine.fail("systemctl is-failed --quiet htpc-night.service")
+        machine.fail(f"test -e {marker}")
         assert suspends() == []
 
     with subtest("the run's own suspend comes after the unit, so the timer is armed"):
         reset()
-        machine.succeed("rm -f /var/lib/fake-suspend-next")
-        timed_wake()
-        run_night()
+        # Long enough to see the timer's state during the run.
+        machine.succeed(
+            "mkdir -p /run/systemd/system/htpc-update-fetch.service.d",
+            "printf '[Service]\\nExecStart=\\nExecStart=${pkgs.coreutils}/bin/sleep 5\\n'"
+            " > /run/systemd/system/htpc-update-fetch.service.d/slow.conf",
+            "systemctl daemon-reload",
+            "rm -f /var/lib/fake-suspend-next /var/lib/fake-suspend-unit",
+        )
+        fire_from_timer()
+        night_finished()
+        machine.succeed(
+            "rm -r /run/systemd/system/htpc-update-fetch.service.d", "systemctl daemon-reload"
+        )
         assert len(suspends()) == 1, suspends()
+        unit_state = machine.succeed("cat /var/lib/fake-suspend-unit").strip()
+        assert unit_state != "activating", "suspend was asked for from inside the run"
         assert machine.succeed("cat /var/lib/fake-suspend-next").strip(), (
             "the timer had no next elapse when suspend was asked for"
         )
@@ -320,6 +354,37 @@ pkgs.testers.runNixOSTest {
         run_night()
         assert len(suspends()) == 1, suspends()
         machine.succeed("journalctl --grep 'suspend failed; trying once more'")
+
+    with subtest("a person's Sleep cancels the run's own suspend, pending or retrying"):
+        reset()
+        machine.succeed(
+            "systemd-run --collect --unit=htpc-night-suspend --on-active=60s ${pkgs.coreutils}/bin/true"
+        )
+        machine.succeed(f"{hook} pre suspend")
+        machine.fail("systemctl list-units --plain --no-legend 'htpc-night-suspend*' | grep -q .")
+
+        # In the retry's wait, which the fake's failure marks.
+        machine.succeed("touch /var/lib/fake-suspend-fails")
+        timed_wake()
+        start_night()
+        machine.wait_until_succeeds("! test -e /var/lib/fake-suspend-fails", timeout=30)
+        machine.succeed(f"{hook} pre suspend")
+        machine.fail("systemctl list-units --plain --no-legend 'htpc-night-suspend*' | grep -q .")
+        machine.sleep(7)
+        assert suspends() == [], "the retry put the box to sleep after a person's Sleep"
+
+    with subtest("an update that starts in the gap holds back the suspend"):
+        reset()
+        machine.succeed("touch /var/lib/fake-suspend-fails")
+        timed_wake()
+        start_night()
+        machine.wait_until_succeeds("! test -e /var/lib/fake-suspend-fails", timeout=30)
+        machine.succeed("systemctl start fake-switch.service")
+        machine.sleep(8)
+        assert suspends() == [], "suspended under an update that started in the gap"
+        machine.succeed("systemctl stop fake-switch.service")
+        night_finished()
+        assert len(suspends()) == 1, suspends()
 
     # Every run below is started by hand; a clock moved by a test must not fire
     # one under it.
