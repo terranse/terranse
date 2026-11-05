@@ -10,25 +10,29 @@
 let
   cfg = config.roles.android;
   waydroid = config.virtualisation.waydroid.package;
+  socketPath = "/run/android-launch.sock";
 
-  # Needs root because it reaches into the container, so it gets one sudo entry
-  # and refuses anything that isn't a package name.
-  android-start = pkgs.writeShellApplication {
-    name = "android-start";
+  # Needs root because it reaches into the container, so it runs as a service
+  # of its own. The session can only send it one line, and anything that isn't
+  # a package name or "home" is refused.
+  android-launch-handler = pkgs.writeShellApplication {
+    name = "android-launch-handler";
     runtimeInputs = [
       pkgs.coreutils
       waydroid
     ];
     text = ''
+      pkg=""
+      read -r -t 5 -n 256 pkg || [ -n "$pkg" ] || exit 2
+
       # Android's Home takes the app's window away and hands the screen back.
-      if [ "''${1:-}" = --home ]; then
+      if [ "$pkg" = home ]; then
         waydroid shell -- input keyevent KEYCODE_HOME
         exit 0
       fi
 
-      pkg="''${1:-}"
       if ! [[ "$pkg" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]]; then
-        echo "android-start: '$pkg' is not a package name" >&2
+        echo "android-launch: refused a request that is not a package name" >&2
         exit 2
       fi
 
@@ -45,7 +49,7 @@ let
       case "$component" in
         */*) ;;
         *)
-          echo "android-start: $pkg is not installed" >&2
+          echo "android-launch: $pkg is not installed" >&2
           exit 1
           ;;
       esac
@@ -61,7 +65,11 @@ let
   };
 
   android-launch = pkgs.writeShellScriptBin "android-launch" ''
-    exec /run/wrappers/bin/sudo -n ${lib.getExe android-start} "$@"
+    case "''${1:-}" in
+      --home) request=home ;;
+      *) request="''${1:-}" ;;
+    esac
+    printf '%s\n' "$request" | exec ${lib.getExe pkgs.socat} - UNIX-CONNECT:${socketPath}
   '';
 
   # F-Droid's build, as the store it replaces is the one thing it needs no
@@ -115,17 +123,40 @@ in
 
     environment.systemPackages = [ android-launch ];
 
-    security.sudo.extraRules = [
-      {
-        users = [ cfg.kioskUser ];
-        commands = [
-          {
-            command = lib.getExe android-start;
-            options = [ "NOPASSWD" ];
-          }
-        ];
-      }
-    ];
+    # Who may ask is decided by the socket's group, so the session never holds
+    # root itself, not even for one command.
+    users.groups.android-launch = { };
+    users.users.${cfg.kioskUser}.extraGroups = [ "android-launch" ];
+
+    systemd.sockets.android-launch = {
+      description = "Requests to open Android apps";
+      wantedBy = [ "sockets.target" ];
+      socketConfig = {
+        ListenStream = socketPath;
+        SocketUser = "root";
+        SocketGroup = "android-launch";
+        SocketMode = "0660";
+        Accept = true;
+        MaxConnections = 4;
+      };
+    };
+    systemd.services."android-launch@" = {
+      description = "Open an Android app";
+      serviceConfig = {
+        ExecStart = lib.getExe android-launch-handler;
+        StandardInput = "socket";
+        # Not the socket: an app must still open after the caller has hung up.
+        StandardOutput = "journal";
+        # Long enough for Android to finish booting, as the handler waits for it.
+        RuntimeMaxSec = 120;
+        NoNewPrivileges = true;
+        ProtectHome = true;
+        PrivateTmp = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        RestrictSUIDSGID = true;
+      };
+    };
 
     # The images are about a gigabyte and live outside the Nix store, so they
     # are fetched once on the first boot with a network, then left alone.
@@ -173,15 +204,18 @@ in
       };
     };
 
-    # Android takes most of a minute to boot, so it boots as soon as the kiosk
-    # has a display rather than when someone picks an app.
-    systemd.user.paths.waydroid-session = {
-      description = "Start Android when the kiosk has a display";
-      wantedBy = [ "default.target" ];
-      pathConfig.PathExists = "%t/wayland-0";
-    };
+    # Android takes most of a minute to boot, so it boots with the session rather
+    # than when someone picks an app. Not before Plasma's shell is up, though:
+    # until then its notification server does not answer, and Waydroid crashes
+    # after giving up on it.
     systemd.user.services.waydroid-session = {
       description = "Android session";
+      wantedBy = [ "graphical-session.target" ];
+      partOf = [ "graphical-session.target" ];
+      after = [
+        "graphical-session.target"
+        "plasma-plasmashell.service"
+      ];
       environment.WAYLAND_DISPLAY = "wayland-0";
       # A failure can only be retried, as the TV has nobody to reset it.
       unitConfig.StartLimitIntervalSec = 0;

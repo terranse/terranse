@@ -27,20 +27,52 @@
           driver = "intel";
         };
       }
-      { name = "android"; }
-      # home-player and kiosk are not implemented yet (Tasks 7 and 9) -- this
-      # role's defaults for healthUrl and kioskUser point at pieces that do
-      # not exist on this machine until those land. A failed health check
-      # reads as idle, so the update loop still works in the gap.
+      { name = "android"; settings.kioskUser = "vuxna"; }
+      { name = "desktop"; }
+      {
+        name = "home-player";
+        settings.backendSettings = {
+          providers = {
+            jellyfin = {
+              url = "http://media.edholm.cc:8096";
+              api_token = "\${env:JELLYFIN_API_KEY}";
+              user_id = "ab08126b51044224a5012d3749122f4f";
+            };
+            sonarr = {
+              url = "http://media.edholm.cc:8989";
+              api_token = "\${env:SONARR_API_KEY}";
+            };
+            radarr = {
+              url = "http://media.edholm.cc:7878";
+              api_token = "\${env:RADARR_API_KEY}";
+            };
+            jellyseerr = {
+              url = "http://media.edholm.cc:5055";
+              api_token = "\${env:SEERR_API_KEY}";
+            };
+            gamesync.url = "http://gaming.edholm.cc:9766";
+            waydroid.apps = [
+              {
+                name = "Aurora Store";
+                package = "com.aurora.store";
+              }
+            ];
+          };
+          sunshine = {
+            host = "gaming.edholm.cc";
+            username = "admin";
+            password = "\${env:SUNSHINE_PASSWORD}";
+          };
+        };
+      }
       {
         name = "staged-updates";
         settings = {
-          # home-player is not deployed on this machine yet, so there is no
-          # /health to poll. False means the watchdog treats a fresh
-          # activation as unverified-but-kept, not as a rollback trigger --
-          # the default (true) would roll back every good update and then
-          # permanently refuse it via bad-revisions. Flip this back to true
-          # (or delete the override) the moment home-player lands.
+          kioskUser = "vuxna";
+          # The backend fails until `just secrets` has put its keys on the box,
+          # and the default (true) would roll back every update until then and
+          # permanently refuse each via bad-revisions. Delete this override once
+          # the box is up with its keys in place.
           requireHealthy = false;
         };
       }
