@@ -183,6 +183,15 @@ let
             printf '%s\n' "$pending" >> ${badRevisions}
             rm -f ${pendingRoot} ${verifyMarker}
 
+            # The marker can outlive the poll, and the profile can move while
+            # it does. Rolling back from anywhere but $pending would land on the
+            # wrong generation and then delete a good one, so a person decides.
+            if [ "$(readlink -f ${systemProfile})" != "$pending" ]; then
+              echo "htpc-update-watchdog: the profile no longer points at $pending; leaving it alone" >&2
+              write_state rollback-failed "$pending" 0
+              exit 1
+            fi
+
             if ! nix-env -p ${systemProfile} --rollback; then
               # No earlier generation exists (e.g. this is the first
               # generation this role ever staged). $pending is already on
@@ -208,13 +217,24 @@ let
             # current. Left there, the next reboot would go straight back to it.
             current_seen=0
             newer=()
+            generations=$(nix-env -p ${systemProfile} --list-generations) || generations=""
             while read -r number _ _ mark; do
               [ "$current_seen" -eq 1 ] && newer+=("$number")
               [ "$mark" = "(current)" ] && current_seen=1
-            done < <(nix-env -p ${systemProfile} --list-generations)
+            done <<<"$generations"
             if [ "''${#newer[@]}" -gt 0 ]; then
               nix-env -p ${systemProfile} --delete-generations "''${newer[@]}" ||
                 echo "htpc-update-watchdog: could not delete generations ''${newer[*]}" >&2
+            fi
+
+            # Checked directly rather than from the steps above, any of which
+            # could have failed without saying so. If a newer generation is
+            # still there, a reboot would land on the one just rejected.
+            newest=$(nix-env -p ${systemProfile} --list-generations | tail -n 1) || newest=""
+            if [[ $newest != *"(current)"* ]]; then
+              echo "htpc-update-watchdog: a generation newer than the rollback target remains; not rebooting" >&2
+              write_state rollback-failed "$pending" 0
+              exit 1
             fi
 
             restored=$(readlink -f ${systemProfile})
@@ -258,7 +278,12 @@ let
       touch ${badRevisions}
 
       if [ ! -L ${pendingRoot} ]; then
-        write_state none "" 0
+        # With nothing staged there is nothing to report but the last outcome,
+        # and a failed rollback waits for a person, so "none" must not bury it.
+        reason=$(jq -r '.reason' ${stateDir}/state.json 2>/dev/null) || reason=""
+        if [ "$reason" != "rollback-failed" ]; then
+          write_state none "" 0
+        fi
         exit 0
       fi
       pending=$(readlink -f ${pendingRoot})

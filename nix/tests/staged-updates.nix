@@ -310,5 +310,72 @@ pkgs.testers.runNixOSTest {
 
         state = json.loads(machine.succeed("cat /var/lib/htpc-update/state.json"))
         assert state["reason"] == "bad", state
+
+    # Everything below drives the watchdog directly, with a marker it believes
+    # is its own, because both failures need the profile in a state no ordinary
+    # update leaves it in.
+    profile = "/nix/var/nix/profiles/system"
+
+    def generations():
+        return machine.succeed(f"nix-env -p {profile} --list-generations")
+
+    def watchdog_verifies(pending):
+        machine.succeed("echo false > /run/fake-backend/healthy")
+        machine.succeed(": > /var/lib/htpc-update/bad-revisions")
+        machine.succeed(f"echo {pending} > /var/lib/htpc-update/verify-after-reboot")
+        # restart, not start: the unit has RemainAfterExit, so `start` on one
+        # still "active" from an earlier run would do nothing.
+        # The timeout turns the old hang into a failure: a rollback that reaches
+        # `switch` from this declared unit waits on itself.
+        status, _ = machine.execute(
+            "systemctl restart htpc-update-watchdog.service", timeout=90
+        )
+        assert status != 0, "the watchdog reported success on a failed rollback"
+
+    def assert_rollback_failed_stays(pending):
+        machine.succeed(f"grep -qxF {pending} /var/lib/htpc-update/bad-revisions")
+        state = json.loads(machine.succeed("cat /var/lib/htpc-update/state.json"))
+        assert state["reason"] == "rollback-failed", state
+
+        machine.succeed("systemctl start htpc-update.service")
+        state = json.loads(machine.succeed("cat /var/lib/htpc-update/state.json"))
+        assert state["reason"] == "rollback-failed", state
+
+    with subtest("a stale marker moves and deletes nothing"):
+        # Someone rolled back by hand after the marker was written: the profile
+        # is on base, with the marker's generation above it. Rolling back from
+        # here would land below base and delete a good generation.
+        machine.succeed(f"nix-env -p {profile} --set {base}")
+        good = generations().strip().splitlines()[-1].split()[0]
+        machine.succeed(f"nix-env -p {profile} --set {nxt}")
+        machine.succeed(f"nix-env -p {profile} --switch-generation {good}")
+        before = generations()
+
+        watchdog_verifies(nxt)
+
+        assert generations() == before, f"generations changed: {generations()}"
+        assert machine.succeed(f"readlink -f {profile}").strip() == base
+        assert machine.succeed("readlink -f /run/current-system").strip() == base
+        assert_rollback_failed_stays(nxt)
+
+    with subtest("a bad generation that cannot be deleted stops the rollback"):
+        # On nxt, so a rollback going on regardless would show: `switch` would
+        # land on base. This VM's two generations share a kernel, so the reboot
+        # path is not reachable here. The boot ID covers it anyway, and the
+        # guard sits ahead of both paths.
+        machine.succeed(f"nix-env -p {profile} --set {nxt}")
+        machine.succeed(f"{nxt}/bin/switch-to-configuration switch")
+        boot_id = machine.succeed("cat /proc/sys/kernel/random/boot_id")
+
+        # Nix removes a generation with remove(), which refuses a non-empty
+        # directory, so --rollback works and the deletion after it fails.
+        machine.succeed(f"mkdir -p {profile}-9999-link/keep && touch {profile}-9999-link/keep/file")
+
+        watchdog_verifies(nxt)
+
+        assert machine.succeed("readlink -f /run/current-system").strip() == nxt
+        assert machine.succeed("cat /proc/sys/kernel/random/boot_id") == boot_id
+        assert_rollback_failed_stays(nxt)
+        machine.succeed(f"rm -rf {profile}-9999-link")
   '';
 }
