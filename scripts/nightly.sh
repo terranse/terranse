@@ -44,24 +44,46 @@ STALE_AFTER=$((3 * 86400 - 6 * 3600))
 
 LAST_SUCCESS="${CACHE_DIR}/pointers/${MACHINE}.last-success"
 STAMP="${STATE_DIR}/${MACHINE}.alerted"
+BASELINE="${STATE_DIR}/${MACHINE}.first-failure"
 
 log() { printf '==> %s\n' "$*"; }
 
 # Runs on every failing exit. The stamp holds the last-success value already
 # alerted for, so a stale period alerts once and a new success re-arms it.
 maybe_alert() {
-  local last now
-  [ -r "$LAST_SUCCESS" ] || return 0
-  last="$(tr -d '[:space:]' <"$LAST_SUCCESS")"
-  case "$last" in '' | *[!0-9]*) return 0 ;; esac
+  local ref now flag
   now="$(date +%s)"
-  [ $((now - last)) -ge "$STALE_AFTER" ] || return 0
-  if [ -r "$STAMP" ] && [ "$(cat "$STAMP")" = "$last" ]; then
+  ref=""
+  if [ -r "$LAST_SUCCESS" ]; then
+    ref="$(tr -d '[:space:]' <"$LAST_SUCCESS")"
+    case "$ref" in '' | *[!0-9]*) ref="" ;; esac
+  fi
+  if [ -z "$ref" ]; then
+    # No valid last-success (never worked, wrong NIX_CACHE_DIR, garbage):
+    # age is measured from the first failure seen, so this cannot stay silent.
+    if [ -r "$BASELINE" ]; then
+      ref="$(tr -d '[:space:]' <"$BASELINE")"
+      case "$ref" in '' | *[!0-9]*) ref="" ;; esac
+    fi
+    if [ -z "$ref" ]; then
+      mkdir -p "$STATE_DIR" && printf '%s\n' "$now" >"$BASELINE" || true
+      return 0
+    fi
+  fi
+  [ $((now - ref)) -ge "$STALE_AFTER" ] || return 0
+  if [ -r "$STAMP" ] && [ "$(cat "$STAMP")" = "$ref" ]; then
     return 0
   fi
-  "$NOTIFY" "Nightly build stale" \
-    "No successful ${MACHINE} build for $(((now - last) / 86400)) nights; the box has nothing new to fetch." || true
-  mkdir -p "$STATE_DIR" && printf '%s\n' "$last" >"$STAMP" || true
+  flag="$(mktemp)" && rm -f "$flag"
+  HA_NOTIFY_FAILED_FLAG="$flag" "$NOTIFY" "Nightly build stale" \
+    "No successful ${MACHINE} build for $(((now - ref) / 86400)) nights; the box has nothing new to fetch." || true
+  # ha-notify.sh always exits 0; the flag is how it says delivery failed. Only
+  # a delivered alert is stamped, so a failed one is retried the next night.
+  if [ -e "$flag" ]; then
+    rm -f "$flag"
+    return 0
+  fi
+  mkdir -p "$STATE_DIR" && printf '%s\n' "$ref" >"$STAMP" || true
 }
 
 UPDATED=""
@@ -152,4 +174,5 @@ fi
 install -d "${CACHE_DIR}/pointers"
 date +%s >"${LAST_SUCCESS}.new"
 mv "${LAST_SUCCESS}.new" "$LAST_SUCCESS"
+rm -f "$BASELINE"
 log "recorded success for ${MACHINE}"

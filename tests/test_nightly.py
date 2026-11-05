@@ -37,6 +37,7 @@ exit "${STUB_SHIP_RC:-0}"
 """
 NOTIFY_STUB = """#!/usr/bin/env bash
 echo "notify $*" >> "$STUB_LOG"
+[ -z "${STUB_NOTIFY_FAIL:-}" ] || : > "$HA_NOTIFY_FAILED_FLAG"
 """
 
 
@@ -226,3 +227,59 @@ def test_empty_check_list_fails(env):
     r = env.run(STUB_CHECKS="")
     assert r.returncode != 0
     assert not [c for c in env.calls() if c.startswith("ship")]
+
+
+def write_baseline(env, nights):
+    state = Path(env.env["NIGHTLY_STATE_DIR"])
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "htpc.first-failure").write_text(f"{int(time.time()) - nights * NIGHT}\n")
+
+
+BAD = dict(STUB_FAIL_ALL="1", STUB_FAIL_HP="1")
+
+
+def notifies(env):
+    return [c for c in env.calls() if c.startswith("notify")]
+
+
+def test_never_succeeded_old_baseline_alerts_once(env):
+    write_baseline(env, 4)
+    env.run(**BAD)
+    env.run(**BAD)
+    assert len(notifies(env)) == 1
+
+
+def test_never_succeeded_fresh_baseline_is_silent(env):
+    write_baseline(env, 1)
+    env.run(**BAD)
+    assert not notifies(env)
+
+
+def test_first_failure_seeds_baseline(env):
+    env.run(**BAD)
+    state = Path(env.env["NIGHTLY_STATE_DIR"])
+    assert int((state / "htpc.first-failure").read_text()) >= int(time.time()) - 60
+    assert not notifies(env)
+
+
+def test_unparseable_last_success_uses_baseline(env):
+    env.last.write_text("garbage\n")
+    write_baseline(env, 4)
+    env.run(**BAD)
+    assert len(notifies(env)) == 1
+
+
+def test_success_clears_baseline(env):
+    write_baseline(env, 4)
+    assert env.run().returncode == 0
+    assert not (Path(env.env["NIGHTLY_STATE_DIR"]) / "htpc.first-failure").exists()
+
+
+def test_failed_delivery_retries_next_night(env):
+    env.set_age(3)
+    env.run(STUB_NOTIFY_FAIL="1", **BAD)
+    env.run(STUB_NOTIFY_FAIL="1", **BAD)
+    assert len(notifies(env)) == 2  # not stamped, so tried again
+    env.run(**BAD)  # delivered this time
+    env.run(**BAD)
+    assert len(notifies(env)) == 3  # and now stamped
