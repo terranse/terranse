@@ -79,9 +79,8 @@ in
         home_assistant = {
           url = "http://home.edholm.cc:8123";
           token = ref "HA_TOKEN";
-          # tv and receiver stay unset until their entity ids are known: the
-          # backend then reports those controls as unavailable instead of
-          # calling an entity that does not exist.
+          tv = "media_player.android_tv_2";
+          receiver = "media_player.marantz_sr6009";
         };
       };
     };

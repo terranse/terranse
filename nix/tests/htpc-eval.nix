@@ -37,6 +37,10 @@ let
     "a rollback is triggered by an unhealthy backend" = config.roles.staged-updates.requireHealthy;
     "vuxna has the kiosk shell" = hm ? vuxna && hm.vuxna.systemd.user.services ? home-player-shell;
     "barn has no kiosk shell" = !(hm ? barn);
+    "Home Assistant drives the TV" =
+      config.services.home-player.settings.home_assistant.tv == "media_player.android_tv_2";
+    "Home Assistant drives the receiver" =
+      config.services.home-player.settings.home_assistant.receiver == "media_player.marantz_sr6009";
     "Android only starts for vuxna" =
       config.systemd.user.services.waydroid-session.unitConfig.ConditionUser or null == "vuxna";
 

@@ -10,8 +10,4 @@ RADARR_API_KEY={{ op://HomeNetwork/Servarr/radarr-token }}
 SEERR_API_KEY={{ op://HomeNetwork/Seerr/api_key }}
 SUNSHINE_PASSWORD={{ op://Infrastructure/Sunshine Gaming/password }}
 HA_TOKEN={{ op://HomeNetwork/HomeAssistant HTPC token/password }}
-# TODO: Jellyfin's API key lives only in the laptop's config.yaml, in plain
-# text. Create a 1Password item (for example "Jellyfin" in HomeNetwork with an
-# "api_key" field), then replace this line with
-#   JELLYFIN_API_KEY={{ op://HomeNetwork/Jellyfin/api_key }}
-# Until then the backend starts, and Jellyfin rows stay empty.
+JELLYFIN_API_KEY={{ op://HomeNetwork/Home Player Jellyfin token/password }}
