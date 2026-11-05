@@ -78,11 +78,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793877016,
-        "narHash": "sha256-rhvN20f+YsuF68S7q4Xv8TdpxAaMdCFyq+8i0v6y09A=",
+        "lastModified": 1793911581,
+        "narHash": "sha256-A5Hk4ZiV2z/lA+O8hq15ETlhnBAbdoS/c0R1gX0C9Ro=",
         "ref": "refs/heads/feat/htpc-night-updates",
-        "rev": "1eb09787ca97e14ef48b583a9fe756702f247e2c",
-        "revCount": 227,
+        "rev": "0b78401bb09fe5d06f7417d34df8629ab0d2a456",
+        "revCount": 232,
         "type": "git",
         "url": "file:///home/daniele/Repos/home-player-wt-htpc"
       },

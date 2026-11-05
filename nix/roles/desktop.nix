@@ -1,6 +1,8 @@
 # Plasma on Wayland with a login screen that is skipped for one account. The
-# TV boots straight into that account's session; the other account signs in
-# from SDDM.
+# TV boots straight into that account's Plasma session, and Home Player runs
+# fullscreen on top of it, so a real desktop and Android stay running behind
+# the TV interface and leaving for either is instant. The other account signs
+# in from SDDM.
 {
   config,
   lib,
@@ -27,6 +29,17 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # The account itself, and whether it may administer the box, belong to the
+    # host (nix/hosts/htpc/accounts.nix). These are only what a session with
+    # nobody at the keyboard needs: `input` is for the remote's keys that the
+    # shell reads past the compositor.
+    users.users.${cfg.autologinUser}.extraGroups = [
+      "audio"
+      "input"
+      "render"
+      "video"
+    ];
+
     services.displayManager = {
       sddm = {
         enable = true;
@@ -36,6 +49,9 @@ in
         enable = true;
         user = cfg.autologinUser;
       };
+      # Plain Plasma, always on, is what Home Player runs over. Named, so that
+      # installing Bigscreen's session cannot change what autologin starts.
+      defaultSession = "plasma";
     }
     // lib.optionalAttrs cfg.bigscreen {
       # Listed explicitly: the package is only a session if the display
@@ -54,6 +70,9 @@ in
       [Wallet]
       Enabled=false
     '';
+    # Autologin has no password to open a wallet with, so it would only prompt.
+    security.pam.services.sddm.kwallet.enable = lib.mkForce false;
+    security.pam.services.login.kwallet.enable = lib.mkForce false;
 
     # Part of the system's closure, so building the machine fails if the
     # session file is missing, rather than a TV that boots to a session list

@@ -1,7 +1,8 @@
 # Home Player on the TV: the backend as a system service, the kiosk shell as
-# one account's user service. Everything the app needs to know about the
-# household's other services is written here; every secret is a reference to
-# a variable in the file `just secrets htpc` installs.
+# one account's user service, running fullscreen over the always-on Plasma the
+# desktop role logs in. Everything the app needs to know about the household's
+# other services is written here; every secret is a reference to a variable in
+# the file `just secrets htpc` installs.
 {
   config,
   lib,
@@ -10,10 +11,6 @@
 }:
 let
   cfg = config.roles.home-player;
-
-  # Where `just secrets` puts the rendered env file. Not under the kiosk
-  # user's home: the backend is a system service and needs no login to start.
-  secretsFile = "/var/lib/home-player-secrets/env";
   ref = name: "\${env:${name}}";
 in
 {
@@ -27,14 +24,29 @@ in
 
     kioskUser = lib.mkOption {
       type = lib.types.str;
+      default = config.roles.desktop.autologinUser;
+      defaultText = lib.literalExpression "config.roles.desktop.autologinUser";
       description = "Account that runs the kiosk shell. No other account gets it.";
+    };
+
+    secretsFile = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/home-player-secrets/env";
+      description = ''
+        KEY=value file with the API keys, placed by `just secrets`. Not under
+        the kiosk user's home: the backend is a system service and needs no
+        login to start. A string so that the path is never copied into the Nix
+        store.
+      '';
     };
   };
 
   config = lib.mkIf cfg.enable {
     services.home-player = {
       enable = true;
-      environmentFile = secretsFile;
+      # Without a file the backend fails loudly, rather than start with no keys
+      # and fail later on the TV.
+      environmentFile = cfg.secretsFile;
       # The remote and the update watchdog both want the machine to stay
       # reachable for a scheduled wake.
       wakeOnLan.enable = true;
@@ -50,6 +62,7 @@ in
           jellyfin = {
             url = "http://media.edholm.cc:8096";
             api_token = ref "JELLYFIN_API_KEY";
+            # Not a secret, so not in the env file.
             user_id = "ab08126b51044224a5012d3749122f4f";
           };
           sonarr = {
@@ -66,6 +79,12 @@ in
             api_token = ref "SEERR_API_KEY";
           };
           gamesync.url = "http://gaming.edholm.cc:9766";
+          waydroid.apps = [
+            {
+              name = "Aurora Store";
+              package = "com.aurora.store";
+            }
+          ];
         };
 
         # Pairs a Moonlight client without anyone typing a PIN.
