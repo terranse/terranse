@@ -40,7 +40,41 @@
         "type": "github"
       }
     },
+    "home-player": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1793871340,
+        "narHash": "sha256-xSYqRR87kD62oI/hMoGcCvoquOCeAXUimump4glA6Zs=",
+        "ref": "refs/heads/master",
+        "rev": "ba2cdd7fd5432a3144ae5fa08ec9bc94ad731920",
+        "revCount": 223,
+        "type": "git",
+        "url": "ssh://git@github.com/yarcod/home-player.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@github.com/yarcod/home-player.git"
+      }
+    },
     "nixpkgs": {
+      "locked": {
+        "lastModified": 1788179007,
+        "narHash": "sha256-hn1oU2rue2SYK8dAr8+WNZWtbsz1S2W5mnHlSEuh3bo=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
       "locked": {
         "lastModified": 1788752844,
         "narHash": "sha256-VaWGJ6+cIYN2erfSecbRV+4ljI185Ty2wUrXyvQbgOw=",
@@ -60,7 +94,8 @@
       "inputs": {
         "disko": "disko",
         "home-manager": "home-manager",
-        "nixpkgs": "nixpkgs"
+        "home-player": "home-player",
+        "nixpkgs": "nixpkgs_2"
       }
     }
   },

@@ -9,6 +9,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # Deliberately no `inputs.nixpkgs.follows`. home-player's own checks run
+    # against its locked nixpkgs, so overriding it here would deploy a
+    # combination nobody tested. Moonlight still comes from this flake's
+    # nixpkgs, so that its graphics libraries match the host's.
+    home-player.url = "git+ssh://git@github.com/yarcod/home-player.git";
+
     # Declarative partitioning. It is what lets a machine be built and an
     # installer be produced before the machine physically exists. Imported by
     # nix/profiles/metal.nix only -- a container has no disk to partition.
