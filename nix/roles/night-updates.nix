@@ -63,6 +63,21 @@ let
     '';
   };
 
+  # Asked for from outside the job, a moment after it ends, so the timer has its
+  # next elapse by then: while the unit it triggers is active a timer has none,
+  # and with none no alarm is armed for the next night.
+  htpc-night-suspend = pkgs.writeShellApplication {
+    name = "htpc-night-suspend";
+    runtimeInputs = [ pkgs.coreutils ];
+    text = ''
+      if ! ${cfg.suspendCommand}; then
+        echo "htpc-night: suspend failed; trying once more" >&2
+        sleep 5
+        ${cfg.suspendCommand}
+      fi
+    '';
+  };
+
   sleepHook = pkgs.writeShellApplication {
     name = "htpc-night-sleep-hook";
     runtimeInputs = with pkgs; [
@@ -78,11 +93,30 @@ let
 
       case "''${1:-}" in
         pre)
-          # --timestamp=unix prints "@1762396200".
-          next=$(systemctl show -P NextElapseUSecRealtime --timestamp=unix htpc-night.timer) || next=""
-          next=''${next#@}
-          # A stopped timer reports nothing. No schedule means every wake is a
-          # person's, which is the right answer for one that will not fire.
+          # Someone pressed Sleep during a run. Stopped here, before the sleep,
+          # so the timer gets its next elapse and arms the alarm for tomorrow, and
+          # with no marker, because a person has now said what the box should do.
+          # Not Conflicts=sleep.target: the timer's job starts while sleep.target
+          # is still active on the way out of suspend, and would stop it.
+          for unit in htpc-night.service htpc-night-after-boot.service; do
+            if [ "$(systemctl show -P ActiveState "$unit")" = activating ]; then
+              timeout 20 systemctl stop "$unit" || echo "htpc-night: could not stop $unit" >&2
+              rm -f ${resuspendMarker}
+            fi
+          done
+
+          # Worked out rather than asked of the timer, which reports nothing while
+          # the job is running. Only a timer that is really stopped has no schedule,
+          # and then every wake is a person's, which is right for one that will not
+          # fire.
+          next=""
+          if systemctl is-active --quiet htpc-night.timer; then
+            now=$(date +%s)
+            next=$(date -d "today ${cfg.wakeTime}" +%s) || next=""
+            if [[ $next =~ ^[0-9]+$ ]] && [ "$next" -le "$now" ]; then
+              next=$(date -d "tomorrow ${cfg.wakeTime}" +%s) || next=""
+            fi
+          fi
           if [[ $next =~ ^[0-9]+$ ]]; then
             put ${scheduledWake} "$next"
           else
@@ -104,6 +138,7 @@ let
       htpc-night-decide
       jq
       libinput
+      procps
       systemd
     ];
     text = ''
@@ -112,6 +147,9 @@ let
       # still reaches the decision instead of the unit being killed before it.
       budget=''${HTPC_NIGHT_BUDGET_SECONDS:-1620}
       deadline=$(( started + budget ))
+      # Past the budget nothing new starts, but a switch already under way is
+      # still given time to finish. Still inside the unit's 30 minutes.
+      hard_deadline=$(( deadline + 120 ))
       boot_id=$(cat /proc/sys/kernel/random/boot_id)
 
       epoch_in() {
@@ -170,10 +208,14 @@ let
             if [[ $line =~ ^-?event[0-9]+[[:space:]]+(KEYBOARD_KEY|POINTER_|TOUCH_|GESTURE_|TABLET_) ]]; then
               echo "htpc-night: input seen: $line"
               touch ${inputSeen}
+              # Now and not at the decision: htpc-update can reboot before that,
+              # and the next boot must not put this person's box to sleep.
+              rm -f ${resuspendMarker}
               tv_on
-              break
+              exit 0
             fi
-          done < <(stdbuf -oL libinput debug-events 2>/dev/null)
+          done < <(stdbuf -oL libinput debug-events)
+          echo "htpc-night: the input watcher stopped; input will not be noticed" >&2
         ) &
       else
         rm -f ${resuspendMarker}
@@ -207,8 +249,20 @@ let
           [ -n "$(systemctl list-units --plain --no-legend --state=active,activating 'htpc-update-watchdog-run-*')" ]
       }
 
-      wait_for_watchdog() {
-        while watchdog_running && [ "$(left)" -gt 0 ]; do
+      # htpc-update-fetch runs its switch inside its own unit, so only the process
+      # shows that one.
+      update_in_flight() {
+        local unit
+        for unit in htpc-update.service htpc-update-apply.service; do
+          if [ "$(systemctl show -P ActiveState "$unit")" = activating ]; then
+            return 0
+          fi
+        done
+        pgrep -f switch-to-configuration >/dev/null
+      }
+
+      settle() {
+        while { update_in_flight || watchdog_running; } && [ "$(date +%s)" -lt "$hard_deadline" ]; do
           sleep 2
         done
       }
@@ -223,18 +277,22 @@ let
       done
 
       # On the boot after a reboot this joins the job already queued, which runs
-      # after the boot's own watchdog.
-      run_unit htpc-update-fetch.service
-      wait_for_watchdog
+      # after the boot's own watchdog. With someone at the box no update is
+      # started. One already inside the fetch is left to finish: stopping that
+      # unit could kill a switch halfway, which is what its protections are for.
+      if [ ! -e ${inputSeen} ]; then
+        run_unit htpc-update-fetch.service
+      fi
+      settle
 
       # The fetch stops early when the pointer is already staged, and
       # htpc-update's timer counts on a clock that stands still during sleep, so
       # a generation staged during the day would wait for ever. Guarded by the
       # link because with nothing staged htpc-update reports "none", which
       # would bury a "rolled-back" that just happened.
-      if [ -L ${pendingRoot} ] && ! reboot_pending; then
+      if [ -L ${pendingRoot} ] && [ ! -e ${inputSeen} ] && ! reboot_pending; then
         run_unit htpc-update.service
-        wait_for_watchdog
+        settle
       fi
 
       decide() {
@@ -265,7 +323,16 @@ let
       rm -f ${resuspendMarker}
       case "$decision" in
         suspend)
-          ${cfg.suspendCommand}
+          if update_in_flight; then
+            echo "htpc-night: an update is still under way; not suspending" >&2
+            exit 1
+          fi
+          # A short timer: the default accuracy would let this slip by a minute.
+          if ! systemd-run --quiet --collect --unit=htpc-night-suspend --on-active=2s \
+               --timer-property=AccuracySec=100ms ${lib.getExe htpc-night-suspend}; then
+            echo "htpc-night: could not schedule the suspend; asking from here" >&2
+            ${lib.getExe htpc-night-suspend}
+          fi
           ;;
         tv-on)
           tv_on

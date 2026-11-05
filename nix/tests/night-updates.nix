@@ -14,6 +14,12 @@ pkgs.testers.runNixOSTest {
       # order is the point. On /var: a request made after a reboot has to be
       # readable, and so does one from before it.
       fakeSuspend = pkgs.writeShellScript "fake-suspend" ''
+        if [ -e /var/lib/fake-suspend-fails ]; then
+          ${pkgs.coreutils}/bin/rm /var/lib/fake-suspend-fails
+          exit 1
+        fi
+        ${pkgs.systemd}/bin/systemctl show -P NextElapseUSecRealtime htpc-night.timer \
+          > /var/lib/fake-suspend-next
         pending=no
         marker=no
         [ -e /var/lib/htpc-update/verify-after-reboot ] && pending=yes
@@ -81,6 +87,10 @@ pkgs.testers.runNixOSTest {
         '';
         serviceConfig.ExecStart = "${pkgs.python3}/bin/python3 ${./fake-home-player.py}";
       };
+
+      # Looks like a switch from outside; started by the subtest that needs one.
+      systemd.services.fake-switch.serviceConfig.ExecStart =
+        pkgs.writeShellScript "switch-to-configuration" "${pkgs.coreutils}/bin/sleep 600";
 
       # This VM always boots the kernel and initrd QEMU was handed, so a reboot
       # for a new initrd lands on the old one. Without this, htpc-update would
@@ -181,13 +191,19 @@ pkgs.testers.runNixOSTest {
         )
         machine.succeed("systemctl start --no-block htpc-night.service")
 
-    def night_finished(timeout=300):
+    def night_finished(timeout=300, check=True):
         machine.wait_until_succeeds(
             "[ \"$(systemctl show -P ActiveState htpc-night.service)\" != activating ]"
             " && ! systemctl list-jobs --no-legend | grep -q htpc-night.service",
             timeout=timeout,
         )
-        machine.fail("systemctl is-failed --quiet htpc-night.service")
+        # The suspend is asked for from outside the unit, a moment after it ends.
+        machine.wait_until_fails(
+            "systemctl list-units --plain --no-legend 'htpc-night-suspend*' | grep -q .",
+            timeout=30,
+        )
+        if check:
+            machine.fail("systemctl is-failed --quiet htpc-night.service")
 
     def run_night():
         start_night()
@@ -242,6 +258,10 @@ pkgs.testers.runNixOSTest {
         next_run = int(raw)
         assert machine.succeed(f"date -d @{next_run} +%H:%M:%S").strip() == "03:30:00"
         assert next_run > int(machine.succeed("date +%s"))
+        planned = machine.succeed(
+            "systemctl show -P NextElapseUSecRealtime --timestamp=unix htpc-night.timer"
+        ).strip()
+        assert planned == f"@{next_run}", f"the timer plans {planned}, the hook said {next_run}"
 
         now = int(machine.succeed("date +%s"))
         machine.succeed(f"{hook} post suspend")
@@ -260,6 +280,46 @@ pkgs.testers.runNixOSTest {
         assert suspends() == []
         assert tv_on_calls() == 0
         machine.fail(f"test -e {marker}")
+
+    with subtest("Sleep during a run: the run stops, tomorrow is scheduled, no marker"):
+        reset()
+        # With the cache down the run stays in its network wait.
+        machine.succeed("systemctl stop fake-cache.service")
+        timed_wake()
+        start_night()
+        machine.wait_until_succeeds(f"test -e {marker}", timeout=30)
+        assert night_state() == "activating"
+
+        now = int(machine.succeed("date +%s"))
+        machine.succeed(f"{hook} pre suspend")
+        scheduled = int(machine.succeed(f"cat {run_dir}/scheduled-wake"))
+        assert machine.succeed(f"date -d @{scheduled} +%H:%M:%S").strip() == "03:30:00"
+        assert now < scheduled <= now + 25 * 3600, (now, scheduled)
+        assert night_state() != "activating", "the run outlived the Sleep"
+        machine.fail(f"test -e {marker}")
+        # Stopped, the timer has its next elapse, which is what arms the alarm.
+        assert machine.succeed(
+            "systemctl show -P NextElapseUSecRealtime htpc-night.timer"
+        ).strip(), "the timer has no next elapse to wake the box"
+        assert suspends() == []
+
+    with subtest("the run's own suspend comes after the unit, so the timer is armed"):
+        reset()
+        machine.succeed("rm -f /var/lib/fake-suspend-next")
+        timed_wake()
+        run_night()
+        assert len(suspends()) == 1, suspends()
+        assert machine.succeed("cat /var/lib/fake-suspend-next").strip(), (
+            "the timer had no next elapse when suspend was asked for"
+        )
+
+    with subtest("a failed suspend is tried once more, and says so"):
+        reset()
+        machine.succeed("touch /var/lib/fake-suspend-fails")
+        timed_wake()
+        run_night()
+        assert len(suspends()) == 1, suspends()
+        machine.succeed("journalctl --grep 'suspend failed; trying once more'")
 
     # Every run below is started by hand; a clock moved by a test must not fire
     # one under it.
@@ -361,6 +421,51 @@ pkgs.testers.runNixOSTest {
             "systemctl daemon-reload",
         )
 
+    with subtest("the budget running out does not suspend under htpc-update"):
+        reset()
+        machine.succeed(
+            f"nix-env -p {profile} --set {base}",
+            f"htpc-stage --no-activate {nxt}",
+            "mkdir -p /run/systemd/system/htpc-update.service.d /run/systemd/system/htpc-night.service.d",
+            "printf '[Service]\\nExecStart=\\nExecStart=${pkgs.coreutils}/bin/sleep 600\\n'"
+            " > /run/systemd/system/htpc-update.service.d/hang.conf",
+            "printf '[Service]\\nEnvironment=HTPC_NIGHT_BUDGET_SECONDS=5\\n'"
+            " > /run/systemd/system/htpc-night.service.d/budget.conf",
+            "systemctl daemon-reload",
+        )
+        timed_wake()
+        start_night()
+        machine.wait_until_succeeds(
+            "[ \"$(systemctl show -P ActiveState htpc-update.service)\" = activating ]", timeout=30
+        )
+        machine.sleep(12)
+        assert suspends() == [], "suspended under htpc-update"
+        assert night_state() == "activating"
+        machine.succeed("systemctl stop htpc-update.service")
+        night_finished()
+        assert len(suspends()) == 1, suspends()
+        machine.succeed(
+            "rm -r /run/systemd/system/htpc-update.service.d",
+            "rm -f /nix/var/nix/gcroots/htpc-pending",
+            "systemctl daemon-reload",
+        )
+
+    with subtest("a switch that never ends: no suspend, and the unit says so"):
+        # The fetch runs its switch inside its own unit, so only the process shows.
+        reset()
+        machine.succeed("systemctl start fake-switch.service")
+        timed_wake()
+        start_night()
+        night_finished(check=False)
+        machine.succeed("systemctl is-failed --quiet htpc-night.service")
+        machine.succeed("journalctl -u htpc-night.service --grep 'still under way; not suspending'")
+        assert suspends() == [], "suspended under a switch"
+        machine.succeed(
+            "systemctl stop fake-switch.service",
+            "rm -r /run/systemd/system/htpc-night.service.d",
+            "systemctl daemon-reload",
+        )
+
     with subtest("the switch does not kill the run, which waits out the watchdog"):
         # Proves the premise: this switch changes the unit it runs inside.
         old_def = machine.succeed(f"cat {base}/etc/systemd/system/htpc-night.service")
@@ -432,6 +537,35 @@ pkgs.testers.runNixOSTest {
         )
         assert suspends() == []
         machine.succeed(f"test -e {marker}", f"rm {marker}")
+
+    with subtest("input, then a reboot: no update starts, and the next boot stays awake"):
+        machine.succeed("systemctl stop htpc-night.timer")
+        machine.execute("systemctl stop systemd-timesyncd.service")
+        reset()
+        set_clock("04:00")
+        machine.succeed(
+            f"nix-env -p {profile} --set {base}",
+            f"htpc-stage --no-activate {reboots}",
+            "systemctl stop fake-cache.service",
+        )
+        timed_wake()
+        start_night()
+        machine.wait_until_succeeds("pgrep -f 'libinput.*debug-events'", timeout=30)
+        machine.sleep(3)
+        machine.send_key("a")
+        machine.wait_until_succeeds("test -s /run/fake-backend/tv-on", timeout=20)
+        # At once, not at the decision: a reboot can come before that.
+        machine.fail(f"test -e {marker}")
+        night_finished()
+        assert suspends() == []
+        assert machine.succeed(f"readlink -f {profile}").strip() == base, "updated under a person"
+
+        machine.succeed("date +%s > /var/lib/test-clock")
+        machine.shutdown()
+        machine.start()
+        machine.wait_for_unit("htpc-night-after-boot.service")
+        assert suspends() == [], "put to sleep on the boot after someone used it"
+        machine.fail(f"test -e {marker}")
 
     with subtest("a reboot during the run: asleep again once the watchdog is done"):
         machine.succeed("systemctl stop htpc-night.timer")
