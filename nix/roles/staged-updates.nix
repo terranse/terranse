@@ -203,6 +203,20 @@ let
               exit 1
             fi
 
+            # --rollback only moves the pointer; the bad generation stays, and
+            # Lanzaboote's `default nixos-*` boots the highest one, whatever is
+            # current. Left there, the next reboot would go straight back to it.
+            current_seen=0
+            newer=()
+            while read -r number _ _ mark; do
+              [ "$current_seen" -eq 1 ] && newer+=("$number")
+              [ "$mark" = "(current)" ] && current_seen=1
+            done < <(nix-env -p ${systemProfile} --list-generations)
+            if [ "''${#newer[@]}" -gt 0 ]; then
+              nix-env -p ${systemProfile} --delete-generations "''${newer[@]}" ||
+                echo "htpc-update-watchdog: could not delete generations ''${newer[*]}" >&2
+            fi
+
             restored=$(readlink -f ${systemProfile})
             booted=$(readlink -f /run/booted-system)
             write_state rolled-back "$pending" 0
@@ -839,11 +853,14 @@ in
         ExecStart = pkgs.writeShellScript "htpc-update-fetch" ''
           set -euo pipefail
           export PATH=${
-            lib.makeBinPath (with pkgs; [
-              coreutils
-              curl
-              nix
-            ])
+            lib.makeBinPath (
+              with pkgs;
+              [
+                coreutils
+                curl
+                nix
+              ]
+            )
           }:$PATH
 
           pointer=$(curl -fsS --max-time 20 \

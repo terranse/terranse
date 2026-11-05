@@ -16,7 +16,12 @@ pkgs.testers.runNixOSTest {
   name = "htpc-staged-updates";
 
   nodes.machine =
-    { pkgs, lib, config, ... }:
+    {
+      pkgs,
+      lib,
+      config,
+      ...
+    }:
     {
       imports = [ ../roles/staged-updates.nix ];
 
@@ -248,6 +253,14 @@ pkgs.testers.runNixOSTest {
 
         machine.succeed(f"grep -qxF {nxt} /var/lib/htpc-update/bad-revisions")
         machine.fail("test -L /nix/var/nix/gcroots/htpc-pending")
+
+        # A boot loader may pick the highest generation rather than the
+        # profile's current one, as Lanzaboote's `default nixos-*` does, so the
+        # bad generation must not still be there, or the next boot returns to it.
+        generations = machine.succeed(
+            "nix-env -p /nix/var/nix/profiles/system --list-generations"
+        ).strip().splitlines()
+        assert "(current)" in generations[-1], f"a newer generation remains: {generations}"
 
         state = json.loads(machine.succeed("cat /var/lib/htpc-update/state.json"))
         assert state["reason"] == "rolled-back", state
