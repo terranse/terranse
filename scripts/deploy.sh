@@ -108,4 +108,9 @@ fi
 
 pointer="$(curl -fsS --max-time 20 "${CACHE_URL}/pointers/${MACHINE}")"
 pointer="${pointer//[[:space:]]/}"
+# An HTTP answer; ship.sh checks it again before it goes anywhere near a shell.
+if [[ ! $pointer =~ ^/nix/store/[0-9a-df-np-sv-z]{32}-[A-Za-z0-9+._?=-]+$ ]]; then
+  echo "deploy.sh: ${CACHE_URL} published '${pointer}', which is not one store path" >&2
+  exit 1
+fi
 exec "$SHIP" "$MACHINE" --now --stage "$pointer"

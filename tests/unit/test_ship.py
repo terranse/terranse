@@ -119,8 +119,22 @@ def test_stage_on_a_box_that_cannot_fetch_is_not_activated(tmp_path):
     assert "NOT activated" in r.stderr
 
 
+HASH = "b" * 32
+
+
 @pytest.mark.parametrize(
-    "bad", ["", "not-a-path", "/nix/store/short", STAGED + "/bin", STAGED + "\n/nix/store/x"]
+    "bad",
+    [
+        "", "not-a-path", "/nix/store/short", STAGED + "/bin", STAGED + "\n/nix/store/x",
+        # Shell metacharacters in the name would run on the box.
+        f"/nix/store/{HASH}-x;touch$IFS/tmp/pwned",
+        f"/nix/store/{HASH}-$(touch$IFS/tmp/pwned)",
+        f"/nix/store/{HASH}-`id`",
+        f"/nix/store/{HASH}-a|b",
+        f"/nix/store/{HASH}-a&b",
+        # e, o, u and t are not in Nix's base32.
+        "/nix/store/" + "e" * 32 + "-nixos-system-htpc",
+    ],
 )
 def test_stage_refuses_anything_but_one_store_path(tmp_path, bad):
     r, calls = run_stage(tmp_path, ["--now", "--stage", bad])
@@ -132,3 +146,23 @@ def test_stage_with_no_push_is_refused(tmp_path):
     r, calls = run_stage(tmp_path, ["--now", "--no-push", "--stage", STAGED])
     assert r.returncode == 2
     assert not calls
+
+
+def test_built_path_reaches_the_box_quoted(tmp_path):
+    # Whatever a build prints is checked before it is put in a remote command.
+    r, cache = run(tmp_path, ["--now"], "exit 0")
+    assert r.returncode == 0, r.stderr
+    bad_nix = tmp_path / "bin" / "nix"
+    bad_nix.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in build) echo "/nix/store/' + HASH + '-x;id" ;; esac\n'
+    )
+    r2 = subprocess.run(
+        [str(SCRIPT), "htpc", "--now"],
+        env={**os.environ, "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
+             "NIX_CACHE_DIR": str(cache), "MIN_FREE_MB": "1", "SSH_WAIT_SECONDS": "1",
+             "TFVARS": str(tmp_path / "none")},
+        capture_output=True, text=True,
+    )
+    assert r2.returncode != 0
+    assert "store path" in r2.stderr

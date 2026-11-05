@@ -47,14 +47,20 @@ while [ "$#" -gt 0 ]; do
   shift || true
 done
 
+# One literal store path and nothing a remote shell or Nix could read as more:
+# Nix's base32 hash and the characters Nix allows in a name. It reaches the
+# box inside a command string, so this is what keeps `;`, `$` and backticks
+# out of a shell there; the value is also quoted on the way.
+is_store_path() {
+  [[ $1 =~ ^/nix/store/[0-9a-df-np-sv-z]{32}-[A-Za-z0-9+._?=-]+$ ]]
+}
+
 if [ "$STAGE" -eq 1 ]; then
   if [ "$PUSH" -eq 0 ] || [ "$BUMP" -eq 1 ]; then
     echo "ship.sh: --stage only hands the box a published closure; it takes neither --no-push nor --bump" >&2
     exit 2
   fi
-  # The same guard as htpc-stage's: one literal store path, nothing a remote
-  # shell or Nix could read as more.
-  if [[ ! $OUT =~ ^/nix/store/[0-9a-z]{32}-[^/[:space:]]+$ ]]; then
+  if ! is_store_path "$OUT"; then
     echo "ship.sh: --stage needs one literal store path, got '${OUT}'" >&2
     exit 2
   fi
@@ -146,6 +152,10 @@ log "building ${MACHINE}"
 OUT=$(nix build --no-link --print-out-paths \
   ".#nixosConfigurations.${MACHINE}.config.system.build.toplevel")
 log "built ${OUT}"
+if ! is_store_path "$OUT"; then
+  echo "ship.sh: the build printed '${OUT}', which is not one store path" >&2
+  exit 1
+fi
 
 if [ -n "$SIGNING_KEY_FILE" ]; then
   log "signing with ${SIGNING_KEY_FILE}"
@@ -245,7 +255,7 @@ if [ "$STAGE" -eq 1 ]; then
   # From the box's own substituter, signature-checked by its own daemon: the
   # deploy account is not trusted, so nothing unsigned gets in this way.
   log "${MACHINE} fetches the closure from its cache"
-  if ! ssh -o BatchMode=yes "$DEPLOY_HOST" "nix-store --realise $OUT"; then
+  if ! ssh -o BatchMode=yes "$DEPLOY_HOST" "nix-store --realise $(printf '%q' "$OUT")"; then
     not_activated "${MACHINE} could not fetch ${OUT}"
   fi
 else
@@ -266,7 +276,7 @@ if ssh -o BatchMode=yes "$DEPLOY_HOST" 'test -x /run/current-system/sw/bin/htpc-
   # Same reasoning as the push above: staging is the box's business once the
   # bytes are on it, so a remote failure here is logged, not fatal.
   if ! ssh -o BatchMode=yes "$DEPLOY_HOST" \
-       "sudo /run/current-system/sw/bin/htpc-stage ${STAGE_FLAG}$OUT"; then
+       "sudo /run/current-system/sw/bin/htpc-stage ${STAGE_FLAG}$(printf '%q' "$OUT")"; then
     not_activated "staging on ${MACHINE} failed; the closure is on the box"
   fi
 else
