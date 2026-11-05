@@ -40,6 +40,13 @@
   # reach, so the import waits for the unlock, however long that takes.
   boot.initrd.systemd.services.zfs-import-rpool.after = [ "cryptsetup.target" ];
 
+  # Left alone, the initrd sends a client ID derived from a machine-id it makes
+  # up on each boot, and the installed system sends none. Both send the NIC's
+  # MAC instead, so the DHCP server sees one client however the box booted.
+  boot.initrd.systemd.network.networks."99-ethernet-default-dhcp".dhcpV4Config.ClientIdentifier =
+    "mac";
+  networking.dhcpcd.extraConfig = "clientid";
+
   boot.initrd.network = {
     enable = true;
     ssh = {

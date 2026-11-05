@@ -71,6 +71,13 @@ let
     "the initrd has the NIC's driver" =
       builtins.elem "e1000e" config.boot.initrd.availableKernelModules;
     "the initrd brings the network up" = config.boot.initrd.network.enable;
+    # With no fixed machine-id, the initrd's default client ID differs on every
+    # boot, and DHCP then sees a new client each time.
+    "the initrd asks DHCP as the same client on every boot" =
+      config.boot.initrd.systemd.network.networks."99-ethernet-default-dhcp".dhcpV4Config.ClientIdentifier
+        or null == "mac";
+    "the installed system asks DHCP as that same client" =
+      lib.hasInfix "clientid" config.networking.dhcpcd.extraConfig;
     "initrd SSH is on" = initrdSsh.enable;
     "initrd SSH is on port 2222" = initrdSsh.port == 2222;
     "initrd SSH admits the fleet key" = builtins.elem fleetKey initrdSsh.authorizedKeys;
