@@ -32,12 +32,47 @@ let
 
   systemProfile = "/nix/var/nix/profiles/system";
 
+  # Seconds since CI last finished a build for this host, from the epoch in
+  # the cache's `<host>.last-success`; "null" when that cannot be known.
+  # Bounded, because it runs inside every write_state.
+  htpc-build-age = pkgs.writeShellApplication {
+    name = "htpc-build-age";
+    runtimeInputs = with pkgs; [
+      coreutils
+      curl
+    ];
+    text = ''
+      last=$(curl -fsS --max-time 3 \
+        "${cfg.cacheUrl}/pointers/${config.networking.hostName}.last-success" 2>/dev/null) || last=""
+      last=''${last//[[:space:]]/}
+      if [[ ! $last =~ ^[0-9]+$ ]]; then
+        echo null
+        exit 0
+      fi
+      age=$(( $(date -u +%s) - last ))
+      # A clock that is behind the cache's is not a build from the future.
+      [ "$age" -ge 0 ] || age=0
+      echo "$age"
+    '';
+  };
+
   # Shared between the policy engine and the watchdog, so state.json has
   # exactly one writer shape.
   writeStateFn = ''
     write_state() {
-      local reason="$1" pending="$2" reboot="$3"
-      local staged age
+      local reason="$1" pending="$2" reboot="$3" clear="''${4:-}"
+      local staged age build_age rolled_back_at
+      build_age=$(${lib.getExe htpc-build-age}) || build_age=null
+      # When the last rollback happened, kept across every other outcome so
+      # the notice outlives the next run that has nothing staged. Only a
+      # later update proved healthy (`clear`) takes it away.
+      rolled_back_at=$(jq -c '.rolled_back_at // null' ${stateDir}/state.json 2>/dev/null) || rolled_back_at=null
+      [ -n "$rolled_back_at" ] || rolled_back_at=null
+      if [ "$reason" = rolled-back ]; then
+        rolled_back_at=$(jq -n --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '$t')
+      elif [ "$clear" = clear ]; then
+        rolled_back_at=null
+      fi
       staged=$(cat ${stagedAt} 2>/dev/null || echo 0)
       # A staged-at file that is missing, empty (an interrupted write), or
       # otherwise not a plain integer must not reach the arithmetic below --
@@ -58,9 +93,13 @@ let
         --argjson reboot_required "$reboot" \
         --argjson staged_at "$staged" \
         --argjson age_seconds "$age" \
+        --argjson build_age_seconds "$build_age" \
+        --argjson rolled_back_at "$rolled_back_at" \
         '{ reason: $reason, pending: $pending, current: $current,
            reboot_required: ($reboot_required == 1),
-           staged_at: $staged_at, age_seconds: $age_seconds }' \
+           staged_at: $staged_at, age_seconds: $age_seconds,
+           build_age_seconds: $build_age_seconds,
+           rolled_back_at: $rolled_back_at }' \
         > ${stateDir}/state.json.new
       mv ${stateDir}/state.json.new ${stateDir}/state.json
     }
@@ -144,7 +183,7 @@ let
             # nix/machines.nix the moment home-player lands.
             rm -f ${verifyMarker}
             echo "htpc-update-watchdog: requireHealthy is off; leaving $pending as-is"
-            write_state none "$pending" 0
+            write_state none "$pending" 0 clear
             exit 0
           ''
         else
@@ -171,7 +210,7 @@ let
             if [ "$healthy" -eq 1 ]; then
               rm -f ${verifyMarker}
               echo "htpc-update-watchdog: $pending is healthy"
-              write_state none "$pending" 0
+              write_state none "$pending" 0 clear
               exit 0
             fi
 
@@ -742,6 +781,7 @@ in
     );
 
     environment.systemPackages = [
+      htpc-build-age
       htpc-stage
       htpc-update
       htpc-update-watchdog

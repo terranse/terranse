@@ -23,7 +23,10 @@ pkgs.testers.runNixOSTest {
       ...
     }:
     {
-      imports = [ ../roles/staged-updates.nix ];
+      imports = [
+        ../roles/staged-updates.nix
+        ../roles/update-alerts.nix
+      ];
 
       roles.staged-updates = {
         enable = true;
@@ -48,6 +51,19 @@ pkgs.testers.runNixOSTest {
         # the watchdog path that setting turns off, so silently inheriting
         # `false` from some future default change would make the "unhealthy
         # backend" subtest pass for no reason at all.
+      };
+
+      roles.update-alerts = {
+        enable = true;
+        notifyService = "notify.mobile_app_pixel_8";
+        haUrl = "http://127.0.0.1:8123";
+        environmentFile = "/run/ha-env";
+      };
+
+      systemd.services.fake-ha = {
+        description = "Stand-in for Home Assistant's notify API";
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig.ExecStart = "${pkgs.python3}/bin/python3 ${./fake-ha.py}";
       };
 
       # Fails the build, not just the test, if requireHealthy is ever
@@ -101,6 +117,9 @@ pkgs.testers.runNixOSTest {
       systemd.tmpfiles.rules = [
         "d /run/fake-cache/pointers 0755 root root -"
         "d /run/fake-backend 0755 root root -"
+        "d /run/fake-ha 0755 root root -"
+        # A made-up token; the real one is only ever in 1Password.
+        "f+ /run/ha-env 0600 root root - HA_TOKEN=test-ha-token"
         "f /run/fake-backend/busy 0644 root root - false"
         "f /run/fake-backend/healthy 0644 root root - true"
       ];
@@ -148,6 +167,7 @@ pkgs.testers.runNixOSTest {
 
   testScript = ''
     import json
+    import time
 
     machine.wait_for_unit("multi-user.target")
     machine.wait_for_open_port(9600)
@@ -194,6 +214,34 @@ pkgs.testers.runNixOSTest {
     # Inside the window, for everything that predates it.
     set_clock("04:00")
 
+    state_file = "/var/lib/htpc-update/state.json"
+    three_nights = 259200
+
+    def read_state():
+        return json.loads(machine.succeed(f"cat {state_file}"))
+
+    def patch_state(**fields):
+        state = read_state()
+        state.update(fields)
+        machine.succeed(f"cat > {state_file} <<'EOF'\n{json.dumps(state)}\nEOF")
+
+    def ha_calls():
+        out = machine.succeed("cat /run/fake-ha/calls 2>/dev/null || true")
+        return [json.loads(line) for line in out.splitlines() if line.strip()]
+
+    def run_alerts():
+        # A failed unit is a failure of the test: it must never be one.
+        machine.succeed("systemctl start htpc-update-alerts.service")
+
+    def build_finished(seconds_ago):
+        now = int(machine.succeed("date +%s"))
+        machine.succeed(
+            f"echo {now - seconds_ago} > /run/fake-cache/pointers/machine.last-success"
+        )
+
+    def no_build_record():
+        machine.succeed("rm -f /run/fake-cache/pointers/machine.last-success")
+
     # A test VM boots straight from a store path, so the system profile has no
     # generations at all -- and with no generation 1 there is nothing to roll
     # back to.
@@ -212,6 +260,10 @@ pkgs.testers.runNixOSTest {
         assert state["pending"] == nxt, state
         assert state["reboot_required"] is False, state
         assert state["age_seconds"] >= 0, state
+        # New fields are present, and null where nothing is known: the cache
+        # has no last-success record yet, and nothing has been rolled back.
+        assert "build_age_seconds" in state and state["build_age_seconds"] is None, state
+        assert "rolled_back_at" in state and state["rolled_back_at"] is None, state
 
     with subtest("idle means it activates"):
         machine.succeed("echo false > /run/fake-backend/busy")
@@ -301,6 +353,7 @@ pkgs.testers.runNixOSTest {
 
         state = json.loads(machine.succeed("cat /var/lib/htpc-update/state.json"))
         assert state["reason"] == "rolled-back", state
+        assert state["rolled_back_at"], state
 
         # RemainAfterExit is what this specific assertion covers: before it,
         # a oneshot unit with no RemainAfterExit goes "inactive" the moment
@@ -325,6 +378,112 @@ pkgs.testers.runNixOSTest {
         # the specialisation then differed only in /etc/htpc-generation.
         machine.fail("systemctl is-failed --quiet htpc-update-watchdog.service")
 
+    with subtest("a rollback is reported once"):
+        assert ha_calls() == [], ha_calls()
+        run_alerts()
+        calls = ha_calls()
+        assert len(calls) == 1, calls
+        assert calls[0]["service"] == "mobile_app_pixel_8", calls
+        # The token was sent, as a bearer token, and is not in any unit.
+        assert calls[0]["auth_ok"] is True, calls
+        assert "rolled back" in calls[0]["message"], calls
+        machine.fail("grep -r test-ha-token /etc/systemd/system")
+
+        run_alerts()
+        assert len(ha_calls()) == 1, ha_calls()
+
+    with subtest("a bad revision already reported is not reported again"):
+        other = "/nix/store/00000000000000000000000000000000-other-bad"
+        machine.succeed(f"echo {other} >> /var/lib/htpc-update/bad-revisions")
+        run_alerts()
+        calls = ha_calls()
+        assert len(calls) == 2, calls
+        assert other in calls[1]["message"], calls
+        assert nxt not in calls[1]["message"], calls
+        run_alerts()
+        assert len(ha_calls()) == 2, ha_calls()
+
+    with subtest("three nights without a build alerts once per stale period"):
+        build_finished(three_nights + 60)
+        run_alerts()
+        calls = ha_calls()
+        assert len(calls) == 3, calls
+        assert "3 nights" in calls[2]["message"], calls
+        state = read_state()
+        assert state["build_age_seconds"] >= three_nights, state
+        run_alerts()
+        assert len(ha_calls()) == 3, ha_calls()
+
+        # A build comes in; the period is over, and the next one is news again.
+        build_finished(60)
+        run_alerts()
+        assert len(ha_calls()) == 3, ha_calls()
+        assert read_state()["build_age_seconds"] < three_nights
+        build_finished(three_nights + 60)
+        run_alerts()
+        assert len(ha_calls()) == 4, ha_calls()
+
+        # Just under three nights is not stale.
+        build_finished(three_nights - 3600)
+        run_alerts()
+        no_build_record()
+        run_alerts()
+        assert len(ha_calls()) == 4, ha_calls()
+
+    with subtest("an update waiting three nights alerts once per stale period"):
+        assert read_state()["build_age_seconds"] is None
+        now = int(machine.succeed("date +%s"))
+        patch_state(staged_at=now - three_nights - 60)
+        run_alerts()
+        calls = ha_calls()
+        assert len(calls) == 5, calls
+        assert "3 nights" in calls[4]["message"], calls
+        assert read_state()["age_seconds"] >= three_nights
+        run_alerts()
+        assert len(ha_calls()) == 5, ha_calls()
+        patch_state(staged_at=0)
+        run_alerts()
+        patch_state(staged_at=now - three_nights - 60)
+        run_alerts()
+        assert len(ha_calls()) == 6, ha_calls()
+        patch_state(staged_at=0)
+        run_alerts()
+
+    with subtest("an unreachable Home Assistant changes nothing it reports on"):
+        sixth = "/nix/store/11111111111111111111111111111111-unreachable-bad"
+        machine.succeed(f"echo {sixth} >> /var/lib/htpc-update/bad-revisions")
+        before_system = machine.succeed("readlink -f /run/current-system")
+        before_reason = read_state()["reason"]
+
+        machine.succeed("systemctl stop fake-ha.service")
+        run_alerts()
+        machine.fail("systemctl is-failed --quiet htpc-update-alerts.service")
+        assert machine.succeed("readlink -f /run/current-system") == before_system
+        assert read_state()["reason"] == before_reason
+        machine.succeed("journalctl -u htpc-update-alerts.service | grep -q 'not delivered'")
+
+        # The notifier itself, not only the unit around it, promises to exit 0.
+        machine.succeed(
+            "set -a; . /run/ha-env; HA_URL=http://127.0.0.1:8123 "
+            "HA_NOTIFY_SERVICE=notify.mobile_app_pixel_8 ha-notify title message"
+        )
+        machine.succeed("HA_URL=http://127.0.0.1:8123 ha-notify title message")
+
+        # Reachable but unwilling is the same.
+        machine.succeed("systemctl start fake-ha.service")
+        machine.wait_for_open_port(8123)
+        machine.succeed("touch /run/fake-ha/refuse")
+        run_alerts()
+        assert len(ha_calls()) == 6, ha_calls()
+
+        # Not remembered as told, so it is told when Home Assistant is back.
+        machine.succeed("rm /run/fake-ha/refuse")
+        run_alerts()
+        calls = ha_calls()
+        assert len(calls) == 7 and sixth in calls[6]["message"], calls
+        run_alerts()
+        assert len(ha_calls()) == 7, ha_calls()
+
     with subtest("a known-bad revision is not retried"):
         machine.succeed("echo true > /run/fake-backend/healthy")
         # Refused at the door, so the fifteen-minute timer cannot loop on it.
@@ -347,6 +506,8 @@ pkgs.testers.runNixOSTest {
 
         state = json.loads(machine.succeed("cat /var/lib/htpc-update/state.json"))
         assert state["reason"] == "bad", state
+        # Every later outcome keeps the record of the rollback.
+        assert state["rolled_back_at"], state
 
     # Everything below drives the watchdog directly, with a marker it believes
     # is its own, because both failures need the profile in a state no ordinary
@@ -415,6 +576,15 @@ pkgs.testers.runNixOSTest {
         assert_rollback_failed_stays(nxt)
         machine.succeed(f"rm -rf {profile}-9999-link")
 
+    with subtest("a failed rollback is reported"):
+        before = len(ha_calls())
+        run_alerts()
+        calls = ha_calls()
+        assert len(calls) == before + 1, calls
+        assert "could not be rolled back" in calls[-1]["message"], calls
+        run_alerts()
+        assert len(ha_calls()) == before + 1, ha_calls()
+
     # ---- the activation window --------------------------------------------
     # Unattended activation only happens at night. The earlier subtests leave
     # the box on nxt with a failed rollback recorded, so each of these starts by
@@ -470,6 +640,32 @@ pkgs.testers.runNixOSTest {
         machine.wait_until_succeeds(
             "! test -e /var/lib/htpc-update/verify-after-reboot", timeout=60
         )
+
+    with subtest("a good later update clears rolled_back_at"):
+        back_to_base()
+        build_finished(100)
+        patch_state(rolled_back_at="2026-11-05T01:00:00Z")
+
+        # Every other outcome keeps it, or the notice would go with the next
+        # run that has nothing to do.
+        stage_and_run_at("12:00")
+        assert reason() == "outside-window", reason()
+        assert read_state()["rolled_back_at"] == "2026-11-05T01:00:00Z", read_state()
+
+        # Only a proved-healthy update takes it away. The watchdog clears its
+        # marker a moment before it writes the state, so wait for the state.
+        stage_and_run_at("03:30")
+        for _ in range(60):
+            state = read_state()
+            if state["reason"] == "none" and state["rolled_back_at"] is None:
+                break
+            time.sleep(1)
+        else:
+            raise AssertionError(f"rolled_back_at was not cleared: {state}")
+        # And with a record of the last build, the age is a number.
+        age = read_state()["build_age_seconds"]
+        assert 90 <= age < 600, age
+        no_build_record()
 
     with subtest("--force-idle ignores the window"):
         back_to_base(keep_state=False)

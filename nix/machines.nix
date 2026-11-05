@@ -59,6 +59,11 @@
         };
       }
       { name = "night-updates"; }
+      {
+        name = "update-alerts";
+        # The token is the HomeAssistant HTPC token already in the env file.
+        settings.notifyService = "notify.mobile_app_pixel_8";
+      }
     ];
   };
 }

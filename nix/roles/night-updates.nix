@@ -328,6 +328,13 @@ let
         settle
       fi
 
+      ${lib.optionalString config.roles.update-alerts.enable ''
+        # Tell someone if updating has stopped or rolled back. Bounded (the unit
+        # gives up at 30 s) and never a reason for the decision below to change:
+        # a missing, failing or hanging alert is only logged.
+        timeout 35 systemctl start htpc-update-alerts.service ||
+          echo "htpc-night: the update alert check did not succeed; carrying on" >&2
+      ''}
       decide() {
         local input=0 busy=0
         [ ! -e ${inputSeen} ] || input=1

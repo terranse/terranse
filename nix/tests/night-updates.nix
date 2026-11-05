@@ -33,6 +33,7 @@ pkgs.testers.runNixOSTest {
       imports = [
         ../roles/staged-updates.nix
         ../roles/night-updates.nix
+        ../roles/update-alerts.nix
       ];
 
       roles.staged-updates = {
@@ -46,6 +47,19 @@ pkgs.testers.runNixOSTest {
           end = "05:30";
         };
         cacheUrl = "http://127.0.0.1:8081";
+      };
+
+      roles.update-alerts = {
+        enable = true;
+        notifyService = "notify.mobile_app_pixel_8";
+        haUrl = "http://127.0.0.1:8123";
+        environmentFile = "/run/ha-env";
+      };
+
+      systemd.services.fake-ha = {
+        description = "Stand-in for Home Assistant's notify API";
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig.ExecStart = "${pkgs.python3}/bin/python3 ${./fake-ha.py}";
       };
 
       roles.night-updates = {
@@ -67,6 +81,8 @@ pkgs.testers.runNixOSTest {
       systemd.tmpfiles.rules = [
         "d /run/fake-cache/pointers 0755 root root -"
         "d /run/fake-backend 0755 root root -"
+        "d /run/fake-ha 0755 root root -"
+        "f+ /run/ha-env 0600 root root - HA_TOKEN=test-ha-token"
         "f /run/fake-backend/busy 0644 root root - false"
         "f /run/fake-backend/healthy 0644 root root - true"
         "f /run/fake-backend/tv-on 0644 root root -"
@@ -401,6 +417,50 @@ pkgs.testers.runNixOSTest {
         run_night()
         assert suspends() == ["suspend watchdog-pending=no marker=no"], suspends()
         assert tv_on_calls() == 0
+
+    def ha_calls():
+        return len(machine.succeed("cat /run/fake-ha/calls 2>/dev/null || true").splitlines())
+
+    with subtest("the run checks for failed updates, and what it finds changes nothing"):
+        reset()
+        machine.succeed("rm -f /run/fake-ha/calls /run/fake-ha/hang /run/fake-ha/refuse")
+        machine.succeed(f"rm -f {state_dir}/alerts-sent")
+        bad = "/nix/store/00000000000000000000000000000000-bad-one"
+        machine.succeed(f"echo {bad} > {state_dir}/bad-revisions")
+        machine.succeed(f"echo '{{\"reason\":\"none\",\"staged_at\":0}}' > {state_dir}/state.json")
+        timed_wake()
+        run_night()
+        assert ha_calls() == 1, f"expected one alert from the run, Home Assistant was told {ha_calls()} time(s)"
+        assert suspends() == ["suspend watchdog-pending=no marker=no"], suspends()
+
+        # A check that cannot even start is no reason to stay awake.
+        reset()
+        # (Not `mask`: a unit file under /etc outranks a runtime mask.)
+        dropin = "/run/systemd/system/htpc-update-alerts.service.d"
+        machine.succeed(
+            f"echo {bad}-2 >> {state_dir}/bad-revisions",
+            f"mkdir -p {dropin}",
+            f"printf '[Service]\\nExecStart=\\nExecStart=${pkgs.coreutils}/bin/false\\n' > {dropin}/fail.conf",
+            "systemctl daemon-reload",
+        )
+        timed_wake()
+        run_night()
+        machine.succeed(f"rm -rf {dropin}", "systemctl daemon-reload")
+        assert "did not succeed" in machine.succeed("journalctl -u htpc-night.service --no-pager | tail -n 40"), "the failing alert was not seen by the run"
+        assert ha_calls() == 1, f"expected one alert from the run, Home Assistant was told {ha_calls()} time(s)"
+        assert suspends() == ["suspend watchdog-pending=no marker=no"], suspends()
+
+        # Nor is one that hangs: Home Assistant is given ten seconds, not sixty.
+        reset()
+        machine.succeed("touch /run/fake-ha/hang")
+        timed_wake()
+        before = int(machine.succeed("date +%s"))
+        run_night()
+        took = int(machine.succeed("date +%s")) - before
+        machine.succeed("rm /run/fake-ha/hang", "systemctl restart fake-ha.service")
+        assert took < 45, took
+        assert suspends() == ["suspend watchdog-pending=no marker=no"], suspends()
+        machine.succeed(f": > {state_dir}/bad-revisions")
 
     with subtest("woken just before the timer: that was a person, it stays awake"):
         reset()

@@ -8,5 +8,6 @@
   home-player = ./home-player.nix;
   night-updates = ./night-updates.nix;
   staged-updates = ./staged-updates.nix;
+  update-alerts = ./update-alerts.nix;
   video = ./video.nix;
 }
