@@ -67,8 +67,8 @@
         settings = {
           kioskUser = "vuxna";
           cacheUrl = "http://nixhost.edholm.cc:8080";
-          # The public half of the key CI signs with; htpc-stage pins it by
-          # value, not by name.
+          # The public half of the key nixhost signs with; htpc-stage pins it
+          # by value, not by name.
           signingPublicKey = "nixhost-htpc-1:vTlUCuXrl6mPfFwnc0yLnVKDXaL509HLl6iDf9lr+Nk=";
           # Nightly build 01:30, the box wakes at 03:30. Unattended updates
           # land here and nowhere else; `just deploy` ignores it.
