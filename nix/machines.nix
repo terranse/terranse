@@ -36,7 +36,7 @@
             jellyfin = {
               url = "http://media.edholm.cc:8096";
               api_token = "\${env:JELLYFIN_API_KEY}";
-              user_id = "\${env:JELLYFIN_USER_ID}";
+              user_id = "ab08126b51044224a5012d3749122f4f";
             };
             sonarr = {
               url = "http://media.edholm.cc:8989";
@@ -60,7 +60,7 @@
           };
           sunshine = {
             host = "gaming.edholm.cc";
-            username = "\${env:SUNSHINE_USERNAME}";
+            username = "admin";
             password = "\${env:SUNSHINE_PASSWORD}";
           };
         };

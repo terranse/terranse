@@ -4,10 +4,8 @@
 #   just secrets htpc /var/lib/home-player-secrets/env root
 #
 # Re-running is the whole rotation procedure.
-JELLYFIN_API_KEY={{ op://HomeNetwork/Jellyfin/api_key }}
-JELLYFIN_USER_ID={{ op://HomeNetwork/Jellyfin/user_id }}
-SONARR_API_KEY={{ op://HomeNetwork/Sonarr/api_key }}
-RADARR_API_KEY={{ op://HomeNetwork/Radarr/api_key }}
+SONARR_API_KEY={{ op://HomeNetwork/Servarr/sonarr-token }}
+RADARR_API_KEY={{ op://HomeNetwork/Servarr/radarr-token }}
 SEERR_API_KEY={{ op://HomeNetwork/Seerr/api_key }}
-SUNSHINE_USERNAME={{ op://Infrastructure/Sunshine Gaming/username }}
 SUNSHINE_PASSWORD={{ op://Infrastructure/Sunshine Gaming/password }}
+JELLYFIN_API_KEY={{ op://HomeNetwork/Home Player Jellyfin token/password }}
