@@ -3,9 +3,11 @@
 # pushes to, and netboots the HTPC's rescue image to its MAC only.
 #
 # Nothing here involves GitHub or GitLab. The laptop pushes terranse and Home
-# Player to git@<host>:/srv/git/<repo>.git; the nightly job clones terranse
-# from there, bumps and checks it with scripts/nightly.sh, publishes through
-# scripts/ship.sh --no-push, and pushes its lock bump back to the same repo.
+# Player to git@<host>:/srv/git/<repo>.git; the nightly job checks out the
+# tracked terranse branch from there, bumps and checks it with
+# scripts/nightly.sh, publishes through scripts/ship.sh --no-push, and
+# force-pushes what it built to its own branch, nightly/<machine>. It never
+# writes to the branch people push to. `just deploy htpc` starts the same job.
 {
   config,
   lib,
@@ -17,10 +19,12 @@ let
 
   cacheDir = "/srv/nix-cache";
   gitRoot = "/srv/git";
-  repos = [
-    "terranse"
-    "home-player"
-  ];
+  # Each repo and the branch it is used on, which becomes its HEAD: what a
+  # plain clone checks out. Set on every boot, so an existing repo follows too.
+  repos = {
+    terranse = cfg.branch;
+    home-player = "master";
+  };
   nightlyHome = "/var/lib/nightly-build";
   checkout = "${nightlyHome}/terranse";
   # Keys sshd reads at runtime, one file per user (%u). Only `git` has one: the
@@ -39,13 +43,16 @@ let
       util-linux
     ];
     text = ''
-      for repo in ${lib.escapeShellArgs repos}; do
-        dir="${gitRoot}/$repo.git"
-        if [ ! -e "$dir/HEAD" ]; then
-          runuser -u git -- git init -q --bare --initial-branch=main "$dir"
-          echo "created $dir"
-        fi
-      done
+      ${lib.concatStrings (
+        lib.mapAttrsToList (repo: branch: ''
+          dir=${lib.escapeShellArg "${gitRoot}/${repo}.git"}
+          if [ ! -e "$dir/HEAD" ]; then
+            runuser -u git -- git init -q --bare --initial-branch=${lib.escapeShellArg branch} "$dir"
+            echo "created $dir"
+          fi
+          runuser -u git -- git -C "$dir" symbolic-ref HEAD ${lib.escapeShellArg "refs/heads/${branch}"}
+        '') repos
+      )}
 
       key="${nightlyHome}/.ssh/id_ed25519"
       if [ ! -e "$key" ]; then
@@ -94,10 +101,14 @@ let
         git clone -q --branch "$NIGHTLY_BRANCH" "git@localhost:${gitRoot}/terranse.git" "${checkout}"
       fi
       cd "${checkout}"
-      git fetch -q origin
-      git checkout -q "$NIGHTLY_BRANCH"
-      # nightly.sh pulls, bumps, checks, commits and pushes, then ship.sh signs
-      # and publishes. It is the checkout's own copy, so it changes with the repo.
+      # The tracked branch as it is now, force-pushes included, so the
+      # nightly.sh that runs is the one that was pushed. A checkout someone
+      # left dirty stops here; nightly.sh says so too.
+      git fetch -q origin "+refs/heads/$NIGHTLY_BRANCH:refs/remotes/origin/$NIGHTLY_BRANCH"
+      git checkout -q -B "$NIGHTLY_BRANCH" "refs/remotes/origin/$NIGHTLY_BRANCH"
+      # nightly.sh bumps, checks, has ship.sh sign and publish, and pushes what
+      # it built to nightly/<machine>. It is the checkout's own copy, so it
+      # changes with the repo.
       ./scripts/nightly.sh ${lib.escapeShellArg cfg.machine}
     '';
   };
@@ -121,7 +132,7 @@ in
     branch = lib.mkOption {
       type = lib.types.str;
       default = "main";
-      description = "Branch of the LAN terranse repo the nightly job builds and pushes its lock bump to.";
+      description = "Branch of the LAN terranse repo the nightly job builds. Read only: the result goes to nightly/<machine>.";
     };
 
     netbootMac = lib.mkOption {
@@ -220,6 +231,15 @@ in
     # `nix store sign` adds signatures to the local store, which the daemon
     # allows only to trusted users. This box exists to run this job.
     nix.settings.trusted-users = [ "nightly" ];
+
+    # The container has a 200G disk holding the store, the cache and the git
+    # repos. ship.sh refuses to publish with less than 20 GiB free on the cache,
+    # so nix starts collecting garbage during a build once free space falls
+    # under 25 GiB, leaving that margin, and stops at 50 GiB: enough for a
+    # night's build of the HTPC and its checks without collecting on every one.
+    # The nightly job alerts above 80% used (40 GiB free), before either.
+    nix.settings.min-free = 25 * 1024 * 1024 * 1024;
+    nix.settings.max-free = 50 * 1024 * 1024 * 1024;
 
     systemd.tmpfiles.rules = [
       "d ${gitRoot} 0755 git git -"

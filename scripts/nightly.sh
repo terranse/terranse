@@ -4,10 +4,16 @@
 #
 #   nightly.sh <machine>
 #
-# Bump the flake inputs, build every check, and only then commit, push and
-# publish through `ship.sh <machine> --no-push`. The box fetches the pointer at
-# its 03:30 wake. ship.sh's own --bump stays unused: the check has to run
-# before the commit, not after it.
+# Start from the tracked branch exactly as it is on the remote (reset, not
+# pulled, so a force-push from the laptop never breaks a night), bump the flake
+# inputs, build every check, publish through `ship.sh <machine> --no-push`, and
+# only then force-push what was built to its own branch, nightly/<machine>. The
+# tracked branch is never written to: people push there. The box fetches the
+# pointer at its 03:30 wake. ship.sh's own --bump stays unused: the check has
+# to run before the commit, not after it.
+#
+# Every run, whatever happens to the build, it also tells Home Assistant once
+# per period when the root filesystem is more than 80% full.
 #
 # On success it writes <cache>/pointers/<machine>.last-success (a plain epoch
 # integer, atomically, last) -- the record the box reads to know how old its
@@ -16,9 +22,12 @@
 # about what it does and does not take; that logic is not repeated here.
 #
 # Environment (all optional):
-#   NIGHTLY_REMOTE     git remote to pull from and push to (default origin: the
-#                      bare repo this checkout was cloned from)
-#   NIGHTLY_BRANCH     branch on that remote (default main)
+#   NIGHTLY_REMOTE     git remote to build from and publish to (default origin:
+#                      the bare repo this checkout was cloned from)
+#   NIGHTLY_BRANCH     the tracked branch on that remote (default main); read only
+#   NIGHTLY_PUBLISH_BRANCH  where what was built goes (default nightly/<machine>)
+#   NIGHTLY_DISK_PATH  filesystem whose use is watched (default /)
+#   NIGHTLY_DISK_LIMIT percent used above which it alerts (default 80)
 #   NIX_CACHE_DIR      the cache ship.sh publishes to (default /srv/nix-cache)
 #   NIGHTLY_STATE_DIR  where the once-per-stale-period alert stamp lives
 #   NIGHTLY_KVM        device VM tests need (default /dev/kvm)
@@ -30,6 +39,9 @@ MACHINE="${1:?usage: nightly.sh <machine>}"
 
 REMOTE="${NIGHTLY_REMOTE:-origin}"
 BRANCH="${NIGHTLY_BRANCH:-main}"
+PUBLISH="${NIGHTLY_PUBLISH_BRANCH:-nightly/${MACHINE}}"
+DISK_PATH="${NIGHTLY_DISK_PATH:-/}"
+DISK_LIMIT="${NIGHTLY_DISK_LIMIT:-80}"
 CACHE_DIR="${NIX_CACHE_DIR:-/srv/nix-cache}"
 STATE_DIR="${NIGHTLY_STATE_DIR:-/var/lib/nightly-build}"
 KVM="${NIGHTLY_KVM:-/dev/kvm}"
@@ -45,6 +57,7 @@ STALE_AFTER=$((3 * 86400 - 6 * 3600))
 LAST_SUCCESS="${CACHE_DIR}/pointers/${MACHINE}.last-success"
 STAMP="${STATE_DIR}/${MACHINE}.alerted"
 BASELINE="${STATE_DIR}/${MACHINE}.first-failure"
+DISK_STAMP="${STATE_DIR}/disk.alerted"
 
 log() { printf '==> %s\n' "$*"; }
 
@@ -86,6 +99,32 @@ maybe_alert() {
   mkdir -p "$STATE_DIR" && printf '%s\n' "$ref" >"$STAMP" || true
 }
 
+# Once per period over the limit, the same way as above: the stamp marks a
+# period already told, a failed delivery is not stamped, and dropping back under
+# the limit ends the period. Never a reason for the night to fail.
+check_disk() {
+  local pct flag
+  pct="$(df -P "$DISK_PATH" 2>/dev/null | awk 'NR==2 {sub("%", "", $5); print $5}')" || pct=""
+  case "$pct" in '' | *[!0-9]*)
+    echo "nightly.sh: could not read the use of ${DISK_PATH}" >&2
+    return 0
+    ;;
+  esac
+  if [ "$pct" -le "$DISK_LIMIT" ]; then
+    rm -f "$DISK_STAMP"
+    return 0
+  fi
+  [ ! -e "$DISK_STAMP" ] || return 0
+  flag="$(mktemp)" && rm -f "$flag"
+  HA_NOTIFY_FAILED_FLAG="$flag" "$NOTIFY" "Build host disk nearly full" \
+    "$(uname -n): ${DISK_PATH} is ${pct}% full (alert above ${DISK_LIMIT}%)." || true
+  if [ -e "$flag" ]; then
+    rm -f "$flag"
+    return 0
+  fi
+  mkdir -p "$STATE_DIR" && : >"$DISK_STAMP" || true
+}
+
 UPDATED=""
 on_exit() {
   local rc=$?
@@ -97,6 +136,8 @@ on_exit() {
 }
 trap on_exit EXIT
 
+check_disk || true
+
 cd "$(git rev-parse --show-toplevel)"
 
 # Refuse before touching anything: a nightly run commits and pushes, and must
@@ -106,7 +147,11 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
-git pull --ff-only "$REMOTE" "$BRANCH"
+# The tracked branch as the remote has it now. Last night's bump lives only on
+# the published branch, so it is not carried forward: tonight's starts again
+# from what people pushed.
+git fetch -q "$REMOTE" "+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}"
+git checkout -q -B "$BRANCH" "refs/remotes/${REMOTE}/${BRANCH}"
 
 # One line per check: "<name> vm|plain". A check with a `driver` attribute is a
 # NixOS VM test (runNixOSTest); everything else builds without /dev/kvm.
@@ -163,12 +208,17 @@ if git diff --quiet -- flake.lock; then
 else
   inputs="$(paste -sd, "$UPDATED" | sed 's/,/, /g')"
   git add flake.lock
+  # Local only until it is published below; the next night resets past it.
   git -c user.name="nightly build" -c user.email="ci@edholm.cc" commit -q \
     -m "chore(nix): nightly bump [skip ci]" -m "Updated inputs: ${inputs}"
-  git push "$REMOTE" "HEAD:${BRANCH}"
 fi
 
 "$SHIP" "$MACHINE" --no-push
+
+# What the pointer was built from, so anyone can check it out. Forced: it is
+# this job's branch alone, and each night replaces the last.
+git push -q --force "$REMOTE" "HEAD:refs/heads/${PUBLISH}"
+log "published $(git rev-parse --short HEAD) to ${PUBLISH}"
 
 # After ship.sh, atomically: the box reads a bare epoch integer.
 install -d "${CACHE_DIR}/pointers"

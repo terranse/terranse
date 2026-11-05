@@ -189,8 +189,9 @@ works from S3 and from fully off, so the box can be woken remotely.
 ## Updates
 
 ```
-01:30  nixhost: nix flake update (nixpkgs, home-player) → build → check → sign
-                → publish to cache → move pointer → commit the lock bump
+01:30  nixhost: reset to the tracked branch → nix flake update (nixpkgs,
+                home-player) → build → check → sign → publish to cache
+                → move pointer → force-push the result to nightly/htpc
 03:30  HTPC:    read pointer → fetch and verify → stage
                 idle: switch, watchdog, roll back if unhealthy
                 busy: wait, retry every 15 minutes
@@ -198,8 +199,11 @@ works from S3 and from fully off, so the box can be woken remotely.
 ```
 
 - **Pull only at night.** The nightly job publishes and stops. It does not wake or
-  push to the box, so it needs no WoL step. `just deploy htpc` keeps the push
-  path and the `deploy` account for urgent cases.
+  push to the box, so it needs no WoL step. `just deploy htpc` is the urgent
+  path: it pushes the branch to `nixhost`, runs the same nightly job there at
+  once, and has the box fetch and activate the result through the `deploy`
+  account and `htpc-stage --now`. Signing stays on `nixhost`, and the pointer is
+  then the urgent build, so the next night does not revert it.
 - **Trigger:** a timer on `nixhost`, not GitLab CI. `/srv/nix-cache` does not
   exist on the runner, the runner has no `/dev/kvm`, and terranse's `origin` is
   on GitHub, so the GitLab path in the September spec was never live. A push no
@@ -211,8 +215,11 @@ works from S3 and from fully off, so the box can be woken remotely.
   what it has. Give `nixhost` `/dev/kvm` if the Proxmox host allows it, so the
   staged-updates VM test runs as part of the gate.
 - **Source on the LAN:** `nixhost` hosts bare git repos of terranse and Home Player
-  under `/srv/git`, and the laptop pushes to them. The nightly job commits its lock
-  bump there, so the laptop pulls bumps from `nixhost`. No GitHub credential is
+  under `/srv/git`, and the laptop pushes to them. The nightly job never writes
+  to the branch people push to: each night starts from it as it is (force-pushes
+  included) and publishes what it built, lock bump and all, to its own branch
+  `nightly/htpc`. `just deploy` warns when the laptop's lock is older than that
+  one. No GitHub credential is
   involved, by the owner's direction. GitHub stays an optional mirror. Public flake
   inputs and `cache.nixos.org` still need internet access but no keys, so builds
   stop picking up new upstream versions if the internet is down. A change merged

@@ -153,6 +153,7 @@ pkgs.testers.runNixOSTest {
             '  echo "keymode=$(stat -c %a "$SIGNING_KEY_FILE")"\n'
             '  echo "ha=$HA_TOKEN $HA_URL $HA_NOTIFY_SERVICE"\n'
             '  echo "leak=''${NIX_SIGNING_KEY:-}"\n'
+            '  echo "commit=$(git rev-parse HEAD)"\n'
             '} > "$NIX_CACHE_DIR/stub-ran"\n'
             "EOF\n"
             "chmod +x scripts/nightly.sh && git add scripts && "
@@ -192,5 +193,32 @@ pkgs.testers.runNixOSTest {
         assert ran["leak"] == "", f"signing key left in the environment: {ran}"
         # The key file is gone once the job is.
         nixhost.fail("ls /run/nixhost-nightly/signing.key")
+        assert ran["commit"] == pushed, ran
+
+    with subtest("a force-pushed branch is what the next night runs"):
+        client.succeed(
+            "cd /tmp/terranse && echo '# rewritten' >> scripts/nightly.sh && "
+            "git -c user.name=t -c user.email=t@t commit -qa --amend -m rewritten && "
+            "git push -q -f origin HEAD:feat/test"
+        )
+        rewritten = client.succeed("git -C /tmp/terranse rev-parse HEAD").strip()
+        nixhost.succeed("rm /srv/nix-cache/stub-ran", "systemctl start nixhost-nightly.service")
+        ran = dict(
+            line.split("=", 1)
+            for line in nixhost.succeed("cat /srv/nix-cache/stub-ran").splitlines()
+        )
+        assert ran["commit"] == rewritten, (ran, rewritten)
+
+    with subtest("each bare repo's HEAD is the branch it is used on"):
+        for repo, branch in (("terranse", "feat/test"), ("home-player", "master")):
+            head = nixhost.succeed(
+                f"runuser -u git -- git -C /srv/git/{repo}.git symbolic-ref HEAD"
+            ).strip()
+            assert head == f"refs/heads/{branch}", (repo, head)
+
+    with subtest("nix cleans up under disk pressure"):
+        conf = nixhost.succeed("cat /etc/nix/nix.conf")
+        assert re.search(r"^min-free = 26843545600$", conf, re.M), conf
+        assert re.search(r"^max-free = 53687091200$", conf, re.M), conf
   '';
 }
