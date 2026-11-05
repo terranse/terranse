@@ -39,6 +39,9 @@
       - wayland_compositor in ['gamescope', 'cage', 'sway']
     fail_msg: "wayland_compositor must be one of: gamescope, cage, sway"
 
+- name: Keep boot work off a waiting player's critical path
+  ansible.builtin.include_tasks: boot-time.yaml
+
 # =============================================================================
 # Base system setup
 # =============================================================================

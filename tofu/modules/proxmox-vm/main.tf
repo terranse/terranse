@@ -91,6 +91,7 @@ resource "proxmox_vm_qemu" "vms" {
   full_clone         = each.value.full_clone
   memory             = each.value.memory
   bios               = local.bios[each.key]
+  args               = each.value.qemu_args
   boot               = "order=${local.disk_slot[each.key]}"
   start_at_node_boot = each.value.onboot
 

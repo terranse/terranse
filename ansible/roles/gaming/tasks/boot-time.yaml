@@ -1,0 +1,43 @@
+---
+# Boot time of the gaming VM is time a player sits waiting for their game, so
+# the guest does no work at boot it does not need.
+
+# The NVIDIA driver and its GSP firmware were 187MB of a 204MB initrd, read
+# through the firmware's disk driver on every boot. A headless streaming VM has
+# no use for them before the root filesystem is up, and udev loads them from
+# there. Measured: Sunshine answers about a second sooner.
+- name: Keep the NVIDIA driver out of the initrd
+  ansible.builtin.copy:
+    dest: /etc/dracut.conf.d/90-no-nvidia-in-initrd.conf
+    mode: '0644'
+    content: |
+      # Managed by Ansible (gaming role): see roles/gaming/tasks/boot-time.yaml
+      omit_drivers+=" nvidia nvidia_modeset nvidia_drm nvidia_uvm nvidia_peermem "
+  register: gaming_initrd_conf
+
+# Only kernels that are installed: `--regenerate-all` also walks the module
+# directories old kernels leave behind, and fails on those.
+- name: Rebuild the initrd without the NVIDIA driver
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for image in /boot/vmlinuz-*; do
+      kver=${image#/boot/vmlinuz-}
+      dracut -f "/boot/initrd.img-${kver}" "${kver}"
+    done
+  args:
+    executable: /bin/bash
+  when: gaming_initrd_conf.changed
+  changed_when: true
+
+# No snaps are installed, yet snapd's AppArmor setup sat on the boot's critical
+# path for 0.9s.
+- name: Stop snapd from running at boot
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+  loop:
+    - snapd.service
+    - snapd.socket
+    - snapd.apparmor.service
+    - snapd.seeded.service
+  failed_when: false

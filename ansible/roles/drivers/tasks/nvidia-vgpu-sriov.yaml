@@ -21,6 +21,7 @@
 #
 # Variables:
 #   vgpu_pci_mapping_name      Proxmox PCI mapping id to (re)create (default below)
+#   vgpu_vm_pci_mappings       Single-VF mappings to (re)create, as {name, vf}
 #   displaymodeselector_url    URL of the NVIDIA Display Mode Selector Tool zip
 #   drivers_auto_reboot        Reuse the drivers-role reboot gate for the flash
 
@@ -189,4 +190,21 @@
     --description "{{ vgpu_pci_mapping_name }} vGPU (first free VF on VM start) — managed by ansible"
     {% for e in vgpu_map_entries.stdout_lines %}--map "{{ e }}" {% endfor %}
   when: vgpu_map_entries.stdout_lines | length > 0
+  changed_when: true
+
+- name: Create/refresh the single-VF PCI resource mappings
+  ansible.builtin.shell: |
+    set -o pipefail
+    group=$(basename "$(readlink -f /sys/bus/pci/devices/{{ item.vf }}/iommu_group)")
+    entry="id=10de:2231,iommugroup=${group},node={{ ansible_hostname }},path={{ item.vf }},subsystem-id=10de:0000"
+    if pvesh get /cluster/mapping/pci/{{ item.name }} --output-format json >/dev/null 2>&1; then
+      pvesh set /cluster/mapping/pci/{{ item.name }} --mdev 1 --map "$entry"
+    else
+      pvesh create /cluster/mapping/pci --id {{ item.name }} --mdev 1 --map "$entry"
+    fi
+  args:
+    executable: /bin/bash
+  loop: "{{ vgpu_vm_pci_mappings }}"
+  loop_control:
+    label: "{{ item.name }}"
   changed_when: true

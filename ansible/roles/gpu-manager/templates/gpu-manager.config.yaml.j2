@@ -20,5 +20,5 @@ default_tenant: {vm: {{ gpu_manager_default_tenant.vm }}, profile: {{ gpu_manage
 
 vms:
 {% for name, vm in gaming_vms | dictsort %}
-  {{ name }}: {vmid: {{ vm.vmid }}, tier: {{ vm.tier | default('game') }}{% if vm.host is defined %}, host: {{ vm.host }}{% endif %}}
+  {{ name }}: {vmid: {{ vm.vmid }}, tier: {{ vm.tier | default('game') }}{% if vm.host is defined %}, host: {{ vm.host }}{% endif %}{% if vm.pci_mapping is defined %}, pci_mapping: {{ vm.pci_mapping }}{% endif %}{% if vm.ready_url is defined %}, ready_url: "{{ vm.ready_url }}"{% endif %}}
 {% endfor %}
