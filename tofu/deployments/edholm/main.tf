@@ -63,6 +63,10 @@ locals {
         # `{}` do not. Same reason as hosts_wired below.
         { for k, v in { host = "${name}.${var.domain}" } : k => v
           if try(var.hosts[host_key].vms[name].gpu_tier, "game") == "game" },
+        # The daemon only touches a hostpci0 line on the mapping it was told
+        # about, so take it from what the VM really uses rather than repeat it.
+        { for k, v in { pci_mapping = try(var.hosts[host_key].vms[name].pci_devices[0].mapping_id, "") } : k => v
+          if v != "" },
         # Where the daemon asks whether this VM can really do its job yet.
         { for k, v in { ready_url = try(var.hosts[host_key].vms[name].gpu_ready_url, "") } : k => v
           if v != "" }

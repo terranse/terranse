@@ -44,6 +44,10 @@ vgpu_virtiofs_mapping: nvidia-guest-drivers
 # mapping_id referenced in the tofu vms.*.pci_devices config.
 vgpu_pci_mapping_name: RTX-A5000
 
+# Mappings for a single VF, for VMs that should not share one. A list of
+# {name, vf}; each name is a mapping_id a VM can reference in tofu.
+vgpu_vm_pci_mappings: []
+
 # NVIDIA Display Mode Selector Tool (switches the A5000 to compute mode, which
 # is what exposes the SR-IOV capability). Mirrored on the foxipan community alist.
 displaymodeselector_url: "https://alist.homelabproject.cc/d/foxipan/vGPU/tools/NVIDIA_Display_Mode_Selector_Tool-March-2022.zip"

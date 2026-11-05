@@ -153,6 +153,13 @@ hosts = {
           gpu_type          = "nvidia_vgpu"
           dls_server_ip     = "dls-server.edholm.cc"
           game_storage_host = "true"
+          # One VF per VM. Proxmox takes the first free VF of a mapping, so VMs
+          # sharing one reuse the VF just vacated and have to wait out its
+          # teardown: measured at about 6s of every handover, and 20ms this way.
+          vgpu_vm_pci_mappings = [
+            { name = "RTX-A5000-ai-vm", vf = "0000:0e:00.4" },
+            { name = "RTX-A5000-gaming", vf = "0000:0e:00.5" },
+          ]
           # ZFS pool names are case-sensitive and differ from the Proxmox
           # storage IDs: nvmepool = 2x Samsung 990 Pro NVMe (fast, PC games),
           # store = 2x Kingston SATA SSD mirror (emulation).
@@ -270,7 +277,7 @@ hosts = {
           { name = "gaming-emulation", dataset = "store/gaming/emulation", path = "/mnt/games/emulation" },
         ]
         pci_devices = [{
-          mapping_id = "RTX-A5000"
+          mapping_id = "RTX-A5000-gaming"
           # Full 24 GB slice (RTXA5000-24Q). The A5000 only permits homogeneous
           # slices, so this VM must be the sole slice-holder: the driver won't
           # even offer 24Q as creatable while another vGPU is assigned.
@@ -326,7 +333,7 @@ hosts = {
         # homogeneous slice across the whole card, so ai-vm and gaming are
         # mutually exclusive — stop one before starting the other.
         pci_devices = [{
-          mapping_id    = "RTX-A5000"
+          mapping_id    = "RTX-A5000-ai-vm"
           vgpu_slice_gb = 24
           pcie          = true
           # primary_gpu (x-vga) MUST stay false — see the same note on the
