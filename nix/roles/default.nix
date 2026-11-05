@@ -5,6 +5,7 @@
   base = ./base.nix;
   desktop = ./desktop.nix;
   dev = ./dev.nix;
+  home-player = ./home-player.nix;
   staged-updates = ./staged-updates.nix;
   video = ./video.nix;
 }

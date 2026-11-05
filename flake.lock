@@ -40,6 +40,26 @@
         "type": "github"
       }
     },
+    "home-player": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793877016,
+        "narHash": "sha256-rhvN20f+YsuF68S7q4Xv8TdpxAaMdCFyq+8i0v6y09A=",
+        "ref": "refs/heads/feat/htpc-night-updates",
+        "rev": "1eb09787ca97e14ef48b583a9fe756702f247e2c",
+        "revCount": 227,
+        "type": "git",
+        "url": "file:///home/daniele/Repos/home-player-wt-htpc"
+      },
+      "original": {
+        "type": "git",
+        "url": "file:///home/daniele/Repos/home-player-wt-htpc"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1788752844,
@@ -60,6 +80,7 @@
       "inputs": {
         "disko": "disko",
         "home-manager": "home-manager",
+        "home-player": "home-player",
         "nixpkgs": "nixpkgs"
       }
     }

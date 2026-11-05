@@ -9,6 +9,14 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # The TV's homescreen, kiosk shell and backend. A local checkout for now;
+    # Task 11 moves it to the LAN repo. Its nixpkgs follows ours so the shell
+    # and Moonlight are built against the same Mesa the box runs.
+    home-player = {
+      url = "git+file:///home/daniele/Repos/home-player-wt-htpc";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # Declarative partitioning. It is what lets a machine be built and an
     # installer be produced before the machine physically exists. Imported by
     # nix/profiles/metal.nix only -- a container has no disk to partition.
@@ -106,6 +114,10 @@
           registry = import ./nix/tests/registry.nix { inherit lib pkgs; };
           staged-updates = import ./nix/tests/staged-updates.nix { inherit pkgs; };
           htpc-accounts = import ./nix/tests/htpc-accounts.nix { inherit pkgs; };
+          htpc-eval = import ./nix/tests/htpc-eval.nix {
+            inherit pkgs;
+            config = self.nixosConfigurations.htpc.config;
+          };
         };
 
       formatter.x86_64-linux = pkgs.nixfmt-tree;
