@@ -14,6 +14,26 @@
     roles = [ { name = "dev"; } ];
   };
 
+  # Builds the HTPC nightly, serves its cache and the LAN git repos, and
+  # netboots its rescue image.
+  nixhost = {
+    system = "x86_64-linux";
+    kind = "lxc";
+    roles = [
+      {
+        name = "update-host";
+        settings = {
+          netbootMac = "bc:e9:2f:86:35:3b";
+          # The HTPC work is only on this branch until it merges; then drop
+          # the line and the default, main, applies.
+          branch = "feat/htpc-install";
+          haUrl = "http://home.edholm.cc:8123";
+          notifyService = "notify.mobile_app_pixel_8";
+        };
+      }
+    ];
+  };
+
   htpc = {
     system = "x86_64-linux";
     # metal, so the machine gets disko, systemd-boot and EFI variable access

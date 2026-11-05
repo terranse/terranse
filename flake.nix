@@ -92,6 +92,12 @@
           specialArgs = { inherit inputs; };
           modules = [ ./nix/installer.nix ];
         };
+        # The same rescue system as the installer, in RAM, for nixhost to
+        # netboot to the HTPC's MAC.
+        htpc-netboot = lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [ ./nix/netboot.nix ];
+        };
       };
 
       # The rootfs tarballs for every container-kind machine, named
@@ -103,8 +109,13 @@
         # on PATH keeps the thing that deploys a machine pinned by the same
         # flake.lock as the machine it deploys.
         nixos-rebuild = pkgs.nixos-rebuild;
+        # `just install-htpc` runs it, pinned the same way.
+        nixos-anywhere = pkgs.nixos-anywhere;
 
         installer-iso = self.nixosConfigurations.installer.config.system.build.isoImage;
+
+        # bzImage, initrd and cmdline (the init path) for nixhost's Pixiecore API.
+        htpc-netboot = self.nixosConfigurations.htpc-netboot.config.system.build.pixiecoreDir;
       }
       // lib.mapAttrs' (
         name: cfg: lib.nameValuePair "${name}-lxc-template" cfg.config.system.build.tarball
@@ -112,12 +123,18 @@
 
       # A broken role must fail the pipeline, not the machine: every machine's
       # toplevel is a check, so `nix flake check` builds what would be
-      # deployed. The installer is excluded by name -- it is x86_64-linux too,
-      # and a check would build a 1GB ISO on every `nix flake check`.
+      # deployed. The two rescue images are excluded by name -- they are
+      # x86_64-linux too, but they are no fleet machine, and nixhost's toplevel
+      # already builds the netboot one.
       checks.x86_64-linux =
         lib.mapAttrs' (name: cfg: lib.nameValuePair "machine-${name}" cfg.config.system.build.toplevel) (
           lib.filterAttrs (
-            name: cfg: name != "installer" && cfg.pkgs.stdenv.hostPlatform.system == "x86_64-linux"
+            name: cfg:
+            !(builtins.elem name [
+              "installer"
+              "htpc-netboot"
+            ])
+            && cfg.pkgs.stdenv.hostPlatform.system == "x86_64-linux"
           ) self.nixosConfigurations
         )
         // {

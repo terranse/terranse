@@ -232,6 +232,30 @@ hosts = {
         ostype     = "nixos"
         provision  = "none"
       }
+
+      # NixOS. Builds the HTPC nightly, serves its signed binary cache on 8080,
+      # hosts the LAN git repos the laptop pushes to, and netboots the HTPC's
+      # rescue image to its MAC only. Same shape as herdr: what it runs is
+      # nix/machines.nix, the rootfs comes from `just push-lxc-template
+      # nixhost`, and `provision = "none"` keeps Ansible off it.
+      #
+      # /dev/kvm, so the nightly gate can run the VM tests, is NOT declared
+      # here: `devices` only reaches a container through the proxmox/lxc
+      # Ansible role, which `provision = "none"` skips. Untried; add it on the
+      # node by hand once it exists (`pct set <vmid> --dev0 /dev/kvm,mode=0666`)
+      # and leave it out if Proxmox refuses. Without it nightly.sh skips the VM
+      # tests loudly and still gates on everything else.
+      #
+      # The HTPC's DHCP reservation needs nothing here: its `mac` below
+      # already feeds one.
+      nixhost = {
+        memory     = 16384
+        cores      = 8
+        disk_size  = "200G"
+        ostemplate = "local:vztmpl/nixos-lxc-nixhost.tar.xz"
+        ostype     = "nixos"
+        provision  = "none"
+      }
     }
 
     vms = {

@@ -137,6 +137,29 @@ secrets machine dest="/var/lib/dev-secrets/env" owner="default-user":
 htpc-passwords:
     ./scripts/htpc-passwords.sh default-user@htpc.{{ domain }}
 
+# Install the HTPC from the rescue image nixhost netboots (or the ISO). ERASES
+# THE DISK. The recovery passphrase goes from 1Password straight into a 0600
+# file nixos-anywhere uploads for disko to format with, never onto a command
+# line, and the initrd's SSH host key is made here and placed as an extra
+# file, because the boot loader installer reads it from the box. Both are
+# deleted on exit, whatever happens.
+install-htpc target=("root@htpc." + domain):
+    #!{{ bash }}
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    umask 077
+    op read --no-newline "op://HomeNetwork/HTPC LUKS recovery/password" >"$work/htpc-luks.key"
+    install -d -m 0700 "$work/extra/etc/secrets/initrd"
+    ssh-keygen -q -t ed25519 -N "" -C htpc-initrd -f "$work/extra/etc/secrets/initrd/ssh_host_ed25519_key"
+    echo "initrd host key (port 2222): $(ssh-keygen -lf "$work/extra/etc/secrets/initrd/ssh_host_ed25519_key.pub")"
+    rm "$work/extra/etc/secrets/initrd/ssh_host_ed25519_key.pub"
+    nix run .#nixos-anywhere -- \
+      --flake .#htpc \
+      --target-host {{ target }} \
+      --build-on local \
+      --disk-encryption-keys /tmp/htpc-luks.key "$work/htpc-luks.key" \
+      --extra-files "$work/extra"
+
 # Build a NixOS container's rootfs tarball and put it on the Proxmox node.
 # Only needed to CREATE the container -- updates go through deploy-nixos.
 push-lxc-template machine node="192.168.1.200":
