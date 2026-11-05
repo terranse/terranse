@@ -6,6 +6,7 @@
     ./disko.nix
     ./boot.nix
     ./accounts.nix
+    ./deploy.nix
   ];
 
   # A statement about which release this machine's state was created under,

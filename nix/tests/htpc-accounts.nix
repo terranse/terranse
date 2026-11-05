@@ -10,6 +10,7 @@ pkgs.testers.runNixOSTest {
     imports = [
       ../roles/base.nix
       ../hosts/htpc/accounts.nix
+      ../hosts/htpc/deploy.nix
     ];
   };
 
@@ -26,5 +27,14 @@ pkgs.testers.runNixOSTest {
 
     with subtest("the fleet account still deploys without a password"):
         machine.succeed("su - default-user -c 'sudo -n true'")
+
+    with subtest("the deploy account is not an administrator"):
+        machine.fail("id -nG deploy | grep -w wheel")
+        machine.fail("su - deploy -c 'sudo -n true'")
+        # It logs in with the fleet key, not one of its own.
+        assert (
+            machine.succeed("cat /etc/ssh/authorized_keys.d/deploy")
+            == machine.succeed("cat /etc/ssh/authorized_keys.d/default-user")
+        )
   '';
 }

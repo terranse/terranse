@@ -35,6 +35,13 @@ pkgs.testers.runNixOSTest {
         requireKioskUnit = false;
         # The unhealthy case has to actually wait this out.
         watchdogSeconds = 15;
+        # The real box's window. The clock is set by hand below.
+        activationWindow = {
+          start = "03:30";
+          end = "05:30";
+        };
+        # A local stand-in for the nix-cache nginx, for the boot-time fetch.
+        cacheUrl = "http://127.0.0.1:8081";
         # requireHealthy is left at its default (true) deliberately -- see
         # the assertion below. The real machine sets this false only because
         # home-player does not exist there yet; this test exists to exercise
@@ -76,7 +83,23 @@ pkgs.testers.runNixOSTest {
       # shortens that; the timeouts below still assume it can be slow.
       virtualisation.cores = 4;
 
+      # The window is read in the machine's own timezone; the real fleet
+      # sets this in base.nix.
+      time.timeZone = "Europe/Stockholm";
+
+      # base.nix sets this on the real box; htpc-update-fetch runs `nix copy`.
+      nix.settings.experimental-features = [ "nix-command" ];
+
+      systemd.services.fake-cache = {
+        description = "Stand-in for the binary cache's pointer directory";
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          ExecStart = "${pkgs.python3}/bin/python3 -m http.server 8081 --bind 127.0.0.1 --directory /run/fake-cache";
+        };
+      };
+
       systemd.tmpfiles.rules = [
+        "d /run/fake-cache/pointers 0755 root root -"
         "d /run/fake-backend 0755 root root -"
         "f /run/fake-backend/busy 0644 root root - false"
         "f /run/fake-backend/healthy 0644 root root - true"
@@ -156,6 +179,20 @@ pkgs.testers.runNixOSTest {
             f"{unit} does not carry X-RestartIfChanged=false; "
             "switch-to-configuration would stop it mid-switch"
         )
+
+    # The window is read from the wall clock, so every subtest that expects an
+    # activation has to say what time it is. timesyncd, where a node runs it,
+    # is stopped so nothing steps the clock back under a subtest (this one
+    # does not load it, hence `execute`).
+    machine.execute("systemctl stop systemd-timesyncd.service")
+
+    def set_clock(hhmm):
+        machine.succeed(f"date -s '2026-11-06 {hhmm}:00'")
+        # The unit reads the machine's own zone, so prove the test is in it.
+        assert machine.succeed("date +%H:%M").strip() == hhmm, hhmm
+
+    # Inside the window, for everything that predates it.
+    set_clock("04:00")
 
     # A test VM boots straight from a store path, so the system profile has no
     # generations at all -- and with no generation 1 there is nothing to roll
@@ -377,5 +414,104 @@ pkgs.testers.runNixOSTest {
         assert machine.succeed("cat /proc/sys/kernel/random/boot_id") == boot_id
         assert_rollback_failed_stays(nxt)
         machine.succeed(f"rm -rf {profile}-9999-link")
+
+    # ---- the activation window --------------------------------------------
+    # Unattended activation only happens at night. The earlier subtests leave
+    # the box on nxt with a failed rollback recorded, so each of these starts by
+    # putting it back on base. state.json is kept across that on purpose: the
+    # first subtest needs the leftover rollback-failed.
+    def back_to_base(keep_state=True):
+        machine.succeed(f"nix-env -p {profile} --set {base}")
+        machine.succeed(f"{base}/bin/switch-to-configuration switch")
+        machine.succeed("echo false > /run/fake-backend/busy")
+        machine.succeed("echo true > /run/fake-backend/healthy")
+        machine.succeed(": > /var/lib/htpc-update/bad-revisions")
+        machine.succeed("rm -f /var/lib/htpc-update/verify-after-reboot")
+        if not keep_state:
+            machine.succeed("rm -f /var/lib/htpc-update/state.json")
+        machine.wait_for_open_port(9600)
+
+    def reason():
+        return json.loads(machine.succeed("cat /var/lib/htpc-update/state.json"))["reason"]
+
+    def stage_and_run_at(hhmm):
+        set_clock(hhmm)
+        machine.succeed(f"htpc-stage --no-activate {nxt}")
+        # Several starts in a few seconds trip systemd's start-rate limit,
+        # which is nothing to do with what is under test.
+        machine.succeed("systemctl reset-failed htpc-update.service")
+        machine.succeed("systemctl start htpc-update.service")
+
+    with subtest("outside the window nothing activates, even when idle"):
+        back_to_base()
+        assert reason() == "rollback-failed", reason()
+
+        # A failed rollback waits for a person; the window must not bury it.
+        stage_and_run_at("12:00")
+        assert machine.succeed("readlink -f /run/current-system").strip() == base
+        assert reason() == "rollback-failed", reason()
+
+        machine.succeed("rm -f /var/lib/htpc-update/state.json")
+        # Idle, healthy, and staged -- the only thing wrong is the hour. The
+        # edges are half-open: 03:30 is in, 05:30 is out.
+        for hhmm in ("12:00", "03:29", "05:30", "23:59"):
+            stage_and_run_at(hhmm)
+            assert machine.succeed("readlink -f /run/current-system").strip() == base, hhmm
+            state = json.loads(machine.succeed("cat /var/lib/htpc-update/state.json"))
+            assert state["reason"] == "outside-window", (hhmm, state)
+            assert state["pending"] == nxt, state
+            assert state["reboot_required"] is False, state
+            machine.fail("test -e /etc/htpc-generation")
+
+    with subtest("inside the window an idle box activates"):
+        stage_and_run_at("03:30")
+        assert machine.succeed("readlink -f /run/current-system").strip() == nxt
+        assert machine.succeed("cat /etc/htpc-generation").strip() == "2"
+        machine.wait_until_succeeds(
+            "! test -e /var/lib/htpc-update/verify-after-reboot", timeout=60
+        )
+
+    with subtest("--force-idle ignores the window"):
+        back_to_base(keep_state=False)
+        set_clock("12:00")
+        machine.succeed(f"htpc-stage --no-activate {nxt}")
+        machine.succeed("systemctl start htpc-update.service")
+        assert machine.succeed("readlink -f /run/current-system").strip() == base
+
+        # htpc-update-apply is htpc-update --force-idle.
+        machine.succeed("systemctl start htpc-update-apply.service")
+        assert machine.succeed("readlink -f /run/current-system").strip() == nxt
+        machine.wait_until_succeeds(
+            "! test -e /var/lib/htpc-update/verify-after-reboot", timeout=60
+        )
+
+    with subtest("htpc-stage --now is the urgent path"):
+        back_to_base(keep_state=False)
+        set_clock("12:00")
+        machine.succeed(f"htpc-stage --now {nxt}")
+        machine.wait_until_succeeds(
+            f'[ "$(readlink -f /run/current-system)" = "{nxt}" ]', timeout=240
+        )
+        machine.wait_until_succeeds(
+            "! test -e /var/lib/htpc-update/verify-after-reboot", timeout=60
+        )
+
+    with subtest("boot-time fetch stages but honours the window"):
+        back_to_base(keep_state=False)
+        machine.succeed("rm -f /nix/var/nix/gcroots/htpc-pending")
+        set_clock("12:00")
+        # The specialisation cannot stand in: this VM's store database does not
+        # register its closure, so it cannot be put in a cache. A fresh,
+        # reference-free path can.
+        machine.succeed("mkdir -p /tmp/nixos-system-fetched && echo fetched > /tmp/nixos-system-fetched/marker")
+        fetched = machine.succeed("nix-store --add /tmp/nixos-system-fetched").strip()
+        machine.succeed(f"nix copy --to file:///run/fake-cache {fetched}")
+        machine.succeed(f"echo {fetched} > /run/fake-cache/pointers/machine")
+        machine.wait_for_unit("fake-cache.service")
+        machine.succeed("systemctl start htpc-update-fetch.service")
+
+        assert machine.succeed("readlink -f /nix/var/nix/gcroots/htpc-pending").strip() == fetched
+        assert machine.succeed("readlink -f /run/current-system").strip() == base
+        assert reason() == "outside-window", reason()
   '';
 }

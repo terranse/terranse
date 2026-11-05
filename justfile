@@ -153,14 +153,16 @@ push-lxc-template machine node="192.168.1.200":
 #
 # deploy-nixos targets a reachable box directly and activates immediately;
 # deploy publishes a signed closure and a pointer, succeeds even when the
-# box is asleep, and lets the box decide when to switch.
-deploy machine:
+# box is asleep, and activates at once when it answers -- this is the urgent
+# path, so it ignores the activation window (--now). Extra flags go to
+# ship.sh: `just deploy htpc --no-push` publishes and stops.
+deploy machine *flags:
     #!{{ bash }}
     # Outside the worktree on purpose: this fills up with whole system
     # closures, and it must survive `git clean`.
     export NIX_CACHE_DIR="${NIX_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/terranse/nix-cache}"
     mkdir -p "$NIX_CACHE_DIR"
-    ./scripts/ship.sh {{ machine }}
+    ./scripts/ship.sh {{ machine }} --now {{ flags }}
 
 # Build and activate a NixOS machine's configuration.
 # --build-host is the machine itself: it has more cores than the laptop, and

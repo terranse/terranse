@@ -253,6 +253,32 @@ let
     '';
   };
 
+  # Unattended activation only happens at night. A person asking
+  # (--force-idle) is not unattended. A zero-padded HH:MM compares correctly
+  # as a string, and the window cannot cross midnight (asserted at
+  # evaluation), so this is a plain range test; `date` reads the machine's own
+  # zone. Empty when no window is configured.
+  windowCheck = lib.optionalString (cfg.activationWindow != null) (
+    let
+      w = cfg.activationWindow;
+    in
+    ''
+      if [ "$force_idle" -eq 0 ]; then
+        now=$(date +%H:%M)
+        if [[ $now < "${w.start}" || ! $now < "${w.end}" ]]; then
+          echo "htpc-update: $now is outside ${w.start}-${w.end}; leaving $pending staged"
+          # Same rule as the nothing-staged branch: a failed rollback waits
+          # for a person and must not be buried by a routine outcome.
+          reason=$(jq -r '.reason' ${stateDir}/state.json 2>/dev/null) || reason=""
+          if [ "$reason" != "rollback-failed" ]; then
+            write_state outside-window "$pending" "$reboot_required"
+          fi
+          exit 0
+        fi
+      fi
+    ''
+  );
+
   htpc-update = pkgs.writeShellApplication {
     name = "htpc-update";
     runtimeInputs = with pkgs; [
@@ -308,6 +334,7 @@ let
         reboot_required=1
       fi
 
+      ${windowCheck}
       busy=false
       if [ "$force_idle" -eq 0 ]; then
         # /system/activity is home-player's side of the contract and may not
@@ -372,12 +399,22 @@ let
       systemd
     ];
     text = ''
+      # Three ways to finish: ask htpc-update, which honours the activation
+      # window and the idle check (the default); do nothing (--no-activate);
+      # or start htpc-update-apply, which is htpc-update --force-idle and so
+      # ignores both (--now, what `just deploy` passes).
       activate=1
-      if [ "''${1:-}" = "--no-activate" ]; then
-        activate=0
-        shift
-      fi
-      path="''${1:?usage: htpc-stage [--no-activate] <store-path>}"
+      case "''${1:-}" in
+        --no-activate)
+          activate=0
+          shift
+          ;;
+        --now)
+          activate=2
+          shift
+          ;;
+      esac
+      path="''${1:?usage: htpc-stage [--no-activate | --now] <store-path>}"
 
       # $path must name exactly one store object -- a literal path, not a
       # Nix installable (a flake reference, ".", a subpath into an output,
@@ -543,7 +580,9 @@ let
       date -u +%s > ${stagedAt}
       echo "htpc-stage: staged $path"
 
-      if [ "$activate" -eq 1 ]; then
+      if [ "$activate" -eq 2 ]; then
+        systemctl start --no-block htpc-update-apply.service
+      elif [ "$activate" -eq 1 ]; then
         systemctl start --no-block htpc-update.service
       fi
     '';
@@ -552,6 +591,44 @@ in
 {
   options.roles.staged-updates = {
     enable = lib.mkEnableOption "receiving and activating staged system generations";
+
+    activationWindow = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            start = lib.mkOption {
+              type = lib.types.str;
+              example = "03:30";
+              description = "First minute, HH:MM in the machine's timezone, at which activation is allowed.";
+            };
+            end = lib.mkOption {
+              type = lib.types.str;
+              example = "05:30";
+              description = "HH:MM at which activation stops being allowed; this minute is outside.";
+            };
+          };
+        }
+      );
+      default = null;
+      example = {
+        start = "03:30";
+        end = "05:30";
+      };
+      description = ''
+        When unattended activation may happen, in the machine's own timezone
+        (time.timeZone). Outside it a staged generation stays staged and
+        htpc-update records "outside-window"; the timer re-checks every
+        fifteen minutes, so it lands on its own once the window opens.
+
+        `htpc-update --force-idle` (the viewer's popup, htpc-update-apply)
+        and `htpc-stage --now` (`just deploy`) ignore the window: they are
+        a person asking. Nothing else does.
+
+        A window may not cross midnight: it is `start <= now < end` on one
+        day, so 23:00 to 02:00 is rejected at evaluation rather than silently
+        never opening. null means no window, activate whenever idle.
+      '';
+    };
 
     cacheUrl = lib.mkOption {
       type = lib.types.str;
@@ -653,6 +730,17 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = lib.optional (cfg.activationWindow != null) (
+      let
+        w = cfg.activationWindow;
+        hhmm = "([01][0-9]|2[0-3]):[0-5][0-9]";
+      in
+      {
+        assertion = lib.match hhmm w.start != null && lib.match hhmm w.end != null && w.start < w.end;
+        message = "roles.staged-updates.activationWindow must be zero-padded HH:MM with start before end on the same day (got ${w.start} to ${w.end}); a window across midnight is not supported";
+      }
+    );
+
     environment.systemPackages = [
       htpc-stage
       htpc-update

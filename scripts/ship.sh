@@ -11,15 +11,26 @@
 # A sleeping television must never turn a pipeline red: everything after the
 # pointer is written is best-effort, and the cache plus the pointer are the
 # durable artifact.
+#
+# By default the box is woken, handed the closure and told to stage it; it
+# then activates inside its own activation window. Two flags change that:
+#   --now      stage with `htpc-stage --now`, which activates immediately and
+#              ignores the window (the urgent path; `just deploy` passes it)
+#   --no-push  stop once the pointer is written: no wake, no SSH. The box
+#              picks the pointer up at its next fetch. Wins over --now.
 set -euo pipefail
 
-MACHINE="${1:?usage: ship.sh <machine> [--bump]}"
+MACHINE="${1:?usage: ship.sh <machine> [--bump] [--now] [--no-push]}"
 shift
 
 BUMP=0
+NOW=0
+PUSH=1
 for arg in "$@"; do
   case "$arg" in
     --bump) BUMP=1 ;;
+    --now) NOW=1 ;;
+    --no-push) PUSH=0 ;;
     *) echo "ship.sh: unknown argument '$arg'" >&2; exit 2 ;;
   esac
 done
@@ -128,6 +139,11 @@ log "pointer written"
 
 "${REPO_ROOT}/scripts/prune-cache.sh" || log "cache prune failed (non-fatal)"
 
+if [ "$PUSH" -eq 0 ]; then
+  log "--no-push: stopping after the pointer; ${MACHINE} will fetch it itself"
+  exit 0
+fi
+
 # ---- best-effort from here on --------------------------------------------
 
 # The MAC is declared once, in tfvars, and read by both the DHCP reservation
@@ -184,11 +200,17 @@ if ! nix copy --to "ssh-ng://${DEPLOY_HOST}" "$OUT"; then
 fi
 
 if ssh -o BatchMode=yes "$DEPLOY_HOST" 'test -x /run/current-system/sw/bin/htpc-stage'; then
-  log "staging"
+  STAGE_FLAG=""
+  if [ "$NOW" -eq 1 ]; then
+    STAGE_FLAG="--now "
+    log "staging, activating now"
+  else
+    log "staging"
+  fi
   # Same reasoning as the push above: staging is the box's business once the
   # bytes are on it, so a remote failure here is logged, not fatal.
   if ! ssh -o BatchMode=yes "$DEPLOY_HOST" \
-       "sudo /run/current-system/sw/bin/htpc-stage $OUT"; then
+       "sudo /run/current-system/sw/bin/htpc-stage ${STAGE_FLAG}$OUT"; then
     log "staging on ${MACHINE} failed; the closure is on the box, activate by hand"
     exit 0
   fi
