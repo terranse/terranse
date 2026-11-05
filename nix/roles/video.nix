@@ -30,10 +30,9 @@ in
         hardware.graphics = {
           enable = true;
           extraPackages = with pkgs; [
-            # 13th-gen iGPU: iHD is the modern driver; vpl-gpu-rt is what
-            # actually carries the AV1/HEVC decode blocks on Xe graphics.
+            # 9th-gen iGPU (UHD 630): iHD decodes up to HEVC and VP9, with no AV1
+            # block. A box of 11th gen or newer also wants vpl-gpu-rt.
             intel-media-driver
-            vpl-gpu-rt
           ];
         };
         # WebKitGTK picks its VA-API driver from the environment, and gets it

@@ -64,6 +64,13 @@ let
     exec /run/wrappers/bin/sudo -n ${lib.getExe android-start} "$@"
   '';
 
+  # F-Droid's build, as the store it replaces is the one thing it needs no
+  # store for. F-Droid only keeps recent versions, so bumping this may be forced.
+  aurora-store = pkgs.fetchurl {
+    url = "https://f-droid.org/repo/com.aurora.store_76.apk";
+    hash = "sha256-/Zx12Q0PSnwTK5tKWizxmSpF4DuNj/mIt9z7wNssTRE=";
+  };
+
   # Separate windows are what hand the screen back to the kiosk when an app
   # closes. With a single Android window, leaving an app lands on Android's own
   # launcher instead. Kept in [properties] so image upgrades preserve it.
@@ -83,10 +90,11 @@ in
         "VANILLA"
         "GAPPS"
       ];
-      default = "GAPPS";
+      default = "VANILLA";
       description = ''
-        Which Android image to fetch on first boot. GAPPS carries the Play
-        Store, which is the only store that has most streaming apps.
+        Which Android image to fetch on first boot. Apps come from Aurora Store,
+        which needs no Google account or Play Services. GAPPS is there for an
+        app that refuses to run without Play Services.
       '';
     };
 
@@ -133,6 +141,35 @@ in
         RemainAfterExit = true;
         ExecStart = "${lib.getExe waydroid} init -s ${cfg.imageType}";
         ExecStartPost = "${set-window-mode}";
+      };
+    };
+
+    # Installing needs Android up, which needs the kiosk's display, so this
+    # waits for as long as that takes. It runs on every boot but acts only once.
+    systemd.services.waydroid-store = {
+      description = "Install Aurora Store in Android";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "waydroid-container.service" ];
+      path = [
+        pkgs.coreutils
+        pkgs.gnugrep
+        waydroid
+      ];
+      script = ''
+        until [ "$(waydroid shell -- getprop sys.boot_completed 2>/dev/null)" = 1 ]; do
+          sleep 5
+        done
+        if ! waydroid shell -- pm list packages com.aurora.store | grep -q aurora; then
+          waydroid shell -- pm install -S "$(stat -c %s ${aurora-store})" < ${aurora-store}
+        fi
+        # The two it requires, granted so its setup has nothing to answer.
+        waydroid shell -- appops set com.aurora.store REQUEST_INSTALL_PACKAGES allow
+        waydroid shell -- appops set com.aurora.store MANAGE_EXTERNAL_STORAGE allow
+      '';
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        TimeoutStartSec = "infinity";
       };
     };
 

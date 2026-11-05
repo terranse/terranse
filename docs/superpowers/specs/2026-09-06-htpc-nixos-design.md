@@ -5,7 +5,7 @@ Status: approved, not yet implemented
 
 ## Context
 
-The HTPC is a bare-metal 13th-gen Intel i3 box whose job is to run
+The HTPC is a bare-metal 9th-gen Intel i5-9500T box with 8 GB of RAM whose job is to run
 [home-player](../../../../home-player) — a FastAPI backend, a Leptos/WASM web
 UI, and a Tauri kiosk shell on the TV. home-player is now an internal Nix
 flake exporting `nixosModules.default` (the backend as a system service) and
@@ -54,7 +54,7 @@ Specified here, built elsewhere or later:
 | CI **signs**; it does not activate | CI ships bytes and writes a pointer. The box verifies signatures and decides when to switch. A stolen deploy key uploads bytes the box refuses, rather than granting root. |
 | Binary cache is a **ZFS dataset served over static HTTP** | `nix copy --to file://` produces a valid cache. No Nix, and no daemon, on the serving host. |
 | Secrets are **1Password references**, checked in | Values never enter the repo, the Nix store, or CI. Injection runs from the laptop, where `op` is already unlocked, so no service-account token needs to exist on the LAN. |
-| No CEC role | The box is a 13th-gen i3 with no CEC support. `home-player`'s `withCec` override also does not build offline. |
+| No CEC role | The box has no CEC support. `home-player`'s `withCec` override also does not build offline. |
 
 ### On "auto-update defeats the purpose of NixOS"
 
