@@ -45,11 +45,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1793871340,
-        "narHash": "sha256-xSYqRR87kD62oI/hMoGcCvoquOCeAXUimump4glA6Zs=",
+        "lastModified": 1793893930,
+        "narHash": "sha256-QtzfzrmTaouKCGVYH8sLsdoR2t+gn8C5ShPwQnZRNjo=",
         "ref": "refs/heads/master",
-        "rev": "ba2cdd7fd5432a3144ae5fa08ec9bc94ad731920",
-        "revCount": 223,
+        "rev": "d2b7864b734f1e87936fc68597595935e4a2ed81",
+        "revCount": 226,
         "type": "git",
         "url": "ssh://git@github.com/yarcod/home-player.git"
       },
