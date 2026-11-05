@@ -61,6 +61,29 @@ class TestGPUManagerConfigTemplate:
 
         assert parsed["vms"]["gaming"]["host"] == "gaming.edholm.cc"
 
+    def test_emits_ready_url_when_the_vm_has_one(self, gpu_manager_jinja_env, gpu_manager_vars):
+        """Without it the daemon cannot tell when the AI VM can really answer."""
+        gpu_manager_vars["gaming_vms"]["ai-vm"]["ready_url"] = "http://ai-vm.edholm.cc:8080/health"
+
+        parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
+
+        assert parsed["vms"]["ai-vm"]["ready_url"] == "http://ai-vm.edholm.cc:8080/health"
+
+    def test_omits_ready_url_when_the_vm_has_none(self, gpu_manager_jinja_env, gpu_manager_vars):
+        parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
+
+        assert "ready_url" not in parsed["vms"]["ai-vm"]
+
+    def test_emits_the_vms_own_mapping(self, gpu_manager_jinja_env, gpu_manager_vars):
+        """The daemon refuses to touch a hostpci0 line on a mapping it was not
+        told about, so this has to name the one the VM really uses."""
+        gpu_manager_vars["gaming_vms"]["ai-vm"]["pci_mapping"] = "RTX-A5000-ai-vm"
+
+        parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
+
+        assert parsed["vms"]["ai-vm"]["pci_mapping"] == "RTX-A5000-ai-vm"
+        assert "pci_mapping" not in parsed["vms"]["gaming"]
+
     def test_omits_host_when_the_vm_has_none(self, gpu_manager_jinja_env, gpu_manager_vars):
         parsed = self._render(gpu_manager_jinja_env, gpu_manager_vars)
 
