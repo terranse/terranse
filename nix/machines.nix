@@ -58,6 +58,7 @@
           };
         };
       }
+      { name = "night-updates"; }
     ];
   };
 }

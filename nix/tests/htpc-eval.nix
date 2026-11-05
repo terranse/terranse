@@ -33,6 +33,18 @@ let
       toString config.services.home-player.environmentFile == "/var/lib/home-player-secrets/env";
     "Wake-on-LAN is armed" = config.services.home-player.wakeOnLan.enable;
     "Android runs for vuxna" = config.roles.android.kioskUser == "vuxna";
+    "the box wakes itself at 03:30" =
+      config.systemd.timers.htpc-night.timerConfig.OnCalendar == "*-*-* 03:30:00"
+      && config.systemd.timers.htpc-night.timerConfig.WakeSystem;
+    "Plasma leaves suspending to Home Player, on any power profile" =
+      let
+        rc = config.environment.etc."xdg/powerdevilrc".text;
+      in
+      builtins.all (p: lib.hasInfix "[${p}][SuspendAndShutdown]\nAutoSuspendAction=0\n" rc) [
+        "AC"
+        "Battery"
+        "LowBattery"
+      ];
     "the update watchdog checks vuxna's kiosk" = config.roles.staged-updates.kioskUser == "vuxna";
     "a rollback is triggered by an unhealthy backend" = config.roles.staged-updates.requireHealthy;
     "vuxna has the kiosk shell" = hm ? vuxna && hm.vuxna.systemd.user.services ? home-player-shell;

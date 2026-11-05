@@ -2,7 +2,8 @@
 
 /health and /system/activity are the whole contract the update policy depends
 on, and both answers come from /run/fake-backend, so the test flips "busy" or
-"unhealthy" with one echo.
+"unhealthy" with one echo. POST /home-assistant/tv/on appends a line to
+/run/fake-backend/tv-on, so a test can count how often the TV was asked to wake.
 """
 
 import http.server
@@ -38,6 +39,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def do_POST(self):
+        if self.path == "/home-assistant/tv/on":
+            with (STATE / "tv-on").open("a") as calls:
+                calls.write("on\n")
+            code = 200
+        else:
+            code = 404
+        self.send_response(code)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def log_message(self, fmt, *args):
         pass

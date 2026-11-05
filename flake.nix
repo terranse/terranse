@@ -123,6 +123,7 @@
         // {
           registry = import ./nix/tests/registry.nix { inherit lib pkgs; };
           staged-updates = import ./nix/tests/staged-updates.nix { inherit pkgs; };
+          night-updates = import ./nix/tests/night-updates.nix { inherit pkgs; };
           htpc-accounts = import ./nix/tests/htpc-accounts.nix { inherit pkgs; };
           htpc-eval = import ./nix/tests/htpc-eval.nix {
             inherit pkgs;

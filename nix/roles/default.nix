@@ -6,6 +6,7 @@
   desktop = ./desktop.nix;
   dev = ./dev.nix;
   home-player = ./home-player.nix;
+  night-updates = ./night-updates.nix;
   staged-updates = ./staged-updates.nix;
   video = ./video.nix;
 }
