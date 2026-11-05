@@ -9,11 +9,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # The TV's homescreen, kiosk shell and backend. A local checkout for now;
-    # Task 11 moves it to the LAN repo. Its nixpkgs follows ours so the shell
-    # and Moonlight are built against the same Mesa the box runs.
+    # The TV's homescreen, kiosk shell and backend, from the LAN repo on
+    # nixhost (no GitHub). The ref names the HTPC branch until Home Player
+    # merges it. Its nixpkgs follows ours so the shell and Moonlight are built
+    # against the same Mesa the box runs.
     home-player = {
-      url = "git+file:///home/daniele/Repos/home-player-wt-htpc";
+      url = "git+ssh://git@nixhost.edholm.cc/srv/git/home-player.git?ref=feat/htpc-night-updates";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 

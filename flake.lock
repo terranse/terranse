@@ -80,15 +80,16 @@
       "locked": {
         "lastModified": 1793911581,
         "narHash": "sha256-A5Hk4ZiV2z/lA+O8hq15ETlhnBAbdoS/c0R1gX0C9Ro=",
-        "ref": "refs/heads/feat/htpc-night-updates",
+        "ref": "feat/htpc-night-updates",
         "rev": "0b78401bb09fe5d06f7417d34df8629ab0d2a456",
         "revCount": 232,
         "type": "git",
-        "url": "file:///home/daniele/Repos/home-player-wt-htpc"
+        "url": "ssh://git@nixhost.edholm.cc/srv/git/home-player.git"
       },
       "original": {
+        "ref": "feat/htpc-night-updates",
         "type": "git",
-        "url": "file:///home/daniele/Repos/home-player-wt-htpc"
+        "url": "ssh://git@nixhost.edholm.cc/srv/git/home-player.git"
       }
     },
     "lanzaboote": {
