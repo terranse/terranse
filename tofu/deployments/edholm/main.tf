@@ -62,7 +62,10 @@ locals {
         # conditional's arms to have identical types, and `{host = string}` and
         # `{}` do not. Same reason as hosts_wired below.
         { for k, v in { host = "${name}.${var.domain}" } : k => v
-          if try(var.hosts[host_key].vms[name].gpu_tier, "game") == "game" }
+          if try(var.hosts[host_key].vms[name].gpu_tier, "game") == "game" },
+        # Where the daemon asks whether this VM can really do its job yet.
+        { for k, v in { ready_url = try(var.hosts[host_key].vms[name].gpu_ready_url, "") } : k => v
+          if v != "" }
       )
     }
   }

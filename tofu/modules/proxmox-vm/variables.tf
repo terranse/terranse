@@ -80,6 +80,10 @@ variable "configuration" {
     # active stream outranks everything but an explicit preemption), "ai", or
     # "background". Only meaningful for VMs that claim a vGPU.
     gpu_tier = optional(string, "game")
+    # gpu-manager probes this to report when the VM can really do its job. A
+    # port alone will not do behind Docker, whose proxy answers long before the
+    # service inside it is up.
+    gpu_ready_url = optional(string)
     roles    = optional(list(object({ name = string, vars = optional(map(string), {}) })), [])
     # Extra vars files for this VM's play, relative to ansible/playbooks/ --
     # e.g. ["../secrets.yaml"] for a role that reads vaulted variables. Opt-in,

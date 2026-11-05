@@ -311,6 +311,9 @@ hosts = {
 
         # Outranked by an active game stream, and displaces an idle one.
         gpu_tier = "ai"
+        # ninfer answers this only once the model is loaded; a real completion
+        # succeeds within 60ms of it. Its port opens about 25s earlier.
+        gpu_ready_url = "http://ai-vm.edholm.cc:8080/health"
 
         # Same full-24Q claim as `gaming`. The A5000 only allows one
         # homogeneous slice across the whole card, so ai-vm and gaming are
