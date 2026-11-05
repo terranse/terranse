@@ -171,6 +171,20 @@ else
   log "no MAC for ${MACHINE} (or no wakeonlan); not waking"
 fi
 
+# The cache and pointer stand either way. What differs is the promise: the
+# boot fetch honours the activation window, so a box that was not reached
+# activates in its next window, not now. An urgent (--now) run must not report
+# success for that.
+not_activated() {
+  if [ "$NOW" -eq 1 ]; then
+    echo "ship.sh: $1" >&2
+    echo "ship.sh: NOT activated; it will wait for the next night window" >&2
+    exit 1
+  fi
+  log "$1; the box picks it up in its next activation window"
+  exit 0
+}
+
 log "waiting up to ${SSH_WAIT_SECONDS}s for ${DEPLOY_HOST}"
 deadline=$(( $(date +%s) + SSH_WAIT_SECONDS ))
 reachable=0
@@ -184,19 +198,17 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 done
 
 if [ "$reachable" -ne 1 ]; then
-  log "${DEPLOY_HOST} did not answer; it will pull from the cache on next boot"
-  exit 0
+  not_activated "${DEPLOY_HOST} did not answer"
 fi
 
 log "pushing the closure"
 # `if`, not a bare command: the box answered the reachability probe a moment
 # ago, but it can still sleep, drop the network, or refuse the push before
 # this finishes. The cache and pointer already stand, so a failure here must
-# not turn the pipeline red -- log it and exit 0 rather than let `set -e`
-# take the script down.
+# not turn the pipeline red -- not_activated exits 0 unless --now was asked
+# for, and it does so instead of letting `set -e` take the script down.
 if ! nix copy --to "ssh-ng://${DEPLOY_HOST}" "$OUT"; then
-  log "push to ${DEPLOY_HOST} failed; the cache and pointer stand, it will pull on next boot"
-  exit 0
+  not_activated "push to ${DEPLOY_HOST} failed"
 fi
 
 if ssh -o BatchMode=yes "$DEPLOY_HOST" 'test -x /run/current-system/sw/bin/htpc-stage'; then
@@ -211,11 +223,10 @@ if ssh -o BatchMode=yes "$DEPLOY_HOST" 'test -x /run/current-system/sw/bin/htpc-
   # bytes are on it, so a remote failure here is logged, not fatal.
   if ! ssh -o BatchMode=yes "$DEPLOY_HOST" \
        "sudo /run/current-system/sw/bin/htpc-stage ${STAGE_FLAG}$OUT"; then
-    log "staging on ${MACHINE} failed; the closure is on the box, activate by hand"
-    exit 0
+    not_activated "staging on ${MACHINE} failed; the closure is on the box"
   fi
 else
-  log "htpc-stage is not installed on ${MACHINE} yet; closure pushed, activate by hand"
+  not_activated "htpc-stage is not installed on ${MACHINE} yet; closure pushed"
 fi
 
 log "done"
