@@ -39,32 +39,52 @@ let
     text = ''
       state=${stateDir}/state.json
       sent=${stateDir}/alerts-sent
-      stale_flag=${stateDir}/alerts-stale
+      # When the cache last gave a build time that was a number. Without it a
+      # cache that cannot be reached looks the same as a fresh one, and the most
+      # likely way for updates to stop is the least noisy.
+      build_seen=${stateDir}/alerts-build-seen
+
+      put() {
+        printf '%s\n' "$2" > "$1.new" && mv "$1.new" "$1"
+      }
 
       check() {
-        [ -r "$state" ] || return 0
         touch "$sent"
-
-        # Ask again rather than trust the file: on a night with nothing to
-        # fetch, nothing else has looked at the cache since the last run.
-        local build_age staged now
-        build_age=$(/run/current-system/sw/bin/htpc-build-age) || build_age=null
-        staged=$(jq -r '.staged_at // 0' "$state")
+        local now
         now=$(date -u +%s)
+
+        # state.json is only read here. The updater and its watchdog write it,
+        # and a second writer would lose theirs; the ages are worked out below.
+        # A file that is missing or unreadable costs the checks that need it,
+        # and no more.
+        local state_ok=0 reason="" pending="" rolled="" staged=0
+        if jq -e 'type == "object"' "$state" >/dev/null 2>&1; then
+          state_ok=1
+          reason=$(jq -r '.reason // ""' "$state")
+          pending=$(jq -r '.pending // ""' "$state")
+          rolled=$(jq -r '.rolled_back_at // ""' "$state")
+          staged=$(jq -r '.staged_at // 0' "$state")
+        fi
         [[ $staged =~ ^[0-9]+$ ]] || staged=0
-        jq --argjson b "$build_age" --argjson staged "$staged" --argjson now "$now" \
-          '.build_age_seconds = $b
-           | .age_seconds = (if $staged == 0 then 0 else $now - $staged end)' \
-          "$state" > "$state.alerts" && mv "$state.alerts" "$state"
+        local age=0
+        if [ "$staged" -ne 0 ]; then age=$(( now - staged )); fi
 
-        local reason pending rolled stale
-        reason=$(jq -r '.reason // ""' "$state")
-        pending=$(jq -r '.pending // ""' "$state")
-        rolled=$(jq -r '.rolled_back_at // ""' "$state")
-        stale=$(jq -r '((.age_seconds // 0) >= ${toString staleSeconds})
-                       or ((.build_age_seconds // 0) >= ${toString staleSeconds})' "$state")
+        # Asked again rather than read from state.json: on a night with nothing
+        # to fetch, nothing else has looked at the cache since the last run.
+        local build_age seen_at
+        build_age=$(/run/current-system/sw/bin/htpc-build-age) || build_age=null
+        [[ $build_age =~ ^[0-9]+$ ]] || build_age=null
+        seen_at=$(cat "$build_seen" 2>/dev/null) || seen_at=""
+        if [ "$build_age" != null ] || [[ ! $seen_at =~ ^[0-9]+$ ]]; then
+          # A box that has never heard from the cache starts counting now, so it
+          # says something three nights after it first ran, not never.
+          put "$build_seen" "$now"
+          seen_at=$now
+        fi
+        local unheard=$(( now - seen_at ))
+        if [ "$unheard" -lt 0 ]; then unheard=0; fi
 
-        local keys=() lines=()
+        local keys=() lines=() flags=()
         add() {
           grep -qxF -- "$1" "$sent" || { keys+=("$1"); lines+=("$2"); }
         }
@@ -79,15 +99,35 @@ let
           [ -z "$bad" ] || add "bad:$bad" "Revision marked bad: $bad"
         done < ${stateDir}/bad-revisions
 
-        local stale_new=0
-        if [ "$stale" = true ]; then
-          if [ ! -e "$stale_flag" ]; then
-            stale_new=1
-            lines+=("No update has been built or taken for 3 nights.")
-          fi
-        else
-          rm -f "$stale_flag"
+        # Once per period of each kind. A period ends only when that kind is
+        # known to be over: a night the cache cannot be reached proves nothing
+        # either way, so it neither starts nor ends one.
+        stale() {
+          local flag="${stateDir}/alerts-stale-$1"
+          case "$2" in
+            stale)
+              if [ ! -e "$flag" ]; then flags+=("$flag"); lines+=("$3"); fi
+              ;;
+            fresh) rm -f "$flag" ;;
+          esac
+        }
+        local verdict
+        verdict=unknown
+        if [ "$state_ok" -eq 1 ]; then
+          if [ "$age" -ge ${toString staleSeconds} ]; then verdict=stale; else verdict=fresh; fi
         fi
+        stale waiting "$verdict" "An update has been waiting for 3 nights without being taken."
+        verdict=unknown
+        if [ "$build_age" != null ]; then
+          if [ "$build_age" -ge ${toString staleSeconds} ]; then verdict=stale; else verdict=fresh; fi
+        fi
+        stale build "$verdict" "No update has been built for 3 nights."
+        verdict=fresh
+        if [ "$build_age" = null ]; then
+          verdict=unknown
+          if [ "$unheard" -ge ${toString staleSeconds} ]; then verdict=stale; fi
+        fi
+        stale cache "$verdict" "Cannot reach the update cache for 3 nights."
 
         [ "''${#lines[@]}" -gt 0 ] || return 0
 
@@ -101,9 +141,9 @@ let
           echo "htpc-update-alerts: not delivered; will try again next time" >&2
           return 0
         fi
-        local key
-        for key in "''${keys[@]}"; do printf '%s\n' "$key" >> "$sent"; done
-        if [ "$stale_new" -eq 1 ]; then touch "$stale_flag"; fi
+        local item
+        for item in "''${keys[@]}"; do printf '%s\n' "$item" >> "$sent"; done
+        for item in "''${flags[@]}"; do touch "$item"; done
       }
 
       # Never the reason a night's run, or an activation, goes wrong.

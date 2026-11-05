@@ -409,8 +409,6 @@ pkgs.testers.runNixOSTest {
         calls = ha_calls()
         assert len(calls) == 3, calls
         assert "3 nights" in calls[2]["message"], calls
-        state = read_state()
-        assert state["build_age_seconds"] >= three_nights, state
         run_alerts()
         assert len(ha_calls()) == 3, ha_calls()
 
@@ -418,7 +416,6 @@ pkgs.testers.runNixOSTest {
         build_finished(60)
         run_alerts()
         assert len(ha_calls()) == 3, ha_calls()
-        assert read_state()["build_age_seconds"] < three_nights
         build_finished(three_nights + 60)
         run_alerts()
         assert len(ha_calls()) == 4, ha_calls()
@@ -431,14 +428,12 @@ pkgs.testers.runNixOSTest {
         assert len(ha_calls()) == 4, ha_calls()
 
     with subtest("an update waiting three nights alerts once per stale period"):
-        assert read_state()["build_age_seconds"] is None
         now = int(machine.succeed("date +%s"))
         patch_state(staged_at=now - three_nights - 60)
         run_alerts()
         calls = ha_calls()
         assert len(calls) == 5, calls
         assert "3 nights" in calls[4]["message"], calls
-        assert read_state()["age_seconds"] >= three_nights
         run_alerts()
         assert len(ha_calls()) == 5, ha_calls()
         patch_state(staged_at=0)
@@ -449,9 +444,126 @@ pkgs.testers.runNixOSTest {
         patch_state(staged_at=0)
         run_alerts()
 
+    with subtest("the alert check never writes state.json"):
+        # The updater and its watchdog own that file; a second writer can put an
+        # older state back over theirs. Sentinels the check would overwrite.
+        patch_state(staged_at=0, age_seconds=888, build_age_seconds=777)
+        before = machine.succeed(f"cat {state_file}")
+        build_finished(100)
+        run_alerts()
+        no_build_record()
+        run_alerts()
+        assert machine.succeed(f"cat {state_file}") == before
+
+    seen_file = "/var/lib/htpc-update/alerts-build-seen"
+
+    def set_unheard_for(seconds):
+        now = int(machine.succeed("date +%s"))
+        machine.succeed(f"echo {now - seconds} > {seen_file}")
+
+    with subtest("a cache that cannot be reached for three nights alerts once"):
+        # Nothing is staged then either, so age_seconds is 0 and the build age
+        # unknown: the likeliest way for updates to stop is otherwise silent.
+        no_build_record()
+        before = len(ha_calls())
+        set_unheard_for(three_nights - 3600)
+        run_alerts()
+        assert len(ha_calls()) == before, ha_calls()
+
+        set_unheard_for(three_nights + 60)
+        run_alerts()
+        calls = ha_calls()
+        assert len(calls) == before + 1, calls
+        assert "update cache" in calls[-1]["message"], calls
+        run_alerts()
+        assert len(ha_calls()) == before + 1, ha_calls()
+
+        # The cache answers once: that period is over and counting restarts, so
+        # it going quiet again is not the same period and not yet three nights.
+        build_finished(60)
+        run_alerts()
+        no_build_record()
+        run_alerts()
+        assert len(ha_calls()) == before + 1, ha_calls()
+
+    with subtest("a cache that comes and goes inside a period does not re-send"):
+        before = len(ha_calls())
+        build_finished(three_nights + 60)
+        run_alerts()
+        assert len(ha_calls()) == before + 1, ha_calls()
+        # A night with no answer proves nothing, so it does not end the period.
+        no_build_record()
+        run_alerts()
+        build_finished(three_nights + 60)
+        run_alerts()
+        assert len(ha_calls()) == before + 1, ha_calls()
+        build_finished(60)
+        run_alerts()
+
+    with subtest("a box that has never heard from the cache starts counting then"):
+        machine.succeed(f"rm -f {seen_file}")
+        no_build_record()
+        before = len(ha_calls())
+        run_alerts()
+        assert len(ha_calls()) == before, ha_calls()
+        machine.succeed(f"test -s {seen_file}")
+        set_unheard_for(three_nights + 60)
+        run_alerts()
+        assert len(ha_calls()) == before + 1, ha_calls()
+        build_finished(60)
+        run_alerts()
+
+    with subtest("garbage and future last-success content is not a build time"):
+        now = int(machine.succeed("date +%s"))
+        before = len(ha_calls())
+        set_unheard_for(60)
+        stamp = machine.succeed(f"cat {seen_file}")
+        machine.succeed("echo 'not a number' > /run/fake-cache/pointers/machine.last-success")
+        run_alerts()
+        assert machine.succeed(f"cat {seen_file}") == stamp, "garbage counted as a reply"
+        # A build from the future is a clock disagreement, and it is a number.
+        machine.succeed(f"echo {now + 10 * 86400} > /run/fake-cache/pointers/machine.last-success")
+        run_alerts()
+        assert machine.succeed(f"cat {seen_file}") != stamp, "a future time was not read as a number"
+        assert len(ha_calls()) == before, ha_calls()
+        no_build_record()
+
+    with subtest("an unreadable state.json does not stop the other checks"):
+        good = machine.succeed(f"cat {state_file}")
+        build_finished(three_nights + 60)
+        run_alerts()
+        flag = "/var/lib/htpc-update/alerts-stale-build"
+        machine.succeed(f"test -e {flag}")
+        before = len(ha_calls())
+
+        late = "/nix/store/22222222222222222222222222222222-late-bad"
+        machine.succeed(f"echo {late} >> /var/lib/htpc-update/bad-revisions")
+        for broken in ("{nope", "[1]", ""):
+            machine.succeed(f"printf '%s' '{broken}' > {state_file}")
+            if broken == "{nope":
+                run_alerts()
+                calls = ha_calls()
+                assert len(calls) == before + 1 and late in calls[-1]["message"], calls
+            else:
+                run_alerts()
+            assert machine.succeed(f"cat {state_file}") == broken
+            # Still the same period: nothing cleared it, nothing re-sent.
+            machine.succeed(f"test -e {flag}")
+            assert len(ha_calls()) == before + 1, ha_calls()
+        machine.succeed(f"rm -f {state_file}")
+        run_alerts()
+        machine.succeed(f"test -e {flag}")
+        assert len(ha_calls()) == before + 1, ha_calls()
+        machine.succeed(f"cat > {state_file} <<'EOF'\n{good}\nEOF")
+        build_finished(60)
+        run_alerts()
+        machine.fail(f"test -e {flag}")
+        no_build_record()
+
     with subtest("an unreachable Home Assistant changes nothing it reports on"):
         sixth = "/nix/store/11111111111111111111111111111111-unreachable-bad"
         machine.succeed(f"echo {sixth} >> /var/lib/htpc-update/bad-revisions")
+        told = len(ha_calls())
         before_system = machine.succeed("readlink -f /run/current-system")
         before_reason = read_state()["reason"]
 
@@ -474,15 +586,15 @@ pkgs.testers.runNixOSTest {
         machine.wait_for_open_port(8123)
         machine.succeed("touch /run/fake-ha/refuse")
         run_alerts()
-        assert len(ha_calls()) == 6, ha_calls()
+        assert len(ha_calls()) == told, ha_calls()
 
         # Not remembered as told, so it is told when Home Assistant is back.
         machine.succeed("rm /run/fake-ha/refuse")
         run_alerts()
         calls = ha_calls()
-        assert len(calls) == 7 and sixth in calls[6]["message"], calls
+        assert len(calls) == told + 1 and sixth in calls[-1]["message"], calls
         run_alerts()
-        assert len(ha_calls()) == 7, ha_calls()
+        assert len(ha_calls()) == told + 1, ha_calls()
 
     with subtest("a known-bad revision is not retried"):
         machine.succeed("echo true > /run/fake-backend/healthy")
