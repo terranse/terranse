@@ -15,8 +15,17 @@
       omit_drivers+=" nvidia nvidia_modeset nvidia_drm nvidia_uvm nvidia_peermem "
   register: gaming_initrd_conf
 
+# Only kernels that are installed: `--regenerate-all` also walks the module
+# directories old kernels leave behind, and fails on those.
 - name: Rebuild the initrd without the NVIDIA driver
-  ansible.builtin.command: dracut -f --regenerate-all
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for image in /boot/vmlinuz-*; do
+      kver=${image#/boot/vmlinuz-}
+      dracut -f "/boot/initrd.img-${kver}" "${kver}"
+    done
+  args:
+    executable: /bin/bash
   when: gaming_initrd_conf.changed
   changed_when: true
 
