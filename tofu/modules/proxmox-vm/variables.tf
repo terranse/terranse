@@ -80,6 +80,8 @@ variable "configuration" {
     # active stream outranks everything but an explicit preemption), "ai", or
     # "background". Only meaningful for VMs that claim a vGPU.
     gpu_tier = optional(string, "game")
+    # Extra QEMU arguments, for what Proxmox has no setting of its own for.
+    qemu_args = optional(string)
     # gpu-manager probes this to report when the VM can really do its job. A
     # port alone will not do behind Docker, whose proxy answers long before the
     # service inside it is up.

@@ -240,6 +240,10 @@ hosts = {
         memory    = 32768
         disk_size = "64G"
         clone     = "ubuntu-2604-base"
+        # Proxmox asks OVMF for a boot menu with no timeout of its own, which OVMF
+        # turns into a three second wait. Measured: gaming reaches Sunshine about
+        # 4s sooner without it.
+        qemu_args = "-boot splash-time=0"
         # Deliberately NOT auto-started. gaming and ai-vm both claim the whole
         # 24Q slice, so only one can hold it, and gpu-manager's default_tenant
         # is what decides who does. With onboot set, pve-guests raced that
@@ -308,6 +312,9 @@ hosts = {
         memory    = 24576
         disk_size = "150G"
         clone     = "ubuntu-2604-base"
+
+        # Same OVMF boot menu wait as on the gaming VM.
+        qemu_args = "-boot splash-time=0"
 
         # Outranked by an active game stream, and displaces an idle one.
         gpu_tier = "ai"
