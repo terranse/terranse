@@ -157,6 +157,41 @@ let
       exit 0
     '';
   };
+
+  # A boot entry that used up its tries (boot.lanzaboote.bootCounting) is
+  # renamed `...+0-N.efi` by systemd-boot, and the box then starts the
+  # previous generation. Told once per entry, on the boot after it happened.
+  htpc-boot-fallback-alert = pkgs.writeShellApplication {
+    name = "htpc-boot-fallback-alert";
+    runtimeInputs = with pkgs; [
+      coreutils
+      findutils
+      gnugrep
+      ha-notify
+    ];
+    text = ''
+      sent=${stateDir}/boot-fallback-sent
+      mkdir -p ${stateDir}
+      touch "$sent"
+      running=$(readlink /run/booted-system || true)
+      generation() { grep -oE 'nixos-generation-[0-9]+' <<<"$1" | grep -oE '[0-9]+$' || true; }
+      find /boot/EFI/Linux -maxdepth 1 -name 'nixos-generation-*+0-*.efi' -printf '%f\n' 2>/dev/null |
+        while read -r entry; do
+          grep -qxF "$entry" "$sent" && continue
+          failed=$(mktemp)
+          rm -f "$failed"
+          HA_NOTIFY_FAILED_FLAG=$failed ha-notify "HTPC fell back from a failed boot" \
+            "Generation $(generation "$entry") did not boot in three tries, so the box is running the one before it ($running). Nothing is lost; the next update replaces both."
+          if [ -e "$failed" ]; then
+            rm -f "$failed"
+            echo "htpc-boot-fallback-alert: not delivered; will try again next boot" >&2
+            continue
+          fi
+          printf '%s\n' "$entry" >> "$sent"
+        done
+      exit 0
+    '';
+  };
 in
 {
   options.roles.update-alerts = {
@@ -198,6 +233,27 @@ in
     ];
 
     environment.systemPackages = [ ha-notify ];
+
+    systemd.services.htpc-boot-fallback-alert = {
+      description = "Tell someone when the box fell back from a failed boot";
+      wantedBy = [ "multi-user.target" ];
+      wants = [ "network-online.target" ];
+      after = [
+        "network-online.target"
+        "boot-complete.target"
+      ];
+      restartIfChanged = false;
+      environment = {
+        HA_URL = cfg.haUrl;
+        HA_NOTIFY_SERVICE = cfg.notifyService;
+      };
+      serviceConfig = {
+        Type = "oneshot";
+        EnvironmentFile = "-${cfg.environmentFile}";
+        ExecStart = lib.getExe htpc-boot-fallback-alert;
+        TimeoutStartSec = "60s";
+      };
+    };
 
     systemd.services.htpc-update-alerts = {
       description = "Tell someone when updates stop or roll back";
