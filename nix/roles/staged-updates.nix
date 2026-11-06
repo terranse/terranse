@@ -16,7 +16,12 @@ let
   stateDir = "/var/lib/htpc-update";
   pendingRoot = "/nix/var/nix/gcroots/htpc-pending";
   badRevisions = "${stateDir}/bad-revisions";
-  stagedAt = "${stateDir}/staged-at";
+  # When the fetch first saw a published pointer this box does not run. Gone
+  # once it runs it: after a healthy activation, or a fetch that finds the
+  # pointer already current. Its age is the "update not taken" age, so a box
+  # that is up to date never looks old, and one that cannot take an update
+  # (fetch or stage failing) still counts.
+  untakenSince = "${stateDir}/untaken-since";
   # Written just before an activation, cleared once the result is proved
   # healthy. Its presence on a fresh boot is how a kernel update gets
   # watchdogged at all -- nothing can poll across a reboot.
@@ -61,7 +66,7 @@ let
   writeStateFn = ''
     write_state() {
       local reason="$1" pending="$2" reboot="$3" clear="''${4:-}"
-      local staged age build_age rolled_back_at
+      local since age build_age rolled_back_at
       build_age=$(${lib.getExe htpc-build-age}) || build_age=null
       # When the last rollback happened, kept across every other outcome so
       # the notice outlives the next run that has nothing staged. Only a
@@ -73,31 +78,32 @@ let
       elif [ "$clear" = clear ]; then
         rolled_back_at=null
       fi
-      staged=$(cat ${stagedAt} 2>/dev/null || echo 0)
-      # A staged-at file that is missing, empty (an interrupted write), or
-      # otherwise not a plain integer must not reach the arithmetic below --
-      # a non-numeric string is a bash syntax error under `$(( ))` that would
-      # kill write_state under set -e, and "0" already means "nothing
-      # staged", which age_seconds should say plainly rather than reporting
-      # the distance from the Unix epoch.
-      [[ $staged =~ ^[0-9]+$ ]] || staged=0
-      if [ "$staged" -eq 0 ]; then
+      since=$(cat ${untakenSince} 2>/dev/null || echo 0)
+      # A file that is missing, empty (an interrupted write), or otherwise not
+      # a plain integer must not reach the arithmetic below -- a non-numeric
+      # string is a bash syntax error under `$(( ))` that would kill
+      # write_state under set -e, and "0" already means "nothing waiting",
+      # which age_seconds should say plainly rather than reporting the
+      # distance from the Unix epoch.
+      [[ $since =~ ^[0-9]+$ ]] || since=0
+      if [ "$since" -eq 0 ]; then
         age=0
       else
-        age=$(( $(date -u +%s) - staged ))
+        age=$(( $(date -u +%s) - since ))
+        [ "$age" -ge 0 ] || age=0
       fi
       jq -n \
         --arg reason "$reason" \
         --arg pending "$pending" \
         --arg current "$(readlink -f /run/current-system)" \
         --argjson reboot_required "$reboot" \
-        --argjson staged_at "$staged" \
+        --argjson untaken_since "$since" \
         --argjson age_seconds "$age" \
         --argjson build_age_seconds "$build_age" \
         --argjson rolled_back_at "$rolled_back_at" \
         '{ reason: $reason, pending: $pending, current: $current,
            reboot_required: ($reboot_required == 1),
-           staged_at: $staged_at, age_seconds: $age_seconds,
+           untaken_since: $untaken_since, age_seconds: $age_seconds,
            build_age_seconds: $build_age_seconds,
            rolled_back_at: $rolled_back_at }' \
         > ${stateDir}/state.json.new
@@ -181,34 +187,41 @@ let
             # since htpc-stage refuses a bad-revisions entry forever. Flip
             # roles.staged-updates.requireHealthy back to true in
             # nix/machines.nix the moment home-player lands.
-            rm -f ${verifyMarker}
+            rm -f ${verifyMarker} ${untakenSince}
             echo "htpc-update-watchdog: requireHealthy is off; leaving $pending as-is"
             write_state none "$pending" 0 clear
             exit 0
           ''
         else
           ''
+            probe() {
+              curl -fsS --max-time 5 ${cfg.healthUrl}/health >/dev/null 2>&1 || return 1
+              ${lib.optionalString cfg.requireKioskUnit ''
+                # A backend answering /health while the screen renders nothing is
+                # the failure this narrows. It does not close it.
+                systemctl --user --machine=${cfg.kioskUser}@.host \
+                  is-active --quiet home-player-shell.service || return 1
+              ''}
+            }
+
             healthy=0
             deadline=$(( $(date +%s) + ${toString cfg.watchdogSeconds} ))
             while [ "$(date +%s)" -lt "$deadline" ]; do
-              if curl -fsS --max-time 5 ${cfg.healthUrl}/health >/dev/null 2>&1; then
-                ${lib.optionalString cfg.requireKioskUnit ''
-                  # A backend answering /health while the screen renders nothing is
-                  # the failure this narrows. It does not close it.
-                  if ! systemctl --user --machine=${cfg.kioskUser}@.host \
-                       is-active --quiet home-player-shell.service; then
-                    sleep 5
-                    continue
-                  fi
-                ''}
+              if probe; then
                 healthy=1
                 break
               fi
               sleep 5
             done
+            # The deadline is wall-clock. A box suspended during the poll wakes
+            # past it in a single sleep, with the backend only just back, so it
+            # gets one more look before a good update is rolled back.
+            if [ "$healthy" -eq 0 ] && probe; then
+              healthy=1
+            fi
 
             if [ "$healthy" -eq 1 ]; then
-              rm -f ${verifyMarker}
+              rm -f ${verifyMarker} ${untakenSince}
               echo "htpc-update-watchdog: $pending is healthy"
               write_state none "$pending" 0 clear
               exit 0
@@ -341,6 +354,20 @@ let
 
       install -d -m 0755 ${stateDir}
       touch ${badRevisions}
+
+      # Rewrite state.json as it stands, with its ages worked out afresh. For a
+      # fetch with nothing to do, so a night that changes nothing still leaves
+      # the box's age fields true for the alert check and Home Player.
+      if [ "''${1:-}" = "--refresh" ]; then
+        reason=none pending="" reboot=0
+        if jq -e 'type == "object"' ${stateDir}/state.json >/dev/null 2>&1; then
+          reason=$(jq -r '.reason // "none"' ${stateDir}/state.json)
+          pending=$(jq -r '.pending // ""' ${stateDir}/state.json)
+          reboot=$(jq -r 'if .reboot_required == true then 1 else 0 end' ${stateDir}/state.json)
+        fi
+        write_state "$reason" "$pending" "$reboot"
+        exit 0
+      fi
 
       if [ ! -L ${pendingRoot} ]; then
         # With nothing staged there is nothing to report but the last outcome,
@@ -475,8 +502,9 @@ let
       # on its second line even though $path as a whole is not one store
       # path. `[^/[:space:]]+` (not `[^/]+`) also keeps a newline hidden
       # inside the name segment from being swallowed by the character
-      # class itself.
-      if [[ ! $path =~ ^/nix/store/[0-9a-z]{32}-[^/[:space:]]+$ ]]; then
+      # class itself. The name is limited to the characters Nix allows, and
+      # the hash to Nix's base32, so no shell metacharacter gets through.
+      if [[ ! $path =~ ^/nix/store/[0-9a-df-np-sv-z]{32}-[A-Za-z0-9+._?=-]+$ ]]; then
         echo "htpc-stage: $path must name exactly one store object" >&2
         exit 1
       fi
@@ -616,7 +644,6 @@ let
       # symlink target, not a re-resolved path -- so the root can only ever
       # point at the one store object that was actually checked.
       ln -sfn "$path" ${pendingRoot}
-      date -u +%s > ${stagedAt}
       echo "htpc-stage: staged $path"
 
       if [ "$activate" -eq 2 ]; then
@@ -678,7 +705,7 @@ in
     deployUser = lib.mkOption {
       type = lib.types.str;
       default = "deploy";
-      description = "Account CI pushes closures to. Gets exactly one sudo entry.";
+      description = "Account `just deploy` reaches the box as. Gets exactly one sudo entry.";
     };
 
     kioskUser = lib.mkOption {
@@ -793,7 +820,7 @@ in
     ];
 
     # Exactly one command, and its first action is to verify signatures. This
-    # is the whole privilege CI has on the box.
+    # is the whole privilege `just deploy` has on the box.
     #
     # Do NOT add `cfg.deployUser` to `wheel` when that account is declared.
     # base.nix already grants wheel `NOPASSWD:SETENV: ALL` -- putting deploy
@@ -1016,11 +1043,39 @@ in
             )
           }:$PATH
 
+          # A fetch or stage that fails still leaves state.json, and its ages,
+          # true: otherwise a box that cannot take an update says nothing.
+          trap 'rc=$?; [ "$rc" -eq 0 ] || ${lib.getExe htpc-update} --refresh || true' EXIT
+
           pointer=$(curl -fsS --max-time 20 \
             "${cfg.cacheUrl}/pointers/${config.networking.hostName}" || true)
           if [ -z "$pointer" ]; then
+            # Proves nothing either way, so the untaken count neither starts
+            # nor ends here.
             echo "htpc-update-fetch: no pointer at ${cfg.cacheUrl}"
+            ${lib.getExe htpc-update} --refresh
             exit 0
+          fi
+
+          current=$(readlink -f /run/current-system)
+          if [ "$pointer" = "$current" ]; then
+            rm -f ${untakenSince}
+            # Anything still staged is older than what runs; activating it
+            # later would be a downgrade.
+            if [ -L ${pendingRoot} ] && [ "$(readlink -f ${pendingRoot})" != "$pointer" ]; then
+              echo "htpc-update-fetch: dropping $(readlink -f ${pendingRoot}), superseded by what runs"
+              rm -f ${pendingRoot}
+            fi
+            ${lib.getExe htpc-update} --refresh
+            exit 0
+          fi
+          # Published and not running: counted from the first night that says
+          # so, until it runs. Before the checks below, so a pointer this box
+          # cannot take still counts.
+          if [ ! -s ${untakenSince} ]; then
+            install -d -m 0755 ${stateDir}
+            date -u +%s > ${untakenSince}.new
+            mv ${untakenSince}.new ${untakenSince}
           fi
 
           # $pointer is an unauthenticated remote string -- whatever bytes
@@ -1036,14 +1091,13 @@ in
           # htpc-stage, and deliberately the identical guard: see the long
           # comment there for why it is a bash pattern match against the whole
           # variable rather than a line-oriented grep.
-          if [[ ! $pointer =~ ^/nix/store/[0-9a-z]{32}-[^/[:space:]]+$ ]]; then
+          if [[ ! $pointer =~ ^/nix/store/[0-9a-df-np-sv-z]{32}-[A-Za-z0-9+._?=-]+$ ]]; then
             echo "htpc-update-fetch: $pointer is not a single literal store path; refusing" >&2
             exit 1
           fi
 
-          current=$(readlink -f /run/current-system)
-          [ "$pointer" != "$current" ] || exit 0
           if [ -L ${pendingRoot} ] && [ "$(readlink -f ${pendingRoot})" = "$pointer" ]; then
+            ${lib.getExe htpc-update} --refresh
             exit 0
           fi
 

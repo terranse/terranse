@@ -163,6 +163,14 @@ pkgs.testers.runNixOSTest {
         # definitions of one option is an evaluation error, not an override.
         roles.staged-updates.watchdogSeconds = lib.mkForce 16;
       };
+
+      # Only for its htpc-stage, run from the specialisation's own path and never
+      # switched to: the real box's signature checks, pinned to a key whose
+      # private half nobody kept, so nothing in this VM is signed by it.
+      specialisation.signed.configuration = {
+        roles.staged-updates.requireSignatures = lib.mkForce true;
+        roles.staged-updates.signingPublicKey = "staged-updates-test-1:V4ndMz//yUGJpFgdUL+FO//9HrRntQUMzJurxkmk6Is=";
+      };
     };
 
   testScript = ''
@@ -429,25 +437,30 @@ pkgs.testers.runNixOSTest {
 
     with subtest("an update waiting three nights alerts once per stale period"):
         now = int(machine.succeed("date +%s"))
+        # When the box was last staged says nothing: one up to date for weeks
+        # was staged weeks ago.
         patch_state(staged_at=now - three_nights - 60)
+        run_alerts()
+        assert len(ha_calls()) == 4, ha_calls()
+        patch_state(untaken_since=now - three_nights - 60)
         run_alerts()
         calls = ha_calls()
         assert len(calls) == 5, calls
         assert "3 nights" in calls[4]["message"], calls
         run_alerts()
         assert len(ha_calls()) == 5, ha_calls()
-        patch_state(staged_at=0)
+        patch_state(untaken_since=0)
         run_alerts()
-        patch_state(staged_at=now - three_nights - 60)
+        patch_state(untaken_since=now - three_nights - 60)
         run_alerts()
         assert len(ha_calls()) == 6, ha_calls()
-        patch_state(staged_at=0)
+        patch_state(untaken_since=0)
         run_alerts()
 
     with subtest("the alert check never writes state.json"):
         # The updater and its watchdog own that file; a second writer can put an
         # older state back over theirs. Sentinels the check would overwrite.
-        patch_state(staged_at=0, age_seconds=888, build_age_seconds=777)
+        patch_state(untaken_since=0, age_seconds=888, build_age_seconds=777)
         before = machine.succeed(f"cat {state_file}")
         build_finished(100)
         run_alerts()
@@ -804,6 +817,65 @@ pkgs.testers.runNixOSTest {
             "! test -e /var/lib/htpc-update/verify-after-reboot", timeout=60
         )
 
+    with subtest("htpc-stage --now refuses a bad or unsigned path"):
+        back_to_base(keep_state=False)
+        set_clock("12:00")
+        machine.succeed("rm -f /nix/var/nix/gcroots/htpc-pending")
+
+        def apply_runs():
+            return machine.succeed("systemctl show -P InvocationID htpc-update-apply.service").strip()
+
+        def refused(cmd):
+            before = apply_runs()
+            status, out = machine.execute(f"{cmd} 2>&1")
+            assert status != 0, f"accepted: {cmd}: {out}"
+            machine.fail("test -L /nix/var/nix/gcroots/htpc-pending")
+            machine.sleep(2)
+            assert apply_runs() == before, f"htpc-update-apply started after: {cmd}"
+            assert machine.succeed("readlink -f /run/current-system").strip() == base
+            return out
+
+        refused("htpc-stage --now not-a-path")
+        refused("htpc-stage --now /nix/store/short")
+        refused(f"htpc-stage --now {nxt}/bin")
+        # Shell metacharacters in the name, and a hash outside Nix's base32.
+        hashpart = "b" * 32
+        for name in ("x;touch /tmp/pwned", "$(touch /tmp/pwned)", "`touch /tmp/pwned`", "a|b"):
+            refused(f"htpc-stage --now '/nix/store/{hashpart}-{name}'")
+        refused("htpc-stage --now /nix/store/" + "e" * 32 + "-nixos-system-x")
+        machine.fail("test -e /tmp/pwned")
+        machine.succeed(f"echo {nxt} > /var/lib/htpc-update/bad-revisions")
+        assert "bad-revisions" in refused(f"htpc-stage --now {nxt}")
+        machine.succeed(": > /var/lib/htpc-update/bad-revisions")
+
+        # The real checks, with a pinned key nothing here is signed by.
+        signed_stage = f"{base}/specialisation/signed/sw/bin/htpc-stage"
+        machine.succeed(f"grep -q staged-updates-test-1 {signed_stage}")
+        out = refused(f"{signed_stage} --now {nxt}")
+        assert "signature" in out or "untrusted" in out or "trusted" in out, out
+
+    with subtest("a watchdog whose deadline passed during a suspend asks once more"):
+        # The deadline is wall-clock. A box suspended in the poll wakes past it
+        # with the backend still coming back; one look after the loop is the
+        # difference between that and a rollback of a good update.
+        back_to_base(keep_state=False)
+        machine.succeed(": > /var/lib/htpc-update/bad-revisions")
+        machine.succeed("echo false > /run/fake-backend/healthy")
+        machine.succeed(f"echo {base} > /var/lib/htpc-update/verify-after-reboot")
+        machine.succeed(
+            "systemd-run --unit=watchdog-across-suspend --collect"
+            " /run/current-system/sw/bin/htpc-update-watchdog"
+        )
+        machine.sleep(2)
+        # The suspend: an hour of wall clock in a moment, healthy on the way out.
+        machine.succeed("date -s '+1 hour' && echo true > /run/fake-backend/healthy")
+        machine.wait_until_fails("systemctl is-active --quiet watchdog-across-suspend.service", timeout=60)
+        machine.fail(f"grep -qxF {base} /var/lib/htpc-update/bad-revisions")
+        machine.fail("test -e /var/lib/htpc-update/verify-after-reboot")
+        assert reason() == "none", read_state()
+        assert machine.succeed(f"readlink -f {profile}").strip() == base
+        set_clock("12:00")
+
     with subtest("boot-time fetch stages but honours the window"):
         back_to_base(keep_state=False)
         machine.succeed("rm -f /nix/var/nix/gcroots/htpc-pending")
@@ -821,5 +893,27 @@ pkgs.testers.runNixOSTest {
         assert machine.succeed("readlink -f /nix/var/nix/gcroots/htpc-pending").strip() == fetched
         assert machine.succeed("readlink -f /run/current-system").strip() == base
         assert reason() == "outside-window", reason()
+        # Counted from the night the box first saw something it does not run.
+        since = read_state()["untaken_since"]
+        assert since > 0 and read_state()["age_seconds"] >= 0, read_state()
+
+        # Seen again: the count does not restart.
+        machine.succeed("systemctl start htpc-update-fetch.service")
+        assert read_state()["untaken_since"] == since, read_state()
+
+        # A pointer with shell metacharacters is refused before it is used.
+        hashpart = "b" * 32
+        machine.succeed(
+            f"printf '%s\\n' '/nix/store/{hashpart}-x$(touch /tmp/pwned)' > /run/fake-cache/pointers/machine"
+        )
+        machine.fail("systemctl start htpc-update-fetch.service")
+        machine.succeed("journalctl -u htpc-update-fetch.service --grep 'not a single literal store path'")
+        machine.fail("test -e /tmp/pwned")
+        machine.succeed("systemctl reset-failed htpc-update-fetch.service")
+
+        # The cache names what the box runs: nothing is waiting any more.
+        machine.succeed("readlink -f /run/current-system > /run/fake-cache/pointers/machine")
+        machine.succeed("systemctl start htpc-update-fetch.service")
+        assert read_state()["untaken_since"] == 0 and read_state()["age_seconds"] == 0, read_state()
   '';
 }

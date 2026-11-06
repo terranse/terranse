@@ -17,6 +17,10 @@ let
   stateDir = "/var/lib/htpc-update";
   # Three nights, as Home Player's notice counts them.
   staleSeconds = 259200;
+  # An update not taken is counted from the wake that first saw it, and checked
+  # at the same wake three nights on, a few seconds either side. Without the
+  # margin the third night can fall a moment short and the alert slip a night.
+  waitingStaleSeconds = staleSeconds - 6 * 3600;
 
   ha-notify = pkgs.writeShellApplication {
     name = "ha-notify";
@@ -57,17 +61,19 @@ let
         # and a second writer would lose theirs; the ages are worked out below.
         # A file that is missing or unreadable costs the checks that need it,
         # and no more.
-        local state_ok=0 reason="" pending="" rolled="" staged=0
+        local state_ok=0 reason="" pending="" rolled="" since=0
         if jq -e 'type == "object"' "$state" >/dev/null 2>&1; then
           state_ok=1
           reason=$(jq -r '.reason // ""' "$state")
           pending=$(jq -r '.pending // ""' "$state")
           rolled=$(jq -r '.rolled_back_at // ""' "$state")
-          staged=$(jq -r '.staged_at // 0' "$state")
+          # Since the box first saw a published update it does not run; 0 when
+          # it runs what is published.
+          since=$(jq -r '.untaken_since // 0' "$state")
         fi
-        [[ $staged =~ ^[0-9]+$ ]] || staged=0
+        [[ $since =~ ^[0-9]+$ ]] || since=0
         local age=0
-        if [ "$staged" -ne 0 ]; then age=$(( now - staged )); fi
+        if [ "$since" -ne 0 ]; then age=$(( now - since )); fi
 
         # Asked again rather than read from state.json: on a night with nothing
         # to fetch, nothing else has looked at the cache since the last run.
@@ -114,7 +120,7 @@ let
         local verdict
         verdict=unknown
         if [ "$state_ok" -eq 1 ]; then
-          if [ "$age" -ge ${toString staleSeconds} ]; then verdict=stale; else verdict=fresh; fi
+          if [ "$age" -ge ${toString waitingStaleSeconds} ]; then verdict=stale; else verdict=fresh; fi
         fi
         stale waiting "$verdict" "An update has been waiting for 3 nights without being taken."
         verdict=unknown

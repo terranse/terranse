@@ -653,6 +653,97 @@ pkgs.testers.runNixOSTest {
         assert suspends() == ["suspend watchdog-pending=no marker=no"], suspends()
         assert tv_on_calls() == 0
 
+    def read_state():
+        return json.loads(machine.succeed(f"cat {state_dir}/state.json"))
+
+    def next_night():
+        # A day later, 04:00, with a build the nixhost made a moment ago.
+        machine.succeed(
+            "date -s \"$(date -d '+1 day' +%F) 04:00:00\"",
+            "date +%s > /run/fake-cache/pointers/machine.last-success",
+        )
+
+    def no_alerts_yet():
+        machine.succeed(
+            "rm -f /run/fake-ha/calls",
+            f"rm -f {state_dir}/state.json {state_dir}/alerts-sent {state_dir}/alerts-stale-*"
+            f" {state_dir}/staged-at {state_dir}/untaken-since",
+            f": > {state_dir}/bad-revisions",
+        )
+
+    def no_notice(state):
+        # Home Player's rule (backend/home_player/main.py, _update_notice).
+        assert state["reason"] not in ("rollback-failed", "bad"), state
+        assert not state.get("rolled_back_at"), state
+        for key in ("build_age_seconds", "age_seconds"):
+            age = state.get(key)
+            assert not (isinstance(age, int) and age >= 3 * 86400), (key, state)
+
+    with subtest("activated, then three nights with nothing new: no alert, no notice"):
+        back_to_base()
+        # The switch starts the timer again, and the days moved below would
+        # fire it under these runs.
+        machine.succeed("systemctl stop htpc-night.timer")
+        reset()
+        no_alerts_yet()
+        set_clock("04:00")
+        machine.succeed(
+            f"htpc-stage --no-activate {nxt}",
+            f"echo {nxt} > /run/fake-cache/pointers/machine",
+            "date +%s > /run/fake-cache/pointers/machine.last-success",
+        )
+        timed_wake()
+        run_night()
+        assert machine.succeed("readlink -f /run/current-system").strip() == nxt
+        assert read_state()["age_seconds"] == 0, read_state()
+        for night in range(1, 4):
+            next_night()
+            # reset() takes the pointer away; the cache still names nxt.
+            machine.succeed(f"echo {nxt} > /run/fake-cache/pointers/machine")
+            timed_wake()
+            run_night()
+            state = read_state()
+            assert ha_calls() == 0, (night, machine.succeed("cat /run/fake-ha/calls"))
+            no_notice(state)
+            assert state["age_seconds"] == 0, (night, state)
+
+    with subtest("a pointer the box cannot take alerts once, after 3 nights"):
+        # Or the switch below starts the fetch, which fails on it.
+        machine.succeed("rm -f /run/fake-cache/pointers/machine")
+        back_to_base()
+        machine.succeed("systemctl stop htpc-night.timer")
+        reset()
+        no_alerts_yet()
+        set_clock("04:00")
+        # Published but not in the cache: the cache answers, the fetch fails.
+        missing = "/nix/store/" + "3" * 32 + "-nixos-system-machine-missing"
+
+        def night_with_missing_pointer():
+            machine.succeed(
+                f"echo {missing} > /run/fake-cache/pointers/machine",
+                "date +%s > /run/fake-cache/pointers/machine.last-success",
+            )
+            timed_wake()
+            run_night()
+            machine.succeed("systemctl is-failed --quiet htpc-update-fetch.service")
+
+        night_with_missing_pointer()
+        for night in range(1, 3):
+            next_night()
+            night_with_missing_pointer()
+            assert ha_calls() == 0, night
+            assert read_state()["age_seconds"] < 3 * 86400, read_state()
+        next_night()
+        night_with_missing_pointer()
+        assert ha_calls() == 1, machine.succeed("cat /run/fake-ha/calls")
+        assert "waiting for 3 nights" in machine.succeed("cat /run/fake-ha/calls")
+        assert read_state()["age_seconds"] >= 3 * 86400, read_state()
+        next_night()
+        night_with_missing_pointer()
+        assert ha_calls() == 1, machine.succeed("cat /run/fake-ha/calls")
+        no_alerts_yet()
+        machine.succeed("rm -f /run/fake-cache/pointers/machine")
+
     with subtest("a stale marker does not put a freshly booted box to sleep"):
         back_to_base()
         reset()
