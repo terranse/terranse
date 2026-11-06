@@ -146,7 +146,7 @@
           update-host = import ./nix/tests/update-host.nix { inherit pkgs; };
           htpc-eval = import ./nix/tests/htpc-eval.nix {
             inherit pkgs;
-            config = self.nixosConfigurations.htpc.config;
+            inherit (self.nixosConfigurations.htpc) config extendModules;
           };
         };
 

@@ -3,7 +3,11 @@
 # secrets from the file `just secrets` installs, only the grown-up's account
 # runs the kiosk, and the disk and boot chain can be unlocked from across the
 # room on a box with no screen. Any false value throws, naming the claim.
-{ pkgs, config }:
+{
+  pkgs,
+  config,
+  extendModules,
+}:
 let
   inherit (pkgs) lib;
   hm = config.home-manager.users;
@@ -27,6 +31,12 @@ let
       };
   fleetKey = builtins.head config.users.users.default-user.openssh.authorizedKeys.keys;
   zfsModule = config.boot.kernelPackages.${config.boot.zfs.package.kernelModuleAttribute};
+  # The same machine with its night wake moved past the activation window.
+  lateWake =
+    (extendModules {
+      modules = [ { roles.night-updates.wakeTime = lib.mkForce "06:00"; } ];
+    }).config;
+  failingAssertions = c: map (a: a.message) (builtins.filter (a: !a.assertion) c.assertions);
   claims = {
     "the backend is enabled" = config.services.home-player.enable;
     "the backend reads secrets from /var/lib/home-player-secrets/env" =
@@ -45,6 +55,15 @@ let
         "Battery"
         "LowBattery"
       ];
+    "the night wake is inside the activation window" = failingAssertions config == [ ];
+    "a night wake outside the activation window does not evaluate" =
+      builtins.any (lib.hasInfix "wakeTime (06:00) must lie inside") (failingAssertions lateWake);
+    "nixhost's cache is a substituter" =
+      builtins.elem "http://nixhost.edholm.cc:8080" config.nix.settings.substituters;
+    "cache.nixos.org is still a substituter" =
+      builtins.elem "https://cache.nixos.org/" config.nix.settings.substituters;
+    "the login screen hides the machine accounts" =
+      config.services.displayManager.sddm.settings.Users.HideUsers or null == "default-user,deploy";
     "the update watchdog checks vuxna's kiosk" = config.roles.staged-updates.kioskUser == "vuxna";
     "a rollback is triggered by an unhealthy backend" = config.roles.staged-updates.requireHealthy;
     "vuxna has the kiosk shell" = hm ? vuxna && hm.vuxna.systemd.user.services ? home-player-shell;

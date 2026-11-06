@@ -248,10 +248,10 @@ hosts = {
       #
       # /dev/kvm, so the nightly gate can run the VM tests, is NOT declared
       # here: `devices` only reaches a container through the proxmox/lxc
-      # Ansible role, which `provision = "none"` skips. Untried; add it on the
-      # node by hand once it exists (`pct set <vmid> --dev0 /dev/kvm,mode=0666`)
-      # and leave it out if Proxmox refuses. Without it nightly.sh skips the VM
-      # tests loudly and still gates on everything else.
+      # Ansible role, which `provision = "none"` skips. Giving it one is a
+      # recorded terranse follow-up (a node-side play for provision = "none"),
+      # never a hand edit on Proxmox. Until then nightly.sh skips the VM tests
+      # loudly and still gates on everything else.
       #
       # The HTPC's DHCP reservation needs nothing here: its `mac` below
       # already feeds one.

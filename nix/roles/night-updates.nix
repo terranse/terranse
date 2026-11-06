@@ -421,6 +421,18 @@ in
         assertion = lib.match "([01][0-9]|2[0-3]):[0-5][0-9]" cfg.wakeTime != null;
         message = "roles.night-updates.wakeTime must be zero-padded HH:MM (got ${cfg.wakeTime})";
       }
+      {
+        # Zero-padded HH:MM compares correctly as a string. A wake outside the
+        # window fetches and stages, then can never activate unattended.
+        assertion =
+          staged.activationWindow == null
+          || (staged.activationWindow.start <= cfg.wakeTime && cfg.wakeTime < staged.activationWindow.end);
+        message = "roles.night-updates.wakeTime (${cfg.wakeTime}) must lie inside roles.staged-updates.activationWindow${
+          lib.optionalString (
+            staged.activationWindow != null
+          ) " (${staged.activationWindow.start} to ${staged.activationWindow.end})"
+        }";
+      }
     ];
 
     environment.systemPackages = [ htpc-night-decide ];

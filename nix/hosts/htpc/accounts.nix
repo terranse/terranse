@@ -20,6 +20,9 @@
   # the password is back for them and the deploy account keeps its own rule.
   # mkForce because base.nix sets the same option at normal priority.
   security.sudo.wheelNeedsPassword = lib.mkForce true;
+
+  # The login screen offers the two people, not the machine accounts.
+  services.displayManager.sddm.settings.Users.HideUsers = "default-user,deploy";
   security.sudo.extraRules = [
     {
       users = [ "default-user" ];
