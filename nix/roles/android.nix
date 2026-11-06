@@ -14,7 +14,8 @@ let
 
   # Needs root because it reaches into the container, so it runs as a service
   # of its own. The session can only send it one line, and anything that isn't
-  # a package name or "home" is refused.
+  # a package name or "home" is refused. It answers with one line: "ready" once
+  # the app has drawn its first frame, "ok" for home, or "failed <reason>".
   android-launch-handler = pkgs.writeShellApplication {
     name = "android-launch-handler";
     runtimeInputs = [
@@ -22,54 +23,93 @@ let
       waydroid
     ];
     text = ''
+      # The reply goes to the socket, everything else to the journal. The app
+      # must still open if the caller hangs up, so a closed socket is ignored.
+      trap "" PIPE
+      exec 3>&1 1>&2
+      reply() { echo "$1" >&3 || true; }
+
       pkg=""
       read -r -t 5 -n 256 pkg || [ -n "$pkg" ] || exit 2
 
       # Android's Home takes the app's window away and hands the screen back.
       if [ "$pkg" = home ]; then
         waydroid shell -- input keyevent KEYCODE_HOME
+        reply ok
         exit 0
       fi
 
       if ! [[ "$pkg" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]]; then
-        echo "android-launch: refused a request that is not a package name" >&2
+        echo "android-launch: refused a request that is not a package name"
         exit 2
       fi
 
       # Android freezes when idle, and may still be booting right after login.
+      # Each `waydroid shell` costs about a second, so the boot check and the
+      # lookup share one.
       waydroid container unfreeze || true
-      for _ in $(seq 1 60); do
-        [ "$(waydroid shell -- getprop sys.boot_completed 2>/dev/null)" = 1 ] && break
+      while :; do
+        resolved=$(waydroid shell -- sh -c "[ \"\$(getprop sys.boot_completed)\" = 1 ] \
+          && echo booted && cmd package resolve-activity --brief \
+          -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $pkg" \
+          2>/dev/null | tr -d '\r') || true
+        [[ "$resolved" == booted* ]] && break
+        if [ "$SECONDS" -ge 60 ]; then
+          reply "failed boot-timeout"
+          exit 1
+        fi
         sleep 1
       done
 
-      component=$(waydroid shell -- cmd package resolve-activity --brief \
-        -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "$pkg" \
-        | tail -n 1 | tr -d '\r')
-      case "$component" in
-        */*) ;;
-        *)
-          echo "android-launch: $pkg is not installed" >&2
-          exit 1
-          ;;
-      esac
+      # It goes back into a command line below, so only a plain name will do.
+      component=$(printf '%s\n' "$resolved" | tail -n 1)
+      component_re='^[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+$'
+      if ! [[ "$component" =~ $component_re ]]; then
+        echo "android-launch: $pkg is not installed"
+        reply "failed not-installed"
+        exit 1
+      fi
 
       # `waydroid app launch` can only open a small floating window, so start
       # the activity directly in fullscreen mode. The window then shows only
       # while this property names something other than the app, and an app it
-      # does name stays invisible, hence the neutral value.
-      waydroid shell -- setprop waydroid.active_apps home-player
-      waydroid shell -- settings put global policy_control 'immersive.full=*'
-      waydroid shell -- am start --windowingMode 1 -n "$component"
+      # does name stays invisible, hence the neutral value. `am start -W`
+      # returns once the app's own first frame is drawn, but `waydroid shell`
+      # exits 0 whatever happened, so the answer is read from its output.
+      rc=0
+      out=$(timeout 25 waydroid shell -- sh -c "setprop waydroid.active_apps home-player; \
+        settings put global policy_control 'immersive.full=*'; \
+        am start -W --windowingMode 1 -n '$component'" 2>&1) || rc=$?
+      echo "$out"
+      case "$out" in
+        *"Status: ok"*) reply ready ;;
+        *)
+          if [ "$rc" -eq 124 ]; then
+            reply "failed draw-timeout"
+          else
+            reply "failed start"
+          fi
+          exit 1
+          ;;
+      esac
     '';
   };
 
+  # Waits for the answer, which comes after the app has drawn, so the caller
+  # knows when to show it. Longer than the handler's own wait for the draw.
   android-launch = pkgs.writeShellScriptBin "android-launch" ''
     case "''${1:-}" in
       --home) request=home ;;
       *) request="''${1:-}" ;;
     esac
-    printf '%s\n' "$request" | exec ${lib.getExe pkgs.socat} - UNIX-CONNECT:${socketPath}
+    answer=$(printf '%s\n' "$request" \
+      | ${lib.getExe pkgs.socat} -t 30 - UNIX-CONNECT:${socketPath}) || true
+    answer=''${answer%%$'\n'*}
+    echo "$answer"
+    case "$answer" in
+      ready | ok) exit 0 ;;
+      *) exit 1 ;;
+    esac
   '';
 
   # F-Droid's build, as the store it replaces is the one thing it needs no
@@ -145,8 +185,9 @@ in
       serviceConfig = {
         ExecStart = lib.getExe android-launch-handler;
         StandardInput = "socket";
-        # Not the socket: an app must still open after the caller has hung up.
-        StandardOutput = "journal";
+        # The handler writes its one-line answer here and logs to stderr.
+        StandardOutput = "socket";
+        StandardError = "journal";
         # Long enough for Android to finish booting, as the handler waits for it.
         RuntimeMaxSec = 120;
         NoNewPrivileges = true;
