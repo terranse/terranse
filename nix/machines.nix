@@ -24,9 +24,6 @@
         name = "update-host";
         settings = {
           netbootMac = "bc:e9:2f:86:35:3b";
-          # The HTPC work is only on this branch until it merges; then drop
-          # the line and the default, main, applies.
-          branch = "feat/htpc-install";
           haUrl = "http://home.edholm.cc:8123";
           notifyService = "notify.mobile_app_pixel_8";
         };

@@ -10,11 +10,11 @@
     };
 
     # The TV's homescreen, kiosk shell and backend, from the LAN repo on
-    # nixhost (no GitHub). The ref names the HTPC branch until Home Player
-    # merges it. Its nixpkgs follows ours so the shell and Moonlight are built
+    # nixhost (no GitHub). The ref is explicit because the bare repo's branch
+    # is master. Its nixpkgs follows ours so the shell and Moonlight are built
     # against the same Mesa the box runs.
     home-player = {
-      url = "git+ssh://git@nixhost.edholm.cc/srv/git/home-player.git?ref=feat/htpc-night-updates";
+      url = "git+ssh://git@nixhost.edholm.cc/srv/git/home-player.git?ref=master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
