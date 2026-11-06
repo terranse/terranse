@@ -73,7 +73,9 @@ let
       # later update proved healthy (`clear`) takes it away.
       rolled_back_at=$(jq -c '.rolled_back_at // null' ${stateDir}/state.json 2>/dev/null) || rolled_back_at=null
       [ -n "$rolled_back_at" ] || rolled_back_at=null
-      if [ "$reason" = rolled-back ]; then
+      # `keep` is a refresh rewriting the state as it stands: re-dating the
+      # rollback there would make each quiet night look like a new one.
+      if [ "$reason" = rolled-back ] && [ "$clear" != keep ]; then
         rolled_back_at=$(jq -n --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '$t')
       elif [ "$clear" = clear ]; then
         rolled_back_at=null
@@ -365,7 +367,7 @@ let
           pending=$(jq -r '.pending // ""' ${stateDir}/state.json)
           reboot=$(jq -r 'if .reboot_required == true then 1 else 0 end' ${stateDir}/state.json)
         fi
-        write_state "$reason" "$pending" "$reboot"
+        write_state "$reason" "$pending" "$reboot" keep
         exit 0
       fi
 

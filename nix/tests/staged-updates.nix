@@ -792,6 +792,17 @@ pkgs.testers.runNixOSTest {
         assert 90 <= age < 600, age
         no_build_record()
 
+    with subtest("a refresh keeps the time of the last rollback"):
+        # A night with nothing to do rewrites the state to refresh its ages.
+        # Re-dating rolled_back_at there would make every such night look like
+        # a new rollback and re-send the alert.
+        patch_state(reason="rolled-back", rolled_back_at="2026-11-05T01:00:00Z")
+        machine.succeed("htpc-update --refresh")
+        state = read_state()
+        assert state["reason"] == "rolled-back", state
+        assert state["rolled_back_at"] == "2026-11-05T01:00:00Z", state
+        patch_state(reason="none", rolled_back_at=None)
+
     with subtest("--force-idle ignores the window"):
         back_to_base(keep_state=False)
         set_clock("12:00")
