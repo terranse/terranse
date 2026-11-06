@@ -37,16 +37,16 @@
     bootCounting.initialTries = 3;
   };
 
-  # A boot counts as good once the box can be reached again: multi-user, with
-  # SSH up. A boot that gets that far but whose Home Player is unhealthy is the
-  # update watchdog's to roll back (staged-updates.nix); tying the backend's
-  # health here too would roll the same failure back twice.
+  # A boot counts as good once the box can be reached again: SSH is up. Not
+  # multi-user.target: one stuck unit holds that back forever (a oneshot
+  # waydroid-store once did), and a box that is reachable can be fixed from
+  # another room, while three such boots would roll back a working generation.
+  # A boot that gets this far but whose Home Player is unhealthy is the update
+  # watchdog's to roll back (staged-updates.nix); tying the backend's health
+  # here too would roll the same failure back twice.
   systemd.targets.boot-complete = {
     requires = [ "sshd.service" ];
-    after = [
-      "multi-user.target"
-      "sshd.service"
-    ];
+    after = [ "sshd.service" ];
   };
 
   # A kernel panic, in the initrd or later, reboots after 10 s instead of
