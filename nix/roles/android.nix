@@ -15,7 +15,8 @@ let
   # Needs root because it reaches into the container, so it runs as a service
   # of its own. The session can only send it one line, and anything that isn't
   # a package name or "home" is refused. It answers with one line: "ready" once
-  # the app has drawn its first frame, "ok" for home, or "failed <reason>".
+  # the app has drawn its first frame, "ok" for home, or "failed <reason>",
+  # always within 28 s of the request so the client is still there to hear it.
   android-launch-handler = pkgs.writeShellApplication {
     name = "android-launch-handler";
     runtimeInputs = [
@@ -26,15 +27,22 @@ let
       # The reply goes to the socket, everything else to the journal. The app
       # must still open if the caller hangs up, so a closed socket is ignored.
       trap "" PIPE
+      # Children get fd 3 closed, so none of them can hold the client waiting.
       exec 3>&1 1>&2
       reply() { echo "$1" >&3 || true; }
 
       pkg=""
       read -r -t 5 -n 256 pkg || [ -n "$pkg" ] || exit 2
 
+      # Every answer must be written within this, as the client waits 30 s.
+      # The 2 s kept back cover the grace `timeout -k` gives a stuck command.
+      SECONDS=0
+      budget=28
+      left() { echo $((budget - 2 - SECONDS)); }
+
       # Android's Home takes the app's window away and hands the screen back.
       if [ "$pkg" = home ]; then
-        waydroid shell -- input keyevent KEYCODE_HOME
+        timeout -k 2 10 waydroid shell -- input keyevent KEYCODE_HOME 3>&-
         reply ok
         exit 0
       fi
@@ -45,19 +53,19 @@ let
       fi
 
       # Android freezes when idle, and may still be booting right after login.
-      # Each `waydroid shell` costs about a second, so the boot check and the
-      # lookup share one.
-      waydroid container unfreeze || true
+      # Waiting for it takes from the same budget. Each `waydroid shell` costs
+      # about a second, so the boot check and the lookup share one.
+      timeout -k 2 5 waydroid container unfreeze 3>&- || true
       while :; do
-        resolved=$(waydroid shell -- sh -c "[ \"\$(getprop sys.boot_completed)\" = 1 ] \
-          && echo booted && cmd package resolve-activity --brief \
-          -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $pkg" \
-          2>/dev/null | tr -d '\r') || true
-        [[ "$resolved" == booted* ]] && break
-        if [ "$SECONDS" -ge 60 ]; then
+        if [ "$(left)" -le 1 ]; then
           reply "failed boot-timeout"
           exit 1
         fi
+        resolved=$(timeout -k 2 "$(left)" waydroid shell -- sh -c "[ \"\$(getprop sys.boot_completed)\" = 1 ] \
+          && echo booted && cmd package resolve-activity --brief \
+          -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $pkg" \
+          2>/dev/null 3>&- | tr -d '\r') || true
+        [[ "$resolved" == booted* ]] && break
         sleep 1
       done
 
@@ -75,16 +83,22 @@ let
       # while this property names something other than the app, and an app it
       # does name stays invisible, hence the neutral value. `am start -W`
       # returns once the app's own first frame is drawn, but `waydroid shell`
-      # exits 0 whatever happened, so the answer is read from its output.
+      # exits 0 whatever happened, so the answer is read from its output. It
+      # gets whatever is left of the budget to draw.
+      if [ "$(left)" -le 0 ]; then
+        reply "failed draw-timeout"
+        exit 1
+      fi
       rc=0
-      out=$(timeout 25 waydroid shell -- sh -c "setprop waydroid.active_apps home-player; \
+      out=$(timeout -k 2 "$(left)" waydroid shell -- sh -c "setprop waydroid.active_apps home-player; \
         settings put global policy_control 'immersive.full=*'; \
-        am start -W --windowingMode 1 -n '$component'" 2>&1) || rc=$?
+        am start -W --windowingMode 1 -n '$component'" 2>&1 3>&-) || rc=$?
       echo "$out"
       case "$out" in
         *"Status: ok"*) reply ready ;;
         *)
-          if [ "$rc" -eq 124 ]; then
+          # 124 when it ran out of time, 137 when it then had to be killed.
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
             reply "failed draw-timeout"
           else
             reply "failed start"
@@ -96,7 +110,7 @@ let
   };
 
   # Waits for the answer, which comes after the app has drawn, so the caller
-  # knows when to show it. Longer than the handler's own wait for the draw.
+  # knows when to show it. Longer than the handler's 28 s budget.
   android-launch = pkgs.writeShellScriptBin "android-launch" ''
     case "''${1:-}" in
       --home) request=home ;;
@@ -133,7 +147,8 @@ let
         [[ "$name" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+\.png$ ]] || continue
         if [ -L "$icon" ] || ! [ -f "$icon" ]; then continue; fi
         copy=$(mktemp -p ${iconTarget})
-        if setpriv --reuid=${cfg.kioskUser} --regid=${config.users.users.${cfg.kioskUser}.group} --clear-groups \
+        # A swapped-in pipe would block the read forever, hence the timeout.
+        if timeout 5 setpriv --reuid=${cfg.kioskUser} --regid=${config.users.users.${cfg.kioskUser}.group} --clear-groups \
           dd if="$icon" iflag=nofollow bs=1M count=1 status=none >"$copy"; then
           chmod 0644 "$copy"
           mv -f "$copy" "${iconTarget}/$name"
@@ -247,6 +262,7 @@ in
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
         Type = "oneshot";
+        TimeoutStartSec = 60;
         ExecStart = lib.getExe export-icons;
         StateDirectory = "waydroid-icons";
         StateDirectoryMode = "0755";
