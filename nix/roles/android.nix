@@ -317,10 +317,12 @@ in
         waydroid shell -- appops set com.aurora.store REQUEST_INSTALL_PACKAGES allow
         waydroid shell -- appops set com.aurora.store MANAGE_EXTERNAL_STORAGE allow
       '';
+      # Not a oneshot: while Android is not up, a oneshot would hold
+      # multi-user.target, and everything ordered after it (the power profile
+      # daemon among them) would wait as long.
       serviceConfig = {
-        Type = "oneshot";
+        Type = "exec";
         RemainAfterExit = true;
-        TimeoutStartSec = "infinity";
       };
     };
 
@@ -339,7 +341,9 @@ in
       # Every account's user manager reads this unit; only the kiosk's gets a
       # running Android, the others would pay a minute of CPU for nothing.
       unitConfig.ConditionUser = cfg.kioskUser;
-      environment.WAYLAND_DISPLAY = "wayland-0";
+      # The compositor's socket name is whatever KWin got (wayland-1 on the
+      # HTPC on 2026-11-06), and Plasma hands it to the user manager; a name
+      # fixed here left Android unable to start for a whole evening.
       # A failure can only be retried, as the TV has nobody to reset it.
       unitConfig.StartLimitIntervalSec = 0;
       serviceConfig = {
