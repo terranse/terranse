@@ -78,11 +78,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793998351,
-        "narHash": "sha256-cOWqxqTacPxjV6aEuuEGUmiHF8b8iE5JC19CrGPd6YU=",
+        "lastModified": 1793999572,
+        "narHash": "sha256-lLW5Iq75JqGMjGxuYfXOYKsf9r2Nj9tRHgUu/+jMD5I=",
         "ref": "master",
-        "rev": "468d668e8b74b8604630bad6b7af9b10471c6826",
-        "revCount": 287,
+        "rev": "93aff477a844bed1e4daf850b7764019a137ad2b",
+        "revCount": 293,
         "type": "git",
         "url": "ssh://git@nixhost.edholm.cc/srv/git/home-player.git"
       },
