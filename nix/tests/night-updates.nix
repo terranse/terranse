@@ -191,7 +191,7 @@ pkgs.testers.runNixOSTest {
             "echo false > /run/fake-backend/busy",
             "echo true > /run/fake-backend/healthy",
             f"rm -f {marker}",
-            "rm -f /run/fake-cache/pointers/machine",
+            "rm -f /run/fake-cache/pointers/machine /nix/var/nix/gcroots/htpc-pending",
             "systemctl start fake-cache.service fake-home-player.service",
         )
         machine.wait_for_open_port(9600)
@@ -259,13 +259,16 @@ pkgs.testers.runNixOSTest {
     with subtest("the decision"):
         assert decide(TIMED=1) == "suspend"
         assert decide(TIMED=1, INPUT_SEEN=1) == "tv-on"
-        assert decide(TIMED=1, BUSY=1) == "stay-awake"
+        # Nobody touched a box the timer woke, so whatever the backend says is
+        # left over from before it slept: it goes back to sleep regardless.
+        assert decide(TIMED=1, BUSY=1) == "suspend"
         assert decide(TIMED=1, REBOOT_PENDING=1) == "keep-marker"
         assert decide(TIMED=0) == "stay-awake"
         # A person is the answer to anything else: nobody suspends under them,
         # on this boot or, through the marker, on the next.
         assert decide(TIMED=1, INPUT_SEEN=1, REBOOT_PENDING=1) == "tv-on"
-        assert decide(TIMED=1, BUSY=1, REBOOT_PENDING=1) == "stay-awake"
+        assert decide(TIMED=1, BUSY=1, REBOOT_PENDING=1) == "keep-marker"
+        assert decide(TIMED=1, INPUT_SEEN=1, BUSY=1) == "tv-on"
         assert decide(TIMED=0, INPUT_SEEN=1, BUSY=1, REBOOT_PENDING=1) == "stay-awake"
 
     with subtest("the timer wakes the box, at the agreed time"):
@@ -480,13 +483,22 @@ pkgs.testers.runNixOSTest {
         run_night()
         assert suspends() == []
 
-    with subtest("busy: stays awake"):
+    with subtest("busy, no input, timed wake: no update, back to sleep"):
+        # A game left running on the VM or a film left paused, from before the
+        # box slept. Nobody is there, so it sleeps, and it updates nothing.
         reset()
-        machine.succeed("echo true > /run/fake-backend/busy")
+        machine.succeed(
+            f"nix-env -p {profile} --set {base}",
+            f"htpc-stage --no-activate {nxt}",
+            "echo true > /run/fake-backend/busy",
+        )
         timed_wake()
         run_night()
-        assert suspends() == []
+        assert suspends() == ["suspend watchdog-pending=no marker=no"], suspends()
         assert tv_on_calls() == 0
+        assert machine.succeed("readlink -f /run/current-system").strip() == base, "updated while busy"
+        state = json.loads(machine.succeed(f"cat {state_dir}/state.json"))
+        assert state["reason"] == "busy", state
 
     with subtest("a backend that does not answer is not busy"):
         reset()

@@ -49,12 +49,16 @@ let
       # A box that was already awake is nobody's business here. After that a
       # person outranks everything, including a pending reboot: keeping the
       # marker would put the box to sleep under them on the next boot.
+      #
+      # BUSY is taken and does not count. The box was asleep and nobody has
+      # touched it since the timer woke it, so whatever the backend calls busy
+      # (a game left running on the gaming VM, a film left paused) is left over
+      # from before it slept. htpc-update has already declined to update under
+      # it; the box goes back to sleep.
       if [ "''${TIMED:-0}" != 1 ]; then
         echo stay-awake
       elif [ "''${INPUT_SEEN:-0}" = 1 ]; then
         echo tv-on
-      elif [ "''${BUSY:-0}" = 1 ]; then
-        echo stay-awake
       elif [ "''${REBOOT_PENDING:-0}" = 1 ]; then
         echo keep-marker
       else
@@ -338,10 +342,12 @@ let
       decide() {
         local input=0 busy=0
         [ ! -e ${inputSeen} ] || input=1
-        # A failed request reads as not busy, as it does for htpc-update.
+        # A failed request reads as not busy, as it does for htpc-update. Only
+        # logged: see htpc-night-decide for why it changes nothing here.
         if [ "$(curl -fsS --max-time 5 ${staged.healthUrl}/system/activity 2>/dev/null |
                 jq -r '.busy' 2>/dev/null)" = "true" ]; then
           busy=1
+          echo "htpc-night: the backend says busy; nobody has touched the box, so that is from before it slept" >&2
         fi
         TIMED=$timed INPUT_SEEN=$input BUSY=$busy REBOOT_PENDING=$1 htpc-night-decide
       }
