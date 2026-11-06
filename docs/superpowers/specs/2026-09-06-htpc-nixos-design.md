@@ -1,7 +1,10 @@
 # HTPC on NixOS: declared capabilities, gated auto-deploy, remote access
 
 Date: 2026-09-06
-Status: approved, not yet implemented
+Status: superseded in part by
+[2026-11-05-htpc-install-and-updates-design.md](2026-11-05-htpc-install-and-updates-design.md).
+The install, the update pipeline (a LAN build host, `nixhost`, instead of CI)
+and the alerts follow that design; the declared capabilities here still hold.
 
 ## Context
 
