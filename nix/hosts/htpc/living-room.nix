@@ -32,6 +32,12 @@ in
     done
   '';
 
+  # The TV takes CEC over the DisplayPort output: i915 tunnels it and the
+  # kernel offers it as /dev/cec0 (adapter "DP-1", physical address 4.0.0.0).
+  # Home Assistant cannot wake this TV from standby, so its power goes over
+  # CEC first, with Home Assistant only as the fallback.
+  services.home-player.cec.device = "/dev/cec0";
+
   # Sound goes out over DisplayPort to the TV. Left alone, WirePlumber ranks
   # the built-in card's analog profile above HDMI (its speaker port reports
   # "unknown" rather than "unplugged") and makes any USB audio device the
