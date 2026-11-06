@@ -57,6 +57,7 @@ variable "lxc_reserved_ips" {
     gitlab-runner  = "192.168.1.49"
     vagrant-runner = "192.168.1.50"
     herdr          = "192.168.1.52"
+    nixhost        = "192.168.1.53"
   }
 }
 

@@ -239,6 +239,30 @@ hosts = {
         ostype     = "nixos"
         provision  = "none"
       }
+
+      # NixOS. Builds the HTPC nightly, serves its signed binary cache on 8080,
+      # hosts the LAN git repos the laptop pushes to, and netboots the HTPC's
+      # rescue image to its MAC only. Same shape as herdr: what it runs is
+      # nix/machines.nix, the rootfs comes from `just push-lxc-template
+      # nixhost`, and `provision = "none"` keeps Ansible off it.
+      #
+      # /dev/kvm, so the nightly gate can run the VM tests, is NOT declared
+      # here: `devices` only reaches a container through the proxmox/lxc
+      # Ansible role, which `provision = "none"` skips. Giving it one is a
+      # recorded terranse follow-up (a node-side play for provision = "none"),
+      # never a hand edit on Proxmox. Until then nightly.sh skips the VM tests
+      # loudly and still gates on everything else.
+      #
+      # The HTPC's DHCP reservation needs nothing here: its `mac` below
+      # already feeds one.
+      nixhost = {
+        memory     = 16384
+        cores      = 8
+        disk_size  = "200G"
+        ostemplate = "local:vztmpl/nixos-lxc-nixhost.tar.xz"
+        ostype     = "nixos"
+        provision  = "none"
+      }
     }
 
     vms = {
@@ -382,12 +406,6 @@ hosts = {
     kind         = "nixos"
     # The wired NIC's MAC, read from the box at install. The DHCP reservation
     # and CI's wake-on-LAN step both read this one declaration.
-    #
-    # Deliberately still a placeholder: the box does not exist yet. main.tf's
-    # local.host_macs filters on a well-formed MAC, not on mere presence, so
-    # this line produces no DHCP reservation and blocks no `tofu apply` until
-    # a human replaces it with the real address. Replacing it is what turns
-    # the reservation on -- there is nothing else to enable.
-    mac = "REPLACE-WITH-THE-MAC-FROM-TASK-3-STEP-5"
+    mac = "bc:e9:2f:86:35:3b"
   }
 }

@@ -131,36 +131,63 @@ secrets machine dest="/var/lib/dev-secrets/env" owner="default-user":
        sudo install -m 0600 -o {{ owner }} -g users /dev/stdin {{ dest }}"
     echo "secrets installed on {{ machine }}.{{ domain }} at {{ dest }}"
 
+# Set the HTPC's two login passwords from 1Password. Each is hashed in a pipe
+# on this machine and only the hash crosses SSH, on stdin: no password or hash
+# is ever in the repo, the Nix store or a command line. Re-running is rotation.
+htpc-passwords:
+    ./scripts/htpc-passwords.sh default-user@htpc.{{ domain }}
+
+# Install the HTPC from the rescue image nixhost netboots (or the ISO). ERASES
+# THE DISK. The recovery passphrase goes from 1Password straight into a 0600
+# file nixos-anywhere uploads for disko to format with, never onto a command
+# line, and the initrd's SSH host key is made here and placed as an extra
+# file, because the boot loader installer reads it from the box. Both are
+# deleted on exit, whatever happens.
+install-htpc target=("root@htpc." + domain):
+    #!{{ bash }}
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    umask 077
+    op read --no-newline "op://HomeNetwork/HTPC LUKS recovery/password" >"$work/htpc-luks.key"
+    install -d -m 0700 "$work/extra/etc/secrets/initrd"
+    ssh-keygen -q -t ed25519 -N "" -C htpc-initrd -f "$work/extra/etc/secrets/initrd/ssh_host_ed25519_key"
+    echo "initrd host key (port 2222): $(ssh-keygen -lf "$work/extra/etc/secrets/initrd/ssh_host_ed25519_key.pub")"
+    rm "$work/extra/etc/secrets/initrd/ssh_host_ed25519_key.pub"
+    nix run .#nixos-anywhere -- \
+      --flake .#htpc \
+      --target-host {{ target }} \
+      --build-on local \
+      --disk-encryption-keys /tmp/htpc-luks.key "$work/htpc-luks.key" \
+      --extra-files "$work/extra"
+
 # Build a NixOS container's rootfs tarball and put it on the Proxmox node.
 # Only needed to CREATE the container -- updates go through deploy-nixos.
 push-lxc-template machine node="192.168.1.200":
     ./scripts/push-lxc-template.sh {{ machine }} {{ node }}
 
-# Build, sign, publish and push a NixOS machine's system closure. Same script
-# CI runs -- one implementation, two entry points -- but NOT the same cache
-# directory: ship.sh defaults to /srv/nix-cache, which is the runner's dataset
-# and exists only there. Without the NIX_CACHE_DIR below, `just deploy htpc`
-# built the whole closure and only then died on `df: /srv/nix-cache: No such
-# file or directory`, throwing away minutes of work with a message that
-# explained nothing. The publish is local either way; what CI adds on top is
-# the signing key and the fact that the box trusts what it finds there.
-#
-# deploy-nixos targets a reachable box directly and activates immediately;
-# deploy publishes a signed closure and a pointer, succeeds even when the
-# box is asleep, and lets the box decide when to switch.
-deploy machine:
-    #!{{ bash }}
-    # Outside the worktree on purpose: this fills up with whole system
-    # closures, and it must survive `git clean`.
-    export NIX_CACHE_DIR="${NIX_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/terranse/nix-cache}"
-    mkdir -p "$NIX_CACHE_DIR"
-    ./scripts/ship.sh {{ machine }}
+# The urgent path for the machine nixhost builds (htpc): push the current
+# branch to nixhost, run nixhost's nightly job for it now (same bump, checks
+# and signing as every night, its journal followed here, failing if it
+# fails), then have the box fetch the result and activate it at once,
+# ignoring the activation window. The signing key never leaves nixhost, and
+# the pointer is then this build, so the next night does not take it back.
+# Must be run on the branch nixhost builds, with everything committed.
+# `just deploy htpc --no-push` builds and publishes, and the box takes it at
+# its next night. See scripts/deploy.sh.
+deploy machine *flags:
+    ./scripts/deploy.sh {{ machine }} {{ flags }}
 
 # Build and activate a NixOS machine's configuration.
 # --build-host is the machine itself: it has more cores than the laptop, and
 # this is the whole point of a build box. root@ will not work -- base.nix
 # disables root login -- so it goes through default-user's passwordless sudo.
+#
+# On the HTPC this is a way in, not a way to update: it builds this checkout's
+# lock as it is (it warns when that is older than nixhost's), and the box's
+# next night replaces it with what nixhost published. `just deploy htpc` is
+# the one that sticks.
 deploy-nixos machine action="switch":
+    ./scripts/lock-check.sh {{ machine }}
     # The laptop is not NixOS, so the tool comes from the flake's own nixpkgs
     # rather than from PATH -- one pin for the builder and the built.
     nix run .#nixos-rebuild -- {{ action }} --flake .#{{ machine }} \

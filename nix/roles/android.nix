@@ -216,6 +216,9 @@ in
         "graphical-session.target"
         "plasma-plasmashell.service"
       ];
+      # Every account's user manager reads this unit; only the kiosk's gets a
+      # running Android, the others would pay a minute of CPU for nothing.
+      unitConfig.ConditionUser = cfg.kioskUser;
       environment.WAYLAND_DISPLAY = "wayland-0";
       # A failure can only be retried, as the TV has nobody to reset it.
       unitConfig.StartLimitIntervalSec = 0;

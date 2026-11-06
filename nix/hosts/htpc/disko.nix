@@ -9,10 +9,9 @@
   disko.devices = {
     disk.main = {
       type = "disk";
-      # Confirmed against the real box in Task 3 Step 4 before anything is
-      # written. If the box names its disk differently, this line is the only
-      # thing that changes.
-      device = "/dev/nvme0n1";
+      # Read from the real box. By id, so the install can only ever write to
+      # this disk, whatever order the kernel finds disks in.
+      device = "/dev/disk/by-id/nvme-SK_hynix_BC511_HFM256GDJTNI-82A0A_CY05N062410305M16";
       content = {
         type = "gpt";
         partitions = {
@@ -27,11 +26,36 @@
               mountOptions = [ "umask=0077" ];
             };
           };
-          zfs = {
+          luks = {
             size = "100%";
             content = {
-              type = "zfs";
-              pool = "rpool";
+              type = "luks";
+              name = "cryptroot";
+              # Read only while formatting: nixos-anywhere uploads the recovery
+              # passphrase here. Nothing in the installed system refers to it.
+              passwordFile = "/tmp/htpc-luks.key";
+              settings = {
+                # The pool's autotrim only reaches the disk if LUKS passes it on.
+                allowDiscards = true;
+                crypttabExtraOpts = [
+                  # Until a slot is enrolled, by hand after Secure Boot is on,
+                  # there is no token to find and systemd-cryptsetup moves on
+                  # to the passphrase prompt. The same goes when the TPM
+                  # refuses, which is what keeps the passphrase a way in.
+                  "tpm2-device=auto"
+                  # Extends PCR 15 on every unlock. The TPM slot is sealed to PCR
+                  # 15 being zero, so once any volume has been opened, a
+                  # swapped-in root included, the real key cannot be unsealed.
+                  "tpm2-measure-pcr=yes"
+                  # Keep asking. Three typos over SSH would otherwise fail the
+                  # boot on a box nobody can reach.
+                  "tries=0"
+                ];
+              };
+              content = {
+                type = "zfs";
+                pool = "rpool";
+              };
             };
           };
         };

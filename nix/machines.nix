@@ -14,6 +14,23 @@
     roles = [ { name = "dev"; } ];
   };
 
+  # Builds the HTPC nightly, serves its cache and the LAN git repos, and
+  # netboots its rescue image.
+  nixhost = {
+    system = "x86_64-linux";
+    kind = "lxc";
+    roles = [
+      {
+        name = "update-host";
+        settings = {
+          netbootMac = "bc:e9:2f:86:35:3b";
+          haUrl = "http://home.edholm.cc:8123";
+          notifyService = "notify.mobile_app_pixel_8";
+        };
+      }
+    ];
+  };
+
   htpc = {
     system = "x86_64-linux";
     # metal, so the machine gets disko, systemd-boot and EFI variable access
@@ -27,54 +44,42 @@
           driver = "intel";
         };
       }
-      { name = "android"; settings.kioskUser = "vuxna"; }
-      { name = "desktop"; }
+      {
+        name = "desktop";
+        settings = {
+          autologinUser = "vuxna";
+          bigscreen = true;
+        };
+      }
+      {
+        name = "android";
+        settings.kioskUser = "vuxna";
+      }
       {
         name = "home-player";
-        settings.backendSettings = {
-          providers = {
-            jellyfin = {
-              url = "http://media.edholm.cc:8096";
-              api_token = "\${env:JELLYFIN_API_KEY}";
-              user_id = "ab08126b51044224a5012d3749122f4f";
-            };
-            sonarr = {
-              url = "http://media.edholm.cc:8989";
-              api_token = "\${env:SONARR_API_KEY}";
-            };
-            radarr = {
-              url = "http://media.edholm.cc:7878";
-              api_token = "\${env:RADARR_API_KEY}";
-            };
-            jellyseerr = {
-              url = "http://media.edholm.cc:5055";
-              api_token = "\${env:SEERR_API_KEY}";
-            };
-            gamesync.url = "http://gaming.edholm.cc:9766";
-            waydroid.apps = [
-              {
-                name = "Aurora Store";
-                package = "com.aurora.store";
-              }
-            ];
-          };
-          sunshine = {
-            host = "gaming.edholm.cc";
-            username = "admin";
-            password = "\${env:SUNSHINE_PASSWORD}";
-          };
-        };
+        settings.kioskUser = "vuxna";
       }
       {
         name = "staged-updates";
         settings = {
           kioskUser = "vuxna";
-          # The backend fails until `just secrets` has put its keys on the box,
-          # and the default (true) would roll back every update until then and
-          # permanently refuse each via bad-revisions. Delete this override once
-          # the box is up with its keys in place.
-          requireHealthy = false;
+          cacheUrl = "http://nixhost.edholm.cc:8080";
+          # The public half of the key nixhost signs with; htpc-stage pins it
+          # by value, not by name.
+          signingPublicKey = "nixhost-htpc-1:vTlUCuXrl6mPfFwnc0yLnVKDXaL509HLl6iDf9lr+Nk=";
+          # Nightly build 01:30, the box wakes at 03:30. Unattended updates
+          # land here and nowhere else; `just deploy` ignores it.
+          activationWindow = {
+            start = "03:30";
+            end = "05:30";
+          };
         };
+      }
+      { name = "night-updates"; }
+      {
+        name = "update-alerts";
+        # The token is the HomeAssistant HTPC token already in the env file.
+        settings.notifyService = "notify.mobile_app_pixel_8";
       }
     ];
   };

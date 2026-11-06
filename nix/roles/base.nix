@@ -57,15 +57,16 @@
       "nix-command"
       "flakes"
     ];
-    # A CI builder's public half belongs here too, once one exists: a closure
-    # signed by it is then accepted from an untrusted user and anything else
-    # is refused, which is what makes a stolen deploy key upload bytes the box
-    # will not run rather than granting root. Deliberately NOT a placeholder
-    # string -- Nix parses every entry eagerly and refuses to substitute
-    # anything at all if one of them is not a real key:
+    # The CI builder's public half. A closure signed by it is accepted from an
+    # untrusted user and anything else is refused, which is what makes a
+    # stolen deploy key upload bytes the box will not run rather than
+    # granting root. Public by design; the private half lives in 1Password.
+    # Nix parses every entry eagerly and refuses to substitute anything at
+    # all if one is not a real key, so never leave a placeholder here:
     #   error: while decoding key named '' ... key is corrupt
     trusted-public-keys = [
       "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+      "nixhost-htpc-1:vTlUCuXrl6mPfFwnc0yLnVKDXaL509HLl6iDf9lr+Nk="
     ];
   };
 

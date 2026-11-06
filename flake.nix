@@ -9,17 +9,27 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Deliberately no `inputs.nixpkgs.follows`. home-player's own checks run
-    # against its locked nixpkgs, so overriding it here would deploy a
-    # combination nobody tested. Moonlight still comes from this flake's
-    # nixpkgs, so that its graphics libraries match the host's.
-    home-player.url = "git+ssh://git@github.com/yarcod/home-player.git";
+    # The TV's homescreen, kiosk shell and backend, from the LAN repo on
+    # nixhost (no GitHub). The ref is explicit because the bare repo's branch
+    # is master. Its nixpkgs follows ours so the shell and Moonlight are built
+    # against the same Mesa the box runs.
+    home-player = {
+      url = "git+ssh://git@nixhost.edholm.cc/srv/git/home-player.git?ref=master";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     # Declarative partitioning. It is what lets a machine be built and an
     # installer be produced before the machine physically exists. Imported by
     # nix/profiles/metal.nix only -- a container has no disk to partition.
     disko = {
       url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # Signed boot. Imported by nix/hosts/htpc/boot.nix only. A release tag, as
+    # upstream's own instructions use.
+    lanzaboote = {
+      url = "github:nix-community/lanzaboote/v1.2.0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -44,27 +54,32 @@
         lib.nixosSystem {
           inherit system;
           specialArgs = { inherit inputs hostname; };
-          modules =
-            [
-              # Firmware and a disk, or a container. Nothing else in the flake
-              # branches on it. A typo names the machine and lists the valid
-              # kinds rather than failing with a bare "attribute missing".
-              (profiles.${kind} or (throw (
-                "nix/machines.nix: machine '${hostname}' has unknown kind '${kind}'. "
-                + "Valid kinds are: "
-                + lib.concatStringsSep ", " (builtins.attrNames profiles)
-                + "."
-              )))
-              ./nix/hosts/${hostname}
-              roleModules.base
-              { networking.hostName = hostname; }
-            ]
-            # A typo'd role name fails here with a message naming the offender,
-            # not with a bare "attribute missing" three frames deeper.
-            ++ registry.modulesFor roleModules hostname roles
-            # Presence in the list is what turns a role on; `settings` splice
-            # into that role's own namespace.
-            ++ map (r: { roles.${r.name} = { enable = true; } // (r.settings or { }); }) roles;
+          modules = [
+            # Firmware and a disk, or a container. Nothing else in the flake
+            # branches on it. A typo names the machine and lists the valid
+            # kinds rather than failing with a bare "attribute missing".
+            (profiles.${kind} or (throw (
+              "nix/machines.nix: machine '${hostname}' has unknown kind '${kind}'. "
+              + "Valid kinds are: "
+              + lib.concatStringsSep ", " (builtins.attrNames profiles)
+              + "."
+            ))
+            )
+            ./nix/hosts/${hostname}
+            roleModules.base
+            { networking.hostName = hostname; }
+          ]
+          # A typo'd role name fails here with a message naming the offender,
+          # not with a bare "attribute missing" three frames deeper.
+          ++ registry.modulesFor roleModules hostname roles
+          # Presence in the list is what turns a role on; `settings` splice
+          # into that role's own namespace.
+          ++ map (r: {
+            roles.${r.name} = {
+              enable = true;
+            }
+            // (r.settings or { });
+          }) roles;
         };
 
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
@@ -78,6 +93,12 @@
           specialArgs = { inherit inputs; };
           modules = [ ./nix/installer.nix ];
         };
+        # The same rescue system as the installer, in RAM, for nixhost to
+        # netboot to the HTPC's MAC.
+        htpc-netboot = lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [ ./nix/netboot.nix ];
+        };
       };
 
       # The rootfs tarballs for every container-kind machine, named
@@ -89,8 +110,13 @@
         # on PATH keeps the thing that deploys a machine pinned by the same
         # flake.lock as the machine it deploys.
         nixos-rebuild = pkgs.nixos-rebuild;
+        # `just install-htpc` runs it, pinned the same way.
+        nixos-anywhere = pkgs.nixos-anywhere;
 
         installer-iso = self.nixosConfigurations.installer.config.system.build.isoImage;
+
+        # bzImage, initrd and cmdline (the init path) for nixhost's Pixiecore API.
+        htpc-netboot = self.nixosConfigurations.htpc-netboot.config.system.build.pixiecoreDir;
       }
       // lib.mapAttrs' (
         name: cfg: lib.nameValuePair "${name}-lxc-template" cfg.config.system.build.tarball
@@ -98,19 +124,30 @@
 
       # A broken role must fail the pipeline, not the machine: every machine's
       # toplevel is a check, so `nix flake check` builds what would be
-      # deployed. The installer is excluded by name -- it is x86_64-linux too,
-      # and a check would build a 1GB ISO on every `nix flake check`.
+      # deployed. The two rescue images are excluded by name -- they are
+      # x86_64-linux too, but they are no fleet machine, and nixhost's toplevel
+      # already builds the netboot one.
       checks.x86_64-linux =
-        lib.mapAttrs' (
-          name: cfg: lib.nameValuePair "machine-${name}" cfg.config.system.build.toplevel
-        ) (
+        lib.mapAttrs' (name: cfg: lib.nameValuePair "machine-${name}" cfg.config.system.build.toplevel) (
           lib.filterAttrs (
-            name: cfg: name != "installer" && cfg.pkgs.stdenv.hostPlatform.system == "x86_64-linux"
+            name: cfg:
+            !(builtins.elem name [
+              "installer"
+              "htpc-netboot"
+            ])
+            && cfg.pkgs.stdenv.hostPlatform.system == "x86_64-linux"
           ) self.nixosConfigurations
         )
         // {
           registry = import ./nix/tests/registry.nix { inherit lib pkgs; };
           staged-updates = import ./nix/tests/staged-updates.nix { inherit pkgs; };
+          night-updates = import ./nix/tests/night-updates.nix { inherit pkgs; };
+          htpc-accounts = import ./nix/tests/htpc-accounts.nix { inherit pkgs; };
+          update-host = import ./nix/tests/update-host.nix { inherit pkgs; };
+          htpc-eval = import ./nix/tests/htpc-eval.nix {
+            inherit pkgs;
+            inherit (self.nixosConfigurations.htpc) config extendModules;
+          };
         };
 
       formatter.x86_64-linux = pkgs.nixfmt-tree;
