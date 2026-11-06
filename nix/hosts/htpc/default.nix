@@ -8,6 +8,7 @@
     ./boot.nix
     ./accounts.nix
     ./deploy.nix
+    ./living-room.nix
   ];
 
   # A statement about which release this machine's state was created under,
