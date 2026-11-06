@@ -5,6 +5,7 @@
   config,
   inputs,
   lib,
+  options,
   pkgs,
   ...
 }:
@@ -32,7 +33,9 @@
 
   environment.systemPackages = [ pkgs.sbctl ];
 
-  boot.initrd.systemd.enable = true;
+  # Newer nixpkgs removed the option (the initrd is always systemd there) and
+  # throw if it is set; it stays declared but invisible, so test that.
+  boot.initrd.systemd.enable = lib.mkIf (options.boot.initrd.systemd.enable.visible or true) true;
 
   # NixOS orders the root pool's import after nothing to do with LUKS and gives
   # it 60 seconds. On a pool inside LUKS, a person taking longer than that to

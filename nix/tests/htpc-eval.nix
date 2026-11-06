@@ -6,6 +6,7 @@
 {
   pkgs,
   config,
+  options,
   extendModules,
 }:
 let
@@ -13,6 +14,10 @@ let
   hm = config.home-manager.users;
   cryptroot = config.boot.initrd.luks.devices.cryptroot or { };
   crypttabOpts = cryptroot.crypttabExtraOpts or [ ];
+  # Newer nixpkgs removed the scripted initrd: the option stays declared, but
+  # invisible, and reading it throws. The initrd is systemd either way.
+  scriptedInitrdExists = options.boot.initrd.systemd.enable.visible or true;
+  initrdIsSystemd = if scriptedInitrdExists then config.boot.initrd.systemd.enable else true;
   initrdSsh = config.boot.initrd.network.ssh;
   snapshots = config.services.sanoid.datasets;
   # A week of dailies and a day of hourlies and nothing older: sanoid's built-in
@@ -93,7 +98,7 @@ let
     "the pool is not imported until the disk is unlocked" =
       builtins.elem "cryptsetup.target" config.boot.initrd.systemd.services.zfs-import-rpool.after;
 
-    "the initrd runs systemd" = config.boot.initrd.systemd.enable;
+    "the initrd runs systemd" = initrdIsSystemd;
     "Lanzaboote signs the boot" = config.boot.lanzaboote.enable or false;
     "Lanzaboote uses sbctl's key bundle" = config.boot.lanzaboote.pkiBundle or null == "/var/lib/sbctl";
     "the first install works before any key exists" = config.boot.lanzaboote.allowUnsigned or false;
