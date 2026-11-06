@@ -112,6 +112,42 @@ let
     esac
   '';
 
+  # Android writes an icon for each app into the kiosk's home, which the Home
+  # Player backend cannot read, so they are copied somewhere it can. The kiosk
+  # can write there, so the files are read with its rights and never through a
+  # link, and only package-named PNGs are taken.
+  iconSource = "${config.users.users.${cfg.kioskUser}.home}/.local/share/waydroid/data/icons";
+  iconTarget = "/var/lib/waydroid-icons";
+  export-icons = pkgs.writeShellApplication {
+    name = "waydroid-export-icons";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.util-linux
+    ];
+    text = ''
+      # Android writes them all at once, so let it finish first.
+      sleep 2
+      shopt -s nullglob
+      for icon in ${iconSource}/*.png; do
+        name=''${icon##*/}
+        [[ "$name" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+\.png$ ]] || continue
+        if [ -L "$icon" ] || ! [ -f "$icon" ]; then continue; fi
+        copy=$(mktemp -p ${iconTarget})
+        if setpriv --reuid=${cfg.kioskUser} --regid=${config.users.users.${cfg.kioskUser}.group} --clear-groups \
+          dd if="$icon" iflag=nofollow bs=1M count=1 status=none >"$copy"; then
+          chmod 0644 "$copy"
+          mv -f "$copy" "${iconTarget}/$name"
+        else
+          rm -f "$copy"
+        fi
+      done
+      # An app that is gone leaves no icon behind.
+      for icon in ${iconTarget}/*.png; do
+        [ -e "${iconSource}/''${icon##*/}" ] || rm -f "$icon"
+      done
+    '';
+  };
+
   # F-Droid's build, as the store it replaces is the one thing it needs no
   # store for. F-Droid only keeps recent versions, so bumping this may be forced.
   aurora-store = pkgs.fetchurl {
@@ -193,6 +229,33 @@ in
         NoNewPrivileges = true;
         ProtectHome = true;
         PrivateTmp = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        RestrictSUIDSGID = true;
+      };
+    };
+
+    # Android rewrites the icons each time its session starts. The copy at
+    # boot covers a session that never starts.
+    systemd.paths.waydroid-icons = {
+      description = "Watch for new Android app icons";
+      wantedBy = [ "paths.target" ];
+      pathConfig.PathChanged = iconSource;
+    };
+    systemd.services.waydroid-icons = {
+      description = "Copy Android app icons where the TV interface can read them";
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = lib.getExe export-icons;
+        StateDirectory = "waydroid-icons";
+        StateDirectoryMode = "0755";
+        UMask = "0022";
+        ProtectSystem = "strict";
+        ProtectHome = "read-only";
+        PrivateTmp = true;
+        PrivateNetwork = true;
+        NoNewPrivileges = true;
         ProtectKernelTunables = true;
         ProtectKernelModules = true;
         RestrictSUIDSGID = true;
