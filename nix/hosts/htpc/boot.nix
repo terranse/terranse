@@ -29,6 +29,40 @@
     # Every generation with a new kernel or initrd costs its size again on the
     # 1 GiB ESP, and a full ESP fails the update. Rollback only needs a few.
     configurationLimit = 5;
+    # A new generation gets three tries. A boot that never gets as far as
+    # boot-complete.target (below) uses one up; when all three are gone,
+    # systemd-boot sorts the entry last and the previous generation boots.
+    # A boot that panics or hangs only comes round again because of the
+    # panic= parameter and the hardware watchdog below.
+    bootCounting.initialTries = 3;
+  };
+
+  # A boot counts as good once the box can be reached again: multi-user, with
+  # SSH up. A boot that gets that far but whose Home Player is unhealthy is the
+  # update watchdog's to roll back (staged-updates.nix); tying the backend's
+  # health here too would roll the same failure back twice.
+  systemd.targets.boot-complete = {
+    requires = [ "sshd.service" ];
+    after = [
+      "multi-user.target"
+      "sshd.service"
+    ];
+  };
+
+  # A kernel panic, in the initrd or later, reboots after 10 s instead of
+  # sitting on a screen nobody sees, so the next boot can count it.
+  boot.kernelParams = [ "panic=10" ];
+
+  # A hang is the hardware watchdog's: systemd pets the chipset's TCO timer,
+  # and if it stops for 30 s the board resets itself. The board also has an
+  # Intel overclocking watchdog that registers first, and systemd uses the
+  # first; it is kept out so the TCO timer is the only one.
+  boot.blacklistedKernelModules = [ "intel_oc_wdt" ];
+  boot.kernelModules = [ "iTCO_wdt" ];
+  systemd.settings.Manager = {
+    RuntimeWatchdogSec = "30s";
+    # A reboot that itself hangs is cut short too.
+    RebootWatchdogSec = "10min";
   };
 
   environment.systemPackages = [ pkgs.sbctl ];
