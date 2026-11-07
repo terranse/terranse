@@ -209,11 +209,25 @@ WOL_MAC="${WOL_MAC:-$(awk -v m="$MACHINE" '
   }
 ' "$TFVARS" 2>/dev/null || true)}"
 
-if [ -n "$WOL_MAC" ] && command -v wakeonlan >/dev/null 2>&1; then
-  log "waking ${WOL_MAC}"
-  wakeonlan -i "$WOL_BROADCAST" "$WOL_MAC" || true
+# The deploy job brings wakeonlan along; a laptop running `just deploy` may
+# not, and skipping the wake then left a sleeping box unreached while the log
+# blamed a missing MAC. Take it from nixpkgs for the one call.
+wol() {
+  if command -v wakeonlan >/dev/null 2>&1; then
+    wakeonlan "$@"
+  elif command -v nix >/dev/null 2>&1; then
+    nix shell nixpkgs#wakeonlan -c wakeonlan "$@"
+  else
+    return 127
+  fi
+}
+
+if [ -z "$WOL_MAC" ]; then
+  log "no MAC for ${MACHINE} in ${TFVARS}; not waking"
+elif log "waking ${WOL_MAC}" && wol -i "$WOL_BROADCAST" "$WOL_MAC" >/dev/null; then
+  :
 else
-  log "no MAC for ${MACHINE} (or no wakeonlan); not waking"
+  log "could not send a wake to ${WOL_MAC} (no wakeonlan, and no nix to fetch it)"
 fi
 
 # The cache and pointer stand either way. What differs is the promise: the
