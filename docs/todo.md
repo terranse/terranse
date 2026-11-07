@@ -51,8 +51,22 @@
       vagrant-runner task also sets /dev/kvm to 0666 on the node.
 - [ ] Narrower signing on nixhost (`nix copy` with `?secret-key=` in ship.sh)
       so the `nightly` user need not be a nix trusted user.
-- [ ] Acceptance on the TV (plan Task 13), then retire herdr's `~/pxe-spike`
-      (units already stopped).
+- [ ] Acceptance on the TV (plan Task 13). herdr's `~/pxe-spike` is gone.
+- [ ] Always-on game list: while gaming VM 111 is off (the A5000 slice is
+      with ai-vm 114), `gaming.edholm.cc` does not resolve and a box that has
+      never polled game-sync shows no games. Serve the library from something
+      that never sleeps, so the games are always listed and Play wakes the VM
+      (`gpu gaming`, about 30 s) behind a "waking the gaming PC" state.
+- [x] Boot fallback proof (plan Task 14 step 4): proven 2026-11-07. Three
+      initrd panics fell back to the previous generation in about 2.5 min,
+      with TPM unlock. See the spec's Failed boots section.
+- [ ] Phone alerts depend on local push: Home Assistant can only reach the
+      Pixel 8 companion app while it holds a local-push connection, so
+      `ha-notify` gets HTTP 500 when the phone is asleep or away. Enable
+      cloud/FCM push for the app, or send through something that queues.
+- [ ] WebKit still holds ~1.1 GB of GPU memory on the homescreen with sized
+      art and compositing on; look at which layers are composited if the
+      pointer still stutters.
 
 ## Ansible
 
