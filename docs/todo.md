@@ -57,9 +57,13 @@
       never polled game-sync shows no games. Serve the library from something
       that never sleeps, so the games are always listed and Play wakes the VM
       (`gpu gaming`, about 30 s) behind a "waking the gaming PC" state.
-- [ ] Boot fallback proof (plan Task 14 step 4): deploy a generation that
-      panics in the initrd, with a screen on, and see three tries, then the
-      previous generation, TPM unlock and an alert.
+- [x] Boot fallback proof (plan Task 14 step 4): proven 2026-11-07. Three
+      initrd panics fell back to the previous generation in about 2.5 min,
+      with TPM unlock. See the spec's Failed boots section.
+- [ ] Phone alerts depend on local push: Home Assistant can only reach the
+      Pixel 8 companion app while it holds a local-push connection, so
+      `ha-notify` gets HTTP 500 when the phone is asleep or away. Enable
+      cloud/FCM push for the app, or send through something that queues.
 - [ ] WebKit still holds ~1.1 GB of GPU memory on the homescreen with sized
       art and compositing on; look at which layers are composited if the
       pointer still stutters.

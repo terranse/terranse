@@ -286,12 +286,49 @@ ZFS import failure or anything else that stops boot. Time-box this:
 
 - Use an LTS kernel.
 - Enable the hardware watchdog in the boot path.
-- Try automatic fallback to the previous generation under Lanzaboote. Whether
-  Lanzaboote supports boot counting has not been checked.
+- Try automatic fallback to the previous generation under Lanzaboote. It
+  supports boot counting; see the result below.
 
 If that is not cleanly possible, stop and record it. A failed boot then needs a
 screen and keyboard to pick the previous generation. This is an accepted exception
 to the "needs a person" anti-goal. The boot chain does not change for it.
+
+**Result (2026-11-07, `nix/hosts/htpc/boot.nix`).** Lanzaboote supports boot
+counting, so this needs no person:
+
+- A new generation's entry gets `+3` tries (`bootCounting.initialTries`). It is
+  blessed once `boot-complete.target` is reached, which needs only `sshd`. A
+  stuck unit holding back `multi-user.target` would otherwise roll back a
+  working generation.
+- `panic=10` reboots a panic. The chipset's TCO watchdog (`iTCO_wdt`, 30 s)
+  resets a hang. `intel_oc_wdt` is blacklisted, because systemd would
+  otherwise pet it instead.
+- `htpc-boot-fallback-alert` reports each `+0-*` entry once, through
+  `ha-notify`.
+
+Proven on the box at night:
+
+- **Good generation.** It booted unattended, and the TPM unlocked the disk.
+  The entry went from `+3` to blessed, and the health check was ok.
+- **Crashing generation.** A throwaway generation panicked in the initrd on
+  every boot (`echo c > /proc/sysrq-trigger`).
+  - 04:23:35: reboot into it.
+  - The box crashed three times. These boots leave no journal; the root
+    filesystem is never mounted.
+  - 04:26:04: SSH was up on the previous generation, and the TPM unlocked the
+    disk itself.
+  - The bad entry was left as `+0-3`, and the alert service fired.
+
+Two things the test showed:
+
+- **The profile lags behind.** After a fallback,
+  `/nix/var/nix/profiles/system` still points at the failed generation. The
+  next update or deploy replaces it. By hand, run
+  `nix-env --switch-generation` back first.
+- **The alert did not reach the phone.** Home Assistant answered 500: "not
+  connected to local push notifications". The Pixel 8 app is reachable by
+  local push only, so the alert is kept and retried on the next boot. Every
+  `ha-notify` alert has this gap.
 
 ## Failure alerts
 
@@ -327,7 +364,9 @@ This design needs changes outside terranse:
   no PIN with autologin.
 - **Resume with a TV attached is untested.** Check it first after install, because
   sleep is now part of normal daily use.
-- **A failed boot may still need a person.** See Failed boots.
+- **A failed boot that never reaches the initrd** (a broken boot loader or a
+  firmware problem) still needs a person. Boot counting covers the kernel,
+  the initrd and everything after them. See Failed boots.
 - **`nixhost` becomes a dependency for updates only.** If it is down, the TV keeps
   working and stops updating.
 
