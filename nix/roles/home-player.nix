@@ -94,7 +94,19 @@ in
           password = ref "SUNSHINE_PASSWORD";
         };
 
-        # No gpu_manager section: its orchestration branch is not merged.
+        # Hands the graphics card to the gaming PC and wakes it when a game
+        # starts. Without this the backend calls every game ready at once and
+        # Moonlight dials a PC that is asleep. The workstation's LAN address,
+        # as the box has no name for it.
+        gpu_manager = {
+          url = "http://192.168.1.200:8080";
+          # game-sync's host as gpu-manager names that VM.
+          vm_map."gaming.edholm.cc" = "gaming";
+          # The whole card, what the gaming PC holds today; a game's own
+          # profile choice still wins.
+          default_profile = "Q-24C";
+        };
+
         home_assistant = {
           url = "http://home.edholm.cc:8123";
           token = ref "HA_TOKEN";
