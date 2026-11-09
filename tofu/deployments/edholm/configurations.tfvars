@@ -374,7 +374,7 @@ hosts = {
         gpu_tier = "ai"
         # ninfer answers this only once the model is loaded; a real completion
         # succeeds within 60ms of it. Its port opens about 25s earlier.
-        gpu_ready_url = "http://ai-vm.edholm.cc:8080/health"
+        gpu_ready_url = "http://ai-vm.edholm.cc:8090/"
 
         # Same full-24Q claim as `gaming`. The A5000 only allows one
         # homogeneous slice across the whole card, so ai-vm and gaming are
@@ -409,6 +409,9 @@ hosts = {
             # Home FreeLingo STT/TTS gateway; ninfer drops to 32768 context
             # while a speech session is open.
             llm_speech_gateway_enabled = "true"
+
+            # Boot-time choice of ninfer (20 GB VRAM or more) or Ollama (less).
+            llm_tier_enabled = "true"
           }
         }]
       }

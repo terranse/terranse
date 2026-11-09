@@ -22,6 +22,16 @@ write_tier() {
   printf '%s\n' "$1" > "$TIER_FILE"
 }
 
+# nvidia-smi can fail for a while right after boot; wait before settling on shared.
+wait_vram_mib() {
+  local waited=0 mib=""
+  until mib="$(vram_mib)"; [[ -n "$mib" ]]; do
+    (( waited >= ${LLM_TIER_SMI_WAIT:-60} )) && break
+    sleep 2; waited=$((waited + 2))
+  done
+  echo "$mib"
+}
+
 choose_tier() { # vram in MiB, may be empty
   local mib="${1:-}"
   if [[ -n "$mib" ]] && (( mib >= MIN_VRAM_MIB )); then echo full; else echo shared; fi
@@ -29,7 +39,7 @@ choose_tier() { # vram in MiB, may be empty
 
 main() {
   local tier
-  tier="$(choose_tier "$(vram_mib)")"
+  tier="$(choose_tier "$(wait_vram_mib)")"
   write_tier "$tier"
 
   if [[ "$tier" == full ]]; then

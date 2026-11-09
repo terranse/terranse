@@ -217,7 +217,7 @@ llm_backend: ollama
 # engines fit in VRAM, and swaps back to ninfer.service afterwards.
 llm_speech_gateway_enabled: false
 llm_speech_gateway_image: "speech-gateway:latest"
-llm_speech_gateway_port: 8090
+# The gateway listens on 8090 (fixed in the image CMD) on the host network.
 llm_speech_gateway_state_dir: /var/lib/speech-gateway
 llm_speech_gateway_model_dir: /opt/speech-gateway/models
 llm_ninfer_speech_max_context: "32768"
@@ -240,3 +240,6 @@ llm_speech_gateway_seed_dir: /root/speechtest
 # enabled directly. Requires llm_speech_gateway_enabled for the proxy. The Ollama
 # model must already be pulled (list it in llm_ollama_models on an Ollama host).
 llm_tier_enabled: false
+
+# Model Ollama serves on the shared tier, pulled on deploy when llm_tier_enabled is true.
+llm_tier_shared_model: "gemma4:e4b-it-qat"
