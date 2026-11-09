@@ -5,12 +5,14 @@ module "proxmox-lxc" {
   }
   source = "../../modules/proxmox-container"
 
-  ansible_root   = local.ansible_root
-  host           = each.key
-  configuration  = each.value.lxcs
-  ssh_key        = var.ssh_key
-  domain         = var.domain
-  gateway        = var.gateway
+  ansible_root     = local.ansible_root
+  host             = each.key
+  configuration    = each.value.lxcs
+  ssh_key          = var.ssh_key
+  domain           = try(each.value.lan_domain, var.domain)
+  gateway          = try(each.value.gateway, var.gateway)
+  storage_pool     = try(each.value.storage_pool, "local-lvm")
+  host_ssh_address = try(each.value.ansible_host, each.key)
 }
 
 module "proxmox-vm" {
@@ -26,6 +28,46 @@ module "proxmox-vm" {
   configuration = each.value.vms
   ssh_key       = var.ssh_key
   domain        = var.domain
+}
+
+module "ansible-wiring" {
+  source          = "../../modules/ansible-wiring"
+  ansible_root    = local.ansible_root
+  deployment_name = "sectrinet"
+  deployment_path = "../tofu/deployments/sectrinet"
+  hosts           = var.hosts
+  ansible_plays = flatten(concat(
+    [for instance in module.proxmox-lxc : instance.ansible_plays],
+    [for instance in module.proxmox-vm : instance.ansible_plays],
+  ))
+}
+
+# Machines here can share a LAN with the edholm deployment, whose checks cannot
+# see this one. A container's MAC is derived from its name alone and its DHCP
+# hostname registers in the same DNS, so reusing an edholm name would clash
+# with that machine. This deployment has no OPNsense provider on purpose: DNS
+# records, reservations and Caddy routes belong to edholm and are out of reach
+# from here.
+locals {
+  lxc_names = flatten([for host in var.hosts : keys(try(host.lxcs, {}))])
+  names_taken_by_edholm = [
+    for name in local.lxc_names : name
+    if length(regexall(
+      "(?m)^[ \\t]+\"?${name}\"?[ \\t]*=[ \\t]*\\{",
+      file("${path.module}/../edholm/configurations.tfvars"),
+    )) > 0
+  ]
+}
+
+resource "terraform_data" "edholm_name_guard" {
+  input = local.lxc_names
+
+  lifecycle {
+    precondition {
+      condition     = length(local.names_taken_by_edholm) == 0
+      error_message = "These machine names are already used by the edholm deployment: ${jsonencode(local.names_taken_by_edholm)}"
+    }
+  }
 }
 
 # TODO: Uncomment and configure when OPNSense and Caddy providers are set up
