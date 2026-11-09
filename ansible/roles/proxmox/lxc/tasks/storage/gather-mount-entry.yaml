@@ -8,6 +8,21 @@
   vars:
     ansible_user: root
 
+# A `subdir` mount hands the container one folder of a shared dataset instead of
+# all of it. The entry is `optional`, so a missing source would silently leave
+# the container writing to its own disk: make sure the folder exists first.
+- name: Ensure subdirectory of {{ item.dataset }} exists
+  file:
+    path: "{{ dataset_facts.ansible_facts.ansible_zfs_datasets[0].mountpoint }}/{{ item.subdir }}"
+    state: directory
+    owner: "{{ 100000 + (docker_user_uid | int) }}"
+    group: "{{ 100000 + (docker_user_uid | int) }}"
+    mode: '0775'
+  when: item.subdir is defined
+  delegate_to: "{{ host }}"
+  vars:
+    ansible_user: root
+
 - name: Validate and add to mount entries
   set_fact:
     desired_mount_entries: "{{ desired_mount_entries + [entry] }}"
@@ -18,10 +33,11 @@
   vars:
     ansible_user: root
     mountpoint_in_container: "{{ item.path }}"
+    mount_source: "{{ dataset.mountpoint }}{{ ('/' + item.subdir) if item.subdir is defined else '' }}"
     entry:
-      source: "{{ dataset.mountpoint }}"
+      source: "{{ mount_source }}"
       target: "{{ mountpoint_in_container }}"
-      line: "lxc.mount.entry: {{ dataset.mountpoint }} {{ mountpoint_in_container[1:] }} none rbind,create=dir,optional 0 0"
+      line: "lxc.mount.entry: {{ mount_source }} {{ mountpoint_in_container[1:] }} none rbind,create=dir,optional 0 0"
   failed_when: >
     dataset.mountpoint is not regex('^/.*') or
     dataset.mounted != "yes"
