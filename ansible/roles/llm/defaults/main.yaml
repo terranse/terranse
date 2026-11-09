@@ -230,3 +230,13 @@ llm_speech_gateway_mode_script: "{{ playbook_dir }}/../../../lalapp/services/spe
 # One-off seed of the voice-clone reference clips from a test folder that may
 # later be deleted. Skipped per file when the source is absent or the target exists.
 llm_speech_gateway_seed_dir: /root/speechtest
+
+# --- Boot-time LLM tier --------------------------------------------------------
+#
+# When true, llm-tier.service picks the backend once per boot: 20 GB VRAM or more
+# starts ninfer (tier "full"), less starts Ollama with gemma4:e4b-it-qat at 8192
+# context (tier "shared"). The choice is written to /run/llm-tier, which the speech
+# gateway mounts read-only to route POST /v1/chat/completions. Neither backend is
+# enabled directly. Requires llm_speech_gateway_enabled for the proxy. The Ollama
+# model must already be pulled (list it in llm_ollama_models on an Ollama host).
+llm_tier_enabled: false

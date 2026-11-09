@@ -56,10 +56,14 @@
     enabled: false
     state: stopped
   failed_when: false
+  when: not (llm_tier_enabled | bool)
 
+# With the tier unit, llm-tier.service starts the right backend at boot (tier.yaml
+# disables both units), so nothing here enables or starts one.
 - name: Enable and start the selected backend
   ansible.builtin.systemd:
     name: "{{ 'ninfer' if llm_backend == 'ninfer' else 'ollama' }}"
     enabled: true
     state: "{{ 'started' if not (llm_backend == 'ninfer' and llm_ninfer_any_active) else omit }}"
     daemon_reload: true
+  when: not (llm_tier_enabled | bool)

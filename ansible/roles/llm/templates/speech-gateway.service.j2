@@ -1,17 +1,21 @@
 # Managed by Ansible (terranse llm role) — DO NOT EDIT.
 [Unit]
 Description=Speech gateway (STT/TTS for FreeLingo)
-After=network-online.target docker.service
+After=network-online.target docker.service llm-tier.service
+Wants=llm-tier.service
 Requires=docker.service
 
 [Service]
 # After a reboot only full ninfer is up, so a persisted state or request from
 # before the reboot would be wrong; the gateway starts from a clean slate.
 ExecStartPre=-/bin/rm -f {{ llm_speech_gateway_state_dir }}/mode-state.json {{ llm_speech_gateway_state_dir }}/desired-mode
+# Docker would create a directory for a missing bind-mount source. No tier file means full.
+ExecStartPre=/bin/sh -c 'test -f /run/llm-tier || echo full > /run/llm-tier'
 ExecStartPre=-/usr/bin/docker rm -f speech-gateway
 ExecStart=/usr/bin/docker run --rm --name speech-gateway \
   --gpus all \
-  --publish {{ llm_speech_gateway_port }}:8090 \
+  --network host \
+  --volume /run/llm-tier:/run/llm-tier:ro \
   --volume {{ llm_speech_gateway_state_dir }}:/var/lib/speech-gateway \
   --volume {{ llm_speech_gateway_model_dir }}:/models \
   {{ llm_speech_gateway_image }}

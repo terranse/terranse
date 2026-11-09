@@ -83,6 +83,10 @@
   ansible.builtin.include_tasks: ninfer.yaml
   when: llm_ninfer_enabled | bool
 
+- name: Set up the boot-time LLM tier
+  ansible.builtin.include_tasks: tier.yaml
+  when: llm_tier_enabled | bool
+
 # Before Hermes: Hermes must be configured against a backend that is already up.
 - name: Select the active inference backend
   ansible.builtin.include_tasks: backend.yaml

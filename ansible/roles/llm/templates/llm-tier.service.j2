@@ -1,0 +1,16 @@
+# Managed by Ansible (terranse llm role) — DO NOT EDIT.
+# Chooses ninfer (full) or Ollama (shared) once per boot from the VRAM of the slice
+# and writes the choice to /run/llm-tier. Neither backend is enabled directly.
+[Unit]
+Description=Choose the LLM backend for this boot
+After=network-online.target docker.service
+Wants=docker.service
+Before=speech-gateway.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/llm-tier
+
+[Install]
+WantedBy=multi-user.target

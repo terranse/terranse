@@ -59,7 +59,9 @@ services:
       REDIS_URL: "redis://:{{ lookup('community.general.onepassword', 'FREELINGO_REDIS_PASSWORD', vault='Infrastructure', field='password') }}@freelingo-redis:6379/0"
       SECRET_KEY: "{{ lookup('community.general.onepassword', 'FREELINGO_SECRET_KEY', vault='Infrastructure', field='password') }}"
       LLM_PROVIDER: ollama
-      OLLAMA_BASE_URL: http://ai-vm.edholm.cc:8080
+      # The speech gateway's POST /v1/chat/completions (the backend appends /v1) routes to the
+      # LLM tier live on ai-vm and rewrites "model", so OLLAMA_MODEL is only a placeholder.
+      OLLAMA_BASE_URL: http://ai-vm.edholm.cc:8090
       OLLAMA_MODEL: qwen3.8-27b
       TTS_PROVIDER: local
       TTS_BASE_URL: http://ai-vm.edholm.cc:8090
