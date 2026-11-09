@@ -6,6 +6,14 @@ let
   # The remote's USB dongle (nRF, "ZhenYe Tech BLE Remote").
   remoteVendor = "1915";
   remoteProduct = "1001";
+
+  # Where the Home Player shell looks for "the remote woke the box".
+  remoteWokeMarker = "/run/home-player/remote-woke";
+  remoteWoke = pkgs.writeShellApplication {
+    name = "remote-woke";
+    runtimeInputs = [ pkgs.coreutils pkgs.gawk ];
+    text = builtins.readFile ./remote-woke.sh;
+  };
 in
 {
   # The remote's OK key sends HID consumer usage 0x41 (Menu Pick), which the
@@ -25,12 +33,26 @@ in
     for dev in /sys/bus/usb/devices/*; do
       if [ "$(cat "$dev/idVendor" 2>/dev/null)" = ${remoteVendor} ] \
         && [ "$(cat "$dev/idProduct" 2>/dev/null)" = ${remoteProduct} ]; then
+        # Before the re-enumeration below, while this is still this wake's log.
+        ${pkgs.util-linux}/bin/dmesg | ${remoteWoke}/bin/remote-woke "$(basename "$dev")" ${remoteWokeMarker} || true
         echo 0 >"$dev/authorized"
         ${pkgs.coreutils}/bin/sleep 1
         echo 1 >"$dev/authorized"
       fi
     done
   '';
+
+  # The one driver message that says which USB port woke the box (see
+  # remote-woke.sh). It fires on port changes only, so it costs nothing.
+  systemd.services.xhci-wake-log = {
+    description = "Log which USB port signals a wake";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig.Type = "oneshot";
+    serviceConfig.RemainAfterExit = true;
+    script = ''
+      echo 'func handle_port_status +p' >/proc/dynamic_debug/control
+    '';
+  };
 
   # The TV takes CEC over the DisplayPort output: i915 tunnels it and the
   # kernel offers it as /dev/cec0 (adapter "DP-1", physical address 4.0.0.0).
