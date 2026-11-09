@@ -143,7 +143,11 @@ hosts = {
       freelingo = {
         cores     = 4
         memory    = 6144
-        disk_size = "20G"
+        disk_size = "32G"
+
+        mounts = [
+          {name = "config", dataset = "tank/appdata", path = "/appdata"}
+        ]
 
         roles = [
           { name = "docker" }

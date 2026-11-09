@@ -11,7 +11,8 @@
 # frontend. Only the proxy publishes a port.
 #
 # Vault items (Infrastructure vault, field "password") to create before the
-# first deploy: FREELINGO_DB_PASSWORD, FREELINGO_REDIS_PASSWORD,
+# first deploy (data lives under the `config` mount, i.e. tank/appdata, except
+# Redis, which stays in a named volume): FREELINGO_DB_PASSWORD, FREELINGO_REDIS_PASSWORD,
 # FREELINGO_SECRET_KEY. Use alphanumeric values: they are embedded in URLs and
 # compose interpolates "$".
 services:
@@ -22,7 +23,7 @@ services:
       POSTGRES_USER: freelingo
       POSTGRES_PASSWORD: "{{ lookup('community.general.onepassword', 'FREELINGO_DB_PASSWORD', vault='Infrastructure', field='password') }}"
     volumes:
-      - freelingo-postgres:/var/lib/postgresql/data
+      - "{{ service_mounts.config }}/freelingo/postgres:/var/lib/postgresql/data"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U freelingo -d freelingo"]
@@ -50,9 +51,9 @@ services:
     command: >
       sh -c "cd /tmp && PYTHONPATH=/app alembic -c /app/alembic.ini upgrade head && cd /app && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
     volumes:
-      - freelingo-avatars:/app/avatars
-      - freelingo-audio:/data/audio
-      - freelingo-tts-previews:/app/tts_previews
+      - "{{ service_mounts.config }}/freelingo/avatars:/app/avatars"
+      - "{{ service_mounts.config }}/freelingo/audio:/data/audio"
+      - "{{ service_mounts.config }}/freelingo/tts_previews:/app/tts_previews"
     environment:
       DATABASE_URL: "postgresql+asyncpg://freelingo:{{ lookup('community.general.onepassword', 'FREELINGO_DB_PASSWORD', vault='Infrastructure', field='password') }}@freelingo-postgres:5432/freelingo"
       REDIS_URL: "redis://:{{ lookup('community.general.onepassword', 'FREELINGO_REDIS_PASSWORD', vault='Infrastructure', field='password') }}@freelingo-redis:6379/0"
@@ -124,8 +125,4 @@ configs:
       }
 
 volumes:
-  freelingo-postgres:
   freelingo-redis:
-  freelingo-avatars:
-  freelingo-audio:
-  freelingo-tts-previews:
