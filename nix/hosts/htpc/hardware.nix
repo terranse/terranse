@@ -19,6 +19,10 @@
 
   hardware.cpu.intel.updateMicrocode = lib.mkDefault true;
 
+  # The CSR8510 USB dongle, for game controllers. The kernel binds it either
+  # way; without this there is no BlueZ to pair anything through it.
+  hardware.bluetooth.enable = true;
+
   # ZFS refuses to import a pool last touched by a different host unless it is
   # forced, and it identifies a host by this. Fixed rather than random so the
   # installer ISO and the installed system agree and no import is ever forced.
