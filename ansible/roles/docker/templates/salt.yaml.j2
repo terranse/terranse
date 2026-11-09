@@ -1,0 +1,23 @@
+# salt.md: docs and agent workspace for Sectrinet, declared in the sectrinet
+# deployment. Reached on the LAN at salt.edholm.cc:8420 and served onward by
+# IPID, so there is deliberately no `caddy:expose` marker here.
+#
+# Data is one SQLite database plus uploads, kept on tank/appdata. Borgmatic does
+# not cover that dataset yet, so this data has no off-host backup.
+services:
+  salt:
+    image: ghcr.io/saltmd/salt.md:latest
+    # The image's own user is uid 1000. Stated here because the data directory
+    # is owned by that uid, and root in this container could not write to it.
+    user: "1000:1000"
+    ports:
+      - 8420:8420
+    environment:
+      SALT_ADDR: ":8420"
+      SALT_DATA: /data
+      # Docker inside an LXC cannot detect its memory limit.
+      SALT_MEMORY_MB: "3072"
+      TZ: Europe/Stockholm
+    volumes:
+      - "{{ service_mounts.config }}:/data"
+    restart: unless-stopped
