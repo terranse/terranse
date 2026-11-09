@@ -36,6 +36,11 @@ pkgs.testers.runNixOSTest {
         requireSignatures = false;
         # No kiosk in this VM.
         requireKioskUnit = false;
+        # Fake Plasma units below stand in for a session, and a directory stands
+        # in for the kernel's list of connected screens.
+        refreshSession = true;
+        kioskUser = "tv";
+        sessionDisplayDir = "/run/fake-drm";
         # The unhealthy case has to actually wait this out.
         watchdogSeconds = 15;
         # The real box's window. The clock is set by hand below.
@@ -122,6 +127,8 @@ pkgs.testers.runNixOSTest {
         "f+ /run/ha-env 0600 root root - HA_TOKEN=test-ha-token"
         "f /run/fake-backend/busy 0644 root root - false"
         "f /run/fake-backend/healthy 0644 root root - true"
+        "d /run/fake-drm/card1-DP-1 0755 root root -"
+        "f /run/fake-drm/card1-DP-1/status 0644 root root - connected"
       ];
 
       systemd.services.fake-home-player = {
@@ -129,6 +136,36 @@ pkgs.testers.runNixOSTest {
         wantedBy = [ "multi-user.target" ];
         after = [ "network.target" ];
         serviceConfig.ExecStart = "${pkgs.python3}/bin/python3 ${./fake-home-player.py}";
+      };
+
+      # Enough of a desktop session to see which services get restarted.
+      users.users.tv = {
+        isNormalUser = true;
+        linger = true;
+      };
+      systemd.user.services =
+        lib.genAttrs
+          [
+            "plasma-kded6"
+            "plasma-plasmashell"
+            "home-player-shell"
+          ]
+          (_: {
+            wantedBy = [ "default.target" ];
+            unitConfig.ConditionUser = "tv";
+            serviceConfig.ExecStart = "${pkgs.coreutils}/bin/sleep infinity";
+          });
+      environment.pathsToLink = [ "/lib/qt-6/plugins" ];
+
+      # An update that adds a desktop plugin and changes nothing else about the
+      # session, which is what enabling Bluetooth did.
+      specialisation.plasma.configuration = {
+        environment.systemPackages = [
+          (pkgs.runCommand "fake-kded-plugin" { } ''
+            mkdir -p $out/lib/qt-6/plugins/kf6/kded
+            touch $out/lib/qt-6/plugins/kf6/kded/bluedevil.so
+          '')
+        ];
       };
 
       # The second generation. A specialisation is a full system closure built
@@ -926,5 +963,93 @@ pkgs.testers.runNixOSTest {
         machine.succeed("readlink -f /run/current-system > /run/fake-cache/pointers/machine")
         machine.succeed("systemctl start htpc-update-fetch.service")
         assert read_state()["untaken_since"] == 0 and read_state()["age_seconds"] == 0, read_state()
+
+    plasma = machine.succeed("readlink -f /run/current-system/specialisation/plasma").strip()
+    verify = "/var/lib/htpc-update/verify-after-reboot"
+    kiosk = "systemctl --user --machine=tv@.host"
+    desktop_units = ("plasma-kded6", "plasma-plasmashell")
+
+    def invocations():
+        units = desktop_units + ("home-player-shell",)
+        return {u: machine.succeed(f"{kiosk} show -P InvocationID {u}.service").strip() for u in units}
+
+    def refresh():
+        machine.succeed(
+            "systemctl reset-failed htpc-session-refresh.service",
+            "systemctl start htpc-session-refresh.service",
+        )
+
+    def fresh_session():
+        back_to_base(keep_state=False)
+        machine.succeed(
+            "rm -rf /run/htpc-session-refresh /nix/var/nix/gcroots/htpc-pending",
+            "echo connected > /run/fake-drm/card1-DP-1/status",
+        )
+        machine.wait_until_succeeds(f"{kiosk} is-active plasma-plasmashell.service", timeout=60)
+        return invocations()
+
+    def switch_unverified(path):
+        # What the box looks like between activation and the health check.
+        machine.succeed(
+            f"nix-env -p {profile} --set {path}",
+            f"echo {path} > {verify}",
+            f"{path}/bin/switch-to-configuration switch",
+        )
+
+    def assert_restarted(before):
+        after = invocations()
+        for unit in desktop_units:
+            assert after[unit] != before[unit], (unit, before, after)
+        assert after["home-player-shell"] == before["home-player-shell"], (before, after)
+
+    with subtest("an update that adds a desktop plugin restarts the desktop behind the kiosk"):
+        before = fresh_session()
+        stage_and_run = f"htpc-stage --no-activate {plasma}"
+        set_clock("04:00")
+        machine.succeed(
+            stage_and_run,
+            "systemctl reset-failed htpc-update.service",
+            "systemctl start htpc-update.service",
+        )
+        assert machine.succeed("readlink -f /run/current-system").strip() == plasma
+        machine.wait_until_succeeds(f"! test -e {verify}", timeout=60)
+        machine.wait_until_succeeds(
+            f"[ \"$({kiosk} show -P InvocationID plasma-plasmashell.service)\" != {before['plasma-plasmashell']} ]",
+            timeout=60,
+        )
+        machine.wait_until_succeeds(f"{kiosk} is-active plasma-plasmashell.service", timeout=30)
+        assert_restarted(before)
+
+        # Done once: the next look finds nothing to do.
+        settled = invocations()
+        refresh()
+        assert invocations() == settled, "restarted again with nothing new"
+
+    with subtest("the desktop is left alone until the update has proved healthy"):
+        before = fresh_session()
+        switch_unverified(plasma)
+        refresh()
+        assert invocations() == before, "restarted before the health check passed"
+        machine.succeed(f"rm {verify}")
+        refresh()
+        assert_restarted(before)
+
+    with subtest("with no screen connected it waits for one"):
+        # plasmashell has been seen crashing while no display is connected.
+        before = fresh_session()
+        switch_unverified(plasma)
+        machine.succeed(f"rm {verify}", "echo disconnected > /run/fake-drm/card1-DP-1/status")
+        refresh()
+        assert invocations() == before, "restarted with no screen"
+        machine.succeed("echo connected > /run/fake-drm/card1-DP-1/status")
+        refresh()
+        assert_restarted(before)
+
+    with subtest("an update that leaves the desktop as it was restarts nothing"):
+        before = fresh_session()
+        switch_unverified(nxt)
+        machine.succeed(f"rm {verify}")
+        refresh()
+        assert invocations() == before, "restarted for an unrelated update"
   '';
 }

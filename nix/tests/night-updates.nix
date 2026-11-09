@@ -10,6 +10,8 @@ pkgs.testers.runNixOSTest {
   nodes.machine =
     { pkgs, lib, ... }:
     let
+      fakeCompositor = version: pkgs.writeShellScriptBin "kwin_wayland" "# ${version}";
+
       # Says what was still in flight when suspend was asked for, because the
       # order is the point. On /var: a request made after a reboot has to be
       # readable, and so does one from before it.
@@ -47,6 +49,7 @@ pkgs.testers.runNixOSTest {
           end = "05:30";
         };
         cacheUrl = "http://127.0.0.1:8081";
+        refreshSession = true;
       };
 
       roles.update-alerts = {
@@ -76,7 +79,10 @@ pkgs.testers.runNixOSTest {
       nix.settings.experimental-features = [ "nix-command" ];
 
       # kreadconfig6 reads the config the way Plasma does.
-      environment.systemPackages = [ pkgs.kdePackages.kconfig ];
+      environment.systemPackages = [
+        pkgs.kdePackages.kconfig
+        (fakeCompositor "1")
+      ];
 
       systemd.tmpfiles.rules = [
         "d /run/fake-cache/pointers 0755 root root -"
@@ -141,6 +147,12 @@ pkgs.testers.runNixOSTest {
       specialisation.next.configuration = {
         environment.etc."htpc-generation".text = "2";
         roles.night-updates.suspendCommand = lib.mkForce "${fakeSuspend} next";
+      };
+
+      # An update the running desktop session cannot take without restarting
+      # the compositor, on the same kernel and initrd.
+      specialisation.compositor.configuration = {
+        environment.systemPackages = [ (lib.hiPrio (fakeCompositor "2")) ];
       };
 
       # An update that needs a reboot: a different initrd is enough, and costs
@@ -828,5 +840,57 @@ pkgs.testers.runNixOSTest {
         assert machine.succeed(f"readlink -f {profile}").strip() == reboots
         machine.fail(f"test -e {marker}")
         machine.fail(f"test -e {verify}")
+
+    compositor = machine.succeed("readlink -f /run/current-system/specialisation/compositor").strip()
+
+    with subtest("a compositor from a daytime update stays put while the box may be in use"):
+        machine.succeed("systemctl stop htpc-night.timer")
+        machine.execute("systemctl stop systemd-timesyncd.service")
+        reset()
+        set_clock("04:00")
+        machine.succeed(
+            f"nix-env -p {profile} --set {compositor}",
+            f"{compositor}/bin/switch-to-configuration switch",
+            f"rm -f {verify}",
+        )
+        # Awake when the timer came due: somebody may be watching.
+        run_night()
+        assert suspends() == [], suspends()
+        machine.fail("journalctl -u htpc-night.service --grep 'session stays'")
+
+        # A film left paused, or a game still running, is not to be thrown away.
+        machine.succeed("echo true > /run/fake-backend/busy")
+        timed_wake()
+        run_night()
+        machine.succeed("journalctl -u htpc-night.service --grep 'session stays'")
+        assert suspends() == ["suspend watchdog-pending=no marker=no"], suspends()
+
+    with subtest("a new compositor at night: verified, rebooted, asleep again, once"):
+        reset()
+        set_clock("04:00")
+        machine.succeed(
+            f"nix-env -p {profile} --set {base}",
+            f"{base}/bin/switch-to-configuration switch",
+            f"rm -f {verify} {state_dir}/state.json",
+            f": > {state_dir}/bad-revisions",
+            f"htpc-stage --no-activate {compositor}",
+            "date -d '+1 minute' +%s > /var/lib/test-clock",
+        )
+        machine.succeed(
+            "systemd-run --unit=hold-shutdown --collect systemd-inhibit --what=shutdown"
+            " --mode=delay --who=test --why=test ${pkgs.coreutils}/bin/sleep 600"
+        )
+        machine.wait_until_succeeds("systemd-inhibit --list | grep -q test", timeout=10)
+        timed_wake()
+        start_night()
+        machine.wait_for_shutdown()
+        machine.start()
+        machine.wait_until_succeeds("test -s /var/lib/fake-suspend", timeout=300)
+        machine.succeed("journalctl -b -1 -u htpc-night.service --grep 'a reboot is under way'")
+        machine.succeed("journalctl -b -1 --grep 'compositor or session manager changed'")
+        machine.fail("journalctl -b 0 --grep 'compositor or session manager changed'")
+        assert suspends() == ["suspend watchdog-pending=no marker=no"], suspends()
+        assert tv_on_calls() == 0
+        assert machine.succeed(f"readlink -f {profile}").strip() == compositor
   '';
 }

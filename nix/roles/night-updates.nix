@@ -332,6 +332,22 @@ let
         settle
       fi
 
+      ${lib.optionalString staged.refreshSession ''
+        # The one time nobody can be in the middle of anything: the timer woke
+        # the box and nothing has touched it. A reboot from here is the ordinary
+        # one, and the marker puts the box back to sleep on the other side.
+        # Busy counts here, unlike for the decision below: a film left paused or
+        # a game still running would not survive this.
+        if [ "$timed" -eq 1 ] && [ ! -e ${inputSeen} ] && ! reboot_pending; then
+          if [ "$(curl -fsS --max-time 5 ${staged.healthUrl}/system/activity 2>/dev/null |
+                  jq -r '.busy' 2>/dev/null)" = "true" ]; then
+            echo "htpc-night: busy; the session stays as it is"
+          else
+            ${lib.getExe staged.sessionRefreshPackage} --full ||
+              echo "htpc-night: the session refresh did not succeed; carrying on" >&2
+          fi
+        fi
+      ''}
       ${lib.optionalString config.roles.update-alerts.enable ''
         # Tell someone if updating has stopped or rolled back. Bounded (the unit
         # gives up at 30 s) and never a reason for the decision below to change:

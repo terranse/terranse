@@ -113,6 +113,106 @@ let
     }
   '';
 
+  # Activating a generation leaves a running desktop session on what it started
+  # with, so what an update adds to Plasma stays invisible until the next boot.
+  #
+  # Plain: Plasma's background service and desktop shell are restarted, which
+  # Home Player, in its own unit and on top of them, does not notice. --full is
+  # for the compositor Home Player draws through, which cannot be replaced under
+  # it. It reboots, because the night's reboot path already keeps the TV off and
+  # puts the box back to sleep; only htpc-night calls it.
+  sessionRefreshState = "/run/htpc-session-refresh/fingerprint";
+  htpc-session-refresh = pkgs.writeShellApplication {
+    name = "htpc-session-refresh";
+    runtimeInputs = with pkgs; [
+      coreutils
+      findutils
+      systemd
+    ];
+    text = ''
+      resolved() {
+        local sw=$1/sw name
+        shift
+        for name in "$@"; do
+          if [ -e "$sw/bin/$name" ]; then
+            readlink -f "$sw/bin/$name"
+          fi
+        done
+      }
+
+      if [ "''${1:-}" = "--full" ]; then
+        # /run/booted-system is what the session started from.
+        if [ "$(resolved /run/current-system kwin_wayland ksmserver)" = \
+             "$(resolved /run/booted-system kwin_wayland ksmserver)" ]; then
+          exit 0
+        fi
+        # A reboot lands on the profile, which must be what was proved healthy.
+        if [ -e ${verifyMarker} ] ||
+           [ "$(readlink -f ${systemProfile})" != "$(readlink -f /run/current-system)" ]; then
+          echo "htpc-session-refresh: the running generation is not settled; not rebooting" >&2
+          exit 0
+        fi
+        echo "htpc-session-refresh: the compositor or session manager changed; rebooting into it"
+        systemctl reboot
+        exit 0
+      fi
+
+      if [ -e ${verifyMarker} ]; then
+        echo "htpc-session-refresh: this generation is not proved healthy yet"
+        exit 0
+      fi
+
+      # Every link's target carries its package's hash, so this changes when any
+      # plugin is added, removed or rebuilt. Relative names, because the prefix
+      # differs for every generation.
+      fingerprint() {
+        {
+          resolved "$1" kded6 plasmashell
+          find -H "$1/sw/lib/qt-6/plugins" "$1/sw/share/plasma" -printf '%P %l\n' 2>/dev/null || true
+        } | LC_ALL=C sort | sha256sum | cut -d' ' -f1
+      }
+
+      # Until the first restart this boot, the session has what the boot gave it.
+      recorded=$(cat ${sessionRefreshState} 2>/dev/null) || recorded=$(fingerprint /run/booted-system)
+      current=$(fingerprint /run/current-system)
+      if [ "$recorded" = "$current" ]; then
+        exit 0
+      fi
+
+      kiosk() {
+        timeout 60 systemctl --user --machine=${cfg.kioskUser}@.host "$@"
+      }
+
+      # plasmashell has been seen crashing while no display is connected. A TV
+      # asleep at night may be exactly that, so this waits for the timer to find
+      # one, as it does for a session that has not started.
+      screen=0
+      for status in ${cfg.sessionDisplayDir}/*/status; do
+        if [ "$(cat "$status" 2>/dev/null)" = connected ]; then
+          screen=1
+        fi
+      done
+      if [ "$screen" -eq 0 ] ||
+         ! kiosk is-active --quiet plasma-kded6.service ||
+         ! kiosk is-active --quiet plasma-plasmashell.service; then
+        echo "htpc-session-refresh: no screen or no session yet; trying again later"
+        exit 0
+      fi
+
+      echo "htpc-session-refresh: restarting Plasma's services for what this update changed"
+      kiosk restart plasma-kded6.service plasma-plasmashell.service
+      install -d -m 0755 "$(dirname ${sessionRefreshState})"
+      echo "$current" > ${sessionRefreshState}
+    '';
+  };
+
+  # Never a reason for the watchdog to fail. --no-block because it is not worth
+  # holding up the update's own verdict for.
+  startSessionRefresh = lib.optionalString cfg.refreshSession ''
+    systemctl start --no-block htpc-session-refresh.service ||
+      echo "htpc-update-watchdog: could not start the session refresh" >&2
+  '';
+
   htpc-update-watchdog = pkgs.writeShellApplication {
     name = "htpc-update-watchdog";
     runtimeInputs = with pkgs; [
@@ -192,6 +292,7 @@ let
             rm -f ${verifyMarker} ${untakenSince}
             echo "htpc-update-watchdog: requireHealthy is off; leaving $pending as-is"
             write_state none "$pending" 0 clear
+            ${startSessionRefresh}
             exit 0
           ''
         else
@@ -226,6 +327,7 @@ let
               rm -f ${verifyMarker} ${untakenSince}
               echo "htpc-update-watchdog: $pending is healthy"
               write_state none "$pending" 0 clear
+              ${startSessionRefresh}
               exit 0
             fi
 
@@ -781,6 +883,30 @@ in
       '';
     };
 
+    refreshSession = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Bring the running Plasma session up to date after an update: its
+        background service and shell once the update has proved healthy, and
+        the compositor by a reboot during a timed night wake.
+      '';
+    };
+
+    sessionDisplayDir = lib.mkOption {
+      type = lib.types.str;
+      default = "/sys/class/drm";
+      description = "Where connected screens are listed. Only the nixosTest moves it.";
+    };
+
+    sessionRefreshPackage = lib.mkOption {
+      type = lib.types.package;
+      internal = true;
+      readOnly = true;
+      default = htpc-session-refresh;
+      description = "So that roles.night-updates runs this same script.";
+    };
+
     requireHealthy = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -1000,6 +1126,30 @@ in
         # `nix-env --rollback` and a complete switch-to-configuration -- and
         # 30min still clears that by more than an order of magnitude.
         TimeoutStartSec = "30min";
+      };
+    };
+
+    # The watchdog starts this the moment an update is proved healthy. The
+    # timer is for one that found no screen or session at that moment.
+    systemd.services.htpc-session-refresh = lib.mkIf cfg.refreshSession {
+      description = "Bring the running Plasma session up to date, behind the kiosk";
+      # See the long comment on systemd.services.htpc-update. A switch has no
+      # business starting this: the generation is not proved healthy yet.
+      restartIfChanged = false;
+      unitConfig.X-StopOnRemoval = false;
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = lib.getExe htpc-session-refresh;
+        TimeoutStartSec = "5min";
+      };
+    };
+
+    systemd.timers.htpc-session-refresh = lib.mkIf cfg.refreshSession {
+      description = "Re-check whether the Plasma session is behind the system";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "15min";
+        OnUnitActiveSec = "15min";
       };
     };
 

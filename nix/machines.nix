@@ -63,6 +63,7 @@
         name = "staged-updates";
         settings = {
           kioskUser = "vuxna";
+          refreshSession = true;
           cacheUrl = "http://nixhost.edholm.cc:8080";
           # The public half of the key nixhost signs with; htpc-stage pins it
           # by value, not by name.
