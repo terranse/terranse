@@ -5,6 +5,9 @@ After=network-online.target docker.service
 Requires=docker.service
 
 [Service]
+# After a reboot only full ninfer is up, so a persisted state or request from
+# before the reboot would be wrong; the gateway starts from a clean slate.
+ExecStartPre=-/bin/rm -f {{ llm_speech_gateway_state_dir }}/mode-state.json {{ llm_speech_gateway_state_dir }}/desired-mode
 ExecStartPre=-/usr/bin/docker rm -f speech-gateway
 ExecStart=/usr/bin/docker run --rm --name speech-gateway \
   --gpus all \
