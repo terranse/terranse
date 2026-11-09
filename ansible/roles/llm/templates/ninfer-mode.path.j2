@@ -1,0 +1,9 @@
+# Managed by Ansible (terranse llm role) — DO NOT EDIT.
+[Unit]
+Description=Watch the speech gateway's requested ninfer mode
+
+[Path]
+PathChanged={{ llm_speech_gateway_state_dir }}/desired-mode
+
+[Install]
+WantedBy=multi-user.target

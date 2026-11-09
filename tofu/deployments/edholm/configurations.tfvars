@@ -344,8 +344,8 @@ hosts = {
 
       ai-vm = {
         cores     = 8
-        memory    = 24576
-        disk_size = "150G"
+        memory    = 16384
+        disk_size = "220G"
         clone     = "ubuntu-2604-base"
 
         # Same OVMF boot menu wait and memory prefill as on the gaming VM; qm start
@@ -387,6 +387,10 @@ hosts = {
             # has no structured-output support.
             llm_ninfer_enabled = "true"
             llm_backend        = "ninfer"
+
+            # Home FreeLingo STT/TTS gateway; ninfer drops to 32768 context
+            # while a speech session is open.
+            llm_speech_gateway_enabled = "true"
           }
         }]
       }

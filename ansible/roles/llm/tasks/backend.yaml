@@ -18,6 +18,20 @@
       vars as well.
   when: llm_backend == 'ninfer'
 
+# ninfer and ninfer-speech share the container name and the GPU. The role must
+# never restart or start either while one is running: a restart drops in-flight
+# requests, and starting ninfer while ninfer-speech is up would stop the speech
+# session through Conflicts=.
+- name: Check whether ninfer is running in either mode
+  ansible.builtin.command: systemctl is-active ninfer.service ninfer-speech.service
+  register: llm_ninfer_active_check
+  changed_when: false
+  failed_when: false
+
+- name: Record whether either ninfer unit is active
+  ansible.builtin.set_fact:
+    llm_ninfer_any_active: "{{ 'active' in llm_ninfer_active_check.stdout_lines }}"
+
 - name: Install the NInfer systemd unit
   ansible.builtin.template:
     src: ninfer.service.j2
@@ -46,5 +60,5 @@
   ansible.builtin.systemd:
     name: "{{ 'ninfer' if llm_backend == 'ninfer' else 'ollama' }}"
     enabled: true
-    state: started
+    state: "{{ 'started' if not (llm_backend == 'ninfer' and llm_ninfer_any_active) else omit }}"
     daemon_reload: true

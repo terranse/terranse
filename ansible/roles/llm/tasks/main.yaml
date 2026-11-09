@@ -87,6 +87,11 @@
 - name: Select the active inference backend
   ansible.builtin.include_tasks: backend.yaml
 
+# After the backend is selected: ninfer-mode switches between the two ninfer units.
+- name: Set up the speech gateway
+  ansible.builtin.include_tasks: speech_gateway.yaml
+  when: llm_speech_gateway_enabled | bool
+
 - name: Set up Hermes agent CLI
   ansible.builtin.include_tasks: hermes.yaml
 

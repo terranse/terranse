@@ -1,0 +1,22 @@
+# Managed by Ansible (terranse llm role) — DO NOT EDIT.
+[Unit]
+Description=Speech gateway (STT/TTS for FreeLingo)
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+ExecStartPre=-/usr/bin/docker rm -f speech-gateway
+ExecStart=/usr/bin/docker run --rm --name speech-gateway \
+  --gpus all \
+  --publish {{ llm_speech_gateway_port }}:8090 \
+  --volume {{ llm_speech_gateway_state_dir }}:/var/lib/speech-gateway \
+  --volume {{ llm_speech_gateway_model_dir }}:/models \
+  {{ llm_speech_gateway_image }}
+ExecStop=/usr/bin/docker stop speech-gateway
+ExecStopPost=-/usr/bin/docker rm -f speech-gateway
+TimeoutStartSec=300
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

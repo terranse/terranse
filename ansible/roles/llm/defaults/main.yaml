@@ -207,3 +207,26 @@ llm_ninfer_api_key: ""
 # one is enabled and started. They cannot coexist — Ollama holds ~19.1 GiB and
 # NInfer ~20.0 GiB of a 24 GiB slice — so the unit file also declares Conflicts=.
 llm_backend: ollama
+
+# --- Speech gateway ----------------------------------------------------------
+#
+# STT/TTS gateway for the home FreeLingo deployment, only on hosts that set
+# llm_speech_gateway_enabled. The image is built on the host from the lalapp
+# repo (not by this role). While a speech session is open the gateway has
+# ninfer-mode swap ninfer to ninfer-speech.service (32768 context) so the speech
+# engines fit in VRAM, and swaps back to ninfer.service afterwards.
+llm_speech_gateway_enabled: false
+llm_speech_gateway_image: "speech-gateway:latest"
+llm_speech_gateway_port: 8090
+llm_speech_gateway_state_dir: /var/lib/speech-gateway
+llm_speech_gateway_model_dir: /opt/speech-gateway/models
+llm_ninfer_speech_max_context: "32768"
+llm_ninfer_speech_kv_capacity: "32768"
+
+# The ninfer-mode script is read from the lalapp checkout beside this repo, the
+# same sibling-repo convention as gpu_manager_src.
+llm_speech_gateway_mode_script: "{{ playbook_dir }}/../../../lalapp/services/speech-gateway/deploy/ninfer-mode"
+
+# One-off seed of the voice-clone reference clips from a test folder that may
+# later be deleted. Skipped per file when the source is absent or the target exists.
+llm_speech_gateway_seed_dir: /root/speechtest
