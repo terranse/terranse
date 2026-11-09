@@ -138,6 +138,20 @@ hosts = {
           { name = "vikunja" }
         ]
       }
+
+      # FreeLingo for the kids. Images are built on the LXC (see the template).
+      freelingo = {
+        cores     = 4
+        memory    = 6144
+        disk_size = "20G"
+
+        roles = [
+          { name = "docker" }
+        ]
+        docker_services = [
+          { name = "freelingo" }
+        ]
+      }
     }
   },
 
