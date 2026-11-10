@@ -128,6 +128,28 @@
   ansible.builtin.include_tasks: retroarch.yaml
   when: retroarch_enabled | bool
 
+# Lutris's paths, by install method. Here rather than in lutris.yaml because
+# game-sync's config reads them as well, also on a `--tags game-sync` run.
+- name: Set Lutris paths
+  ansible.builtin.set_fact:
+    _lutris_config_dir: >-
+      {{ '/home/' + gaming_user + '/.var/app/net.lutris.Lutris/config/lutris'
+         if lutris_install_method == 'flatpak'
+         else '/home/' + gaming_user + '/.config/lutris' }}
+    _lutris_data_dir: >-
+      {{ '/home/' + gaming_user + '/.var/app/net.lutris.Lutris/data/lutris'
+         if lutris_install_method == 'flatpak'
+         else '/home/' + gaming_user + '/.local/share/lutris' }}
+    _legendary_config_dir: >-
+      {{ '/home/' + gaming_user + '/.var/app/net.lutris.Lutris/config/legendary'
+         if lutris_install_method == 'flatpak'
+         else '/home/' + gaming_user + '/.config/legendary' }}
+    _lutris_cache_dir: >-
+      {{ '/home/' + gaming_user + '/.var/app/net.lutris.Lutris/cache/lutris'
+         if lutris_install_method == 'flatpak'
+         else '/home/' + gaming_user + '/.cache/lutris' }}
+  tags: [game-sync]
+
 - name: Install Lutris game manager
   ansible.builtin.include_tasks: lutris.yaml
   when: lutris_enabled | bool
@@ -141,8 +163,13 @@
 # where Lutris is absent — which is just as well, since Lutris has never
 # successfully produced a pga.db here.
 - name: Deploy game sync service
-  ansible.builtin.include_tasks: game-sync.yaml
+  ansible.builtin.include_tasks:
+    file: game-sync.yaml
+    # `--tags game-sync` updates game-sync alone, without the whole role.
+    apply:
+      tags: [game-sync]
   when: game_sync_enabled | bool
+  tags: [game-sync]
 
 # =============================================================================
 # Snapshot hooks for instant resume
