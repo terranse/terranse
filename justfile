@@ -177,6 +177,11 @@ push-lxc-template machine node="192.168.1.200":
 deploy machine *flags:
     ./scripts/deploy.sh {{ machine }} {{ flags }}
 
+# Home Player to the TV and game-sync to the gaming VM at once, bumping only
+# home-player (`--full` for the night's whole bump). See scripts/deploy-all.sh.
+deploy-all *flags: _python-venv
+    ./scripts/deploy-all.sh {{ flags }}
+
 # Build and activate a NixOS machine's configuration.
 # --build-host is the machine itself: it has more cores than the laptop, and
 # this is the whole point of a build box. root@ will not work -- base.nix

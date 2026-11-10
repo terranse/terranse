@@ -15,6 +15,8 @@
 #    finds the box current instead of taking it back.
 #
 # --no-push stops after step 2: published, and taken at the box's next night.
+# --quick has that one run bump home-player alone, skipping the full bump of
+# every input (and the rebuild a new nixpkgs brings). The night still does both.
 #
 # Environment (all optional; tests set them): DEPLOY_REMOTE (git remote for
 # nixhost's repo, default nixhost), DEPLOY_NIXHOST (ssh target), DEPLOY_SHIP,
@@ -22,12 +24,14 @@
 # flake: what nixhost builds, and where the box reads its cache).
 set -euo pipefail
 
-MACHINE="${1:?usage: deploy.sh <machine> [--no-push]}"
+MACHINE="${1:?usage: deploy.sh <machine> [--no-push] [--quick]}"
 shift
 PUSH=1
+QUICK=0
 for arg in "$@"; do
   case "$arg" in
     --no-push) PUSH=0 ;;
+    --quick) QUICK=1 ;;
     *) echo "deploy.sh: unknown argument '$arg'" >&2; exit 2 ;;
   esac
 done
@@ -37,6 +41,8 @@ cd "$REPO_ROOT"
 
 REMOTE="${DEPLOY_REMOTE:-nixhost}"
 NIXHOST="${DEPLOY_NIXHOST:-default-user@nixhost.edholm.cc}"
+# nightly.sh's NIGHTLY_STATE_DIR on nixhost, where --quick leaves its note.
+NIGHTLY_STATE="${DEPLOY_NIGHTLY_STATE:-/var/lib/nightly-build/state}"
 SHIP="${DEPLOY_SHIP:-${REPO_ROOT}/scripts/ship.sh}"
 UNIT=nixhost-nightly.service
 
@@ -76,9 +82,14 @@ log "building on nixhost: ${UNIT}"
 ssh -o BatchMode=yes "$NIXHOST" bash -s <<EOF
 set -euo pipefail
 unit=${UNIT}
+only=${NIGHTLY_STATE}/${MACHINE}.only-inputs
 sudo journalctl -f -n 0 -o cat -u "\$unit" &
 follow=\$!
-trap 'kill "\$follow" 2>/dev/null || true' EXIT
+# The note is for this run alone: one it never read must not reach the night.
+trap 'kill "\$follow" 2>/dev/null || true; [ ${QUICK} = 0 ] || sudo rm -f "\$only"' EXIT
+if [ ${QUICK} = 1 ]; then
+  echo home-player | sudo tee "\$only" >/dev/null
+fi
 sleep 1
 sudo systemctl start --no-block "\$unit"
 sleep 2

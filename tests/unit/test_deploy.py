@@ -182,6 +182,32 @@ def test_no_push_builds_and_stops(env):
     assert env.ships() == []
 
 
+def test_quick_asks_that_run_for_home_player_only_and_cleans_up(env):
+    state = env.tmp / "state"
+    state.mkdir()
+    seen = env.tmp / "seen"
+    # Stands in for nightly.sh: records the note the run finds.
+    reader = env.tmp / "reader"
+    reader.write_text(f"""#!/usr/bin/env bash
+cat {state}/htpc.only-inputs > {seen} 2>/dev/null || echo none > {seen}
+exec {env.tmp / "nightly"}
+""")
+    reader.chmod(0o755)
+    r = env.run("--quick", STUB_NIGHTLY=str(reader), DEPLOY_NIGHTLY_STATE=str(state))
+    assert r.returncode == 0, r.stderr
+    assert seen.read_text().strip() == "home-player"
+    assert not (state / "htpc.only-inputs").exists()
+    assert env.ships() == [f"ship htpc --now --stage {POINTER}"]
+
+
+def test_without_quick_no_note_is_left(env):
+    state = env.tmp / "state"
+    state.mkdir()
+    r = env.run(DEPLOY_NIGHTLY_STATE=str(state))
+    assert r.returncode == 0, r.stderr
+    assert list(state.iterdir()) == []
+
+
 def test_another_branch_is_refused_before_anything_happens(env):
     sh("git", "checkout", "-qb", "feat/other", cwd=env.work)
     r = env.run()

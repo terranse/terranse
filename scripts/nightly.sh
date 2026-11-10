@@ -192,14 +192,40 @@ update_and_check() {
   run_checks
 }
 
-log "bumping all inputs"
-if ! update_and_check; then
-  git checkout -- flake.lock
-  log "full bump failed; retrying with home-player only"
-  if ! update_and_check home-player; then
+# `deploy.sh --quick` leaves the inputs it wants bumped here, for one run only:
+# it is read and removed before anything else, so a deploy that dies cannot
+# leave every later night skipping the full bump.
+ONLY_FILE="${STATE_DIR}/${MACHINE}.only-inputs"
+only=""
+if [ -e "$ONLY_FILE" ]; then
+  only="$(tr -s '[:space:]' ' ' <"$ONLY_FILE")"
+  only="${only# }"
+  only="${only% }"
+  rm -f "$ONLY_FILE"
+  if [[ ! $only =~ ^[A-Za-z0-9_-]+( [A-Za-z0-9_-]+)*$ ]]; then
+    echo "nightly.sh: ignoring ${ONLY_FILE}: '${only}' is not a list of input names" >&2
+    only=""
+  fi
+fi
+
+if [ -n "$only" ]; then
+  log "a deploy asked for ${only} only; skipping the full bump"
+  # shellcheck disable=SC2086 # one word per input, checked above
+  if ! update_and_check $only; then
     git checkout -- flake.lock
-    echo "nightly.sh: both the full bump and the home-player-only bump failed; publishing nothing" >&2
+    echo "nightly.sh: the ${only} bump failed; publishing nothing" >&2
     exit 1
+  fi
+else
+  log "bumping all inputs"
+  if ! update_and_check; then
+    git checkout -- flake.lock
+    log "full bump failed; retrying with home-player only"
+    if ! update_and_check home-player; then
+      git checkout -- flake.lock
+      echo "nightly.sh: both the full bump and the home-player-only bump failed; publishing nothing" >&2
+      exit 1
+    fi
   fi
 fi
 

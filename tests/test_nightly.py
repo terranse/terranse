@@ -145,6 +145,46 @@ def test_failed_all_bump_retries_home_player_only(env):
     assert env.last.exists()
 
 
+def only_inputs(env, text):
+    state = Path(env.env["NIGHTLY_STATE_DIR"])
+    state.mkdir(parents=True, exist_ok=True)
+    f = state / "htpc.only-inputs"
+    f.write_text(text)
+    return f
+
+
+def test_a_quick_deploy_bumps_only_what_it_asked_for_once(env):
+    f = only_inputs(env, "home-player\n")
+    r = env.run()
+    assert r.returncode == 0, r.stderr
+    updates = [c for c in env.calls() if c.startswith("nix flake update")]
+    assert updates == ["nix flake update home-player"]
+    assert [c for c in env.calls() if c.startswith("ship")] == ["ship htpc --no-push"]
+    assert not f.exists()
+    # The next run is a normal night again.
+    env.log.write_text("")
+    assert env.run().returncode == 0
+    assert [c for c in env.calls() if c.startswith("nix flake update")][0] == "nix flake update"
+
+
+def test_a_failed_quick_bump_publishes_nothing_and_does_not_retry(env):
+    only_inputs(env, "home-player")
+    r = env.run(STUB_FAIL_HP="1")
+    assert r.returncode != 0
+    assert [c for c in env.calls() if c.startswith("nix flake update")] == ["nix flake update home-player"]
+    assert not [c for c in env.calls() if c.startswith("ship")]
+    assert (env.work / "flake.lock").read_text() == "base\n"
+
+
+def test_a_garbled_only_inputs_file_means_a_normal_night(env):
+    f = only_inputs(env, "home-player; rm -rf /\n")
+    r = env.run()
+    assert r.returncode == 0, r.stderr
+    assert "ignoring" in r.stderr
+    assert [c for c in env.calls() if c.startswith("nix flake update")][0] == "nix flake update"
+    assert not f.exists()
+
+
 def test_both_fail_publishes_nothing(env):
     env.last.write_text("12345\n")
     before = env.head()
