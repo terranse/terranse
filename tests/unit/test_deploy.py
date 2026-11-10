@@ -22,7 +22,7 @@ while [ "${1:-}" = -o ]; do shift 2; done
 shift
 exec "$@"
 """,
-    "sudo": 'exec "$@"',
+    "sudo": 'while [ "${1:-}" = -u ]; do shift 2; done; exec "$@"',
     "systemctl": r"""
 echo "systemctl $*" >> "$STUB_LOG"
 case "$*" in
@@ -183,8 +183,7 @@ def test_no_push_builds_and_stops(env):
 
 
 def test_quick_asks_that_run_for_home_player_only_and_cleans_up(env):
-    state = env.tmp / "state"
-    state.mkdir()
+    state = env.tmp / "state"  # not there yet, as before nixhost's first failed night
     seen = env.tmp / "seen"
     # Stands in for nightly.sh: records the note the run finds.
     reader = env.tmp / "reader"

@@ -73,7 +73,8 @@ tv=$!
 
 # ---- 3. game-sync on the gaming VM ---------------------------------------------------
 gs=skipped
-if ! getent hosts "$GAMING_HOST" >/dev/null; then
+# Its name can outlive it in DNS (a DHCP lease), so ask its SSH port instead.
+if ! timeout 5 bash -c "exec 3<>/dev/tcp/${GAMING_HOST}/22" 2>/dev/null; then
   log "${GAMING_HOST} is off; run \`gpu gaming\` and this again to install game-sync (\`gpu ai\` after)"
 else
   for f in ansible/playbooks/edholm.yaml ansible/secrets.yaml; do

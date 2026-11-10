@@ -88,7 +88,10 @@ follow=\$!
 # The note is for this run alone: one it never read must not reach the night.
 trap 'kill "\$follow" 2>/dev/null || true; [ ${QUICK} = 0 ] || sudo rm -f "\$only"' EXIT
 if [ ${QUICK} = 1 ]; then
-  echo home-player | sudo tee "\$only" >/dev/null
+  # As the job's own user: the state directory may not exist before its first
+  # failed night, and what is made here must stay the job's to remove.
+  sudo -u nightly mkdir -p "${NIGHTLY_STATE}"
+  echo home-player | sudo -u nightly tee "\$only" >/dev/null
 fi
 sleep 1
 sudo systemctl start --no-block "\$unit"
