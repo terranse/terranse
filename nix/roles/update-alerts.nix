@@ -175,7 +175,10 @@ let
       touch "$sent"
       running=$(readlink /run/booted-system || true)
       generation() { grep -oE 'nixos-generation-[0-9]+' <<<"$1" | grep -oE '[0-9]+$' || true; }
-      find /boot/EFI/Linux -maxdepth 1 -name 'nixos-generation-*+0-*.efi' -printf '%f\n' 2>/dev/null |
+      # No such directory (a box not booted by systemd-boot, a test VM) means
+      # nothing fell back; under pipefail find's failure would fail the unit,
+      # and with it every switch that starts it.
+      { find /boot/EFI/Linux -maxdepth 1 -name 'nixos-generation-*+0-*.efi' -printf '%f\n' 2>/dev/null || true; } |
         while read -r entry; do
           grep -qxF "$entry" "$sent" && continue
           failed=$(mktemp)
