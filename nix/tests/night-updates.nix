@@ -600,7 +600,8 @@ pkgs.testers.runNixOSTest {
         )
 
     with subtest("a switch that never ends: no suspend, and the unit says so"):
-        # The fetch runs its switch inside its own unit, so only the process shows.
+        # A switch outside the update units (a person's, a rollback's): only
+        # the process shows.
         reset()
         machine.succeed("systemctl start fake-switch.service")
         timed_wake()

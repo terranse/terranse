@@ -936,9 +936,23 @@ pkgs.testers.runNixOSTest {
         machine.succeed(f"nix copy --to file:///run/fake-cache {fetched}")
         machine.succeed(f"echo {fetched} > /run/fake-cache/pointers/machine")
         machine.wait_for_unit("fake-cache.service")
+        update_before = machine.succeed("systemctl show -P InvocationID htpc-update.service").strip()
         machine.succeed("systemctl start htpc-update-fetch.service")
 
         assert machine.succeed("readlink -f /nix/var/nix/gcroots/htpc-pending").strip() == fetched
+        # The fetch only stages; the switch is htpc-update.service's, which it
+        # queues. A switch inside the fetch restarts multi-user.target, which
+        # is ordered After the fetch, and the two wait on each other for 30min
+        # (the HTPC, 2026-11-08 and 11-10).
+        assert "htpc-update-fetch.service" in machine.succeed("systemctl show -P After multi-user.target")
+        fetch_run = machine.succeed("systemctl show -P InvocationID htpc-update-fetch.service").strip()
+        machine.succeed(f"journalctl _SYSTEMD_INVOCATION_ID={fetch_run} --grep 'htpc-stage: staged'")
+        machine.fail(f"journalctl _SYSTEMD_INVOCATION_ID={fetch_run} --grep 'htpc-update: '")
+        machine.wait_until_succeeds(
+            f"[ \"$(systemctl show -P InvocationID htpc-update.service)\" != '{update_before}' ]"
+            " && [ \"$(systemctl show -P ActiveState htpc-update.service)\" != activating ]",
+            timeout=60,
+        )
         assert machine.succeed("readlink -f /run/current-system").strip() == base
         assert reason() == "outside-window", reason()
         # Counted from the night the box first saw something it does not run.
@@ -963,8 +977,11 @@ pkgs.testers.runNixOSTest {
         machine.succeed("readlink -f /run/current-system > /run/fake-cache/pointers/machine")
         machine.succeed("systemctl start htpc-update-fetch.service")
         assert read_state()["untaken_since"] == 0 and read_state()["age_seconds"] == 0, read_state()
+        # Gone again: a later switch starts the fetch (multi-user.target wants
+        # it), which would try to download a pointer naming a past system.
+        machine.succeed("rm -f /run/fake-cache/pointers/machine")
 
-    plasma = machine.succeed("readlink -f /run/current-system/specialisation/plasma").strip()
+    plasma =machine.succeed("readlink -f /run/current-system/specialisation/plasma").strip()
     verify = "/var/lib/htpc-update/verify-after-reboot"
     kiosk = "systemctl --user --machine=tv@.host"
     desktop_units = ("plasma-kded6", "plasma-plasmashell")

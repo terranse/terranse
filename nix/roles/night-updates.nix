@@ -68,8 +68,8 @@ let
   };
 
   updateInFlightFn = ''
-    # htpc-update-fetch runs its switch inside its own unit, so only the process
-    # shows that one.
+    # The units that switch, and the process for any switch started some other
+    # way (a person's nixos-rebuild, a rollback from a watchdog).
     update_in_flight() {
       local unit
       for unit in htpc-update.service htpc-update-apply.service; do
@@ -315,8 +315,8 @@ let
 
       # On the boot after a reboot this joins the job already queued, which runs
       # after the boot's own watchdog. With someone at the box no update is
-      # started. One already inside the fetch is left to finish: stopping that
-      # unit could kill a switch halfway, which is what its protections are for.
+      # started. A fetch already under way is left to finish. It only stages:
+      # the switch is htpc-update.service's, queued by the fetch and run below.
       if [ ! -e ${inputSeen} ]; then
         run_unit htpc-update-fetch.service
       fi

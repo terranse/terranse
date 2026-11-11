@@ -1256,14 +1256,17 @@ in
           echo "htpc-update-fetch: fetching $pointer"
           nix copy --from "${cfg.cacheUrl}" "$pointer"
 
-          # This still goes through the ordinary idle check in htpc-update --
-          # someone may have just pressed the power button. A failed
-          # /system/activity request already reads as idle (home-player is
-          # not deployed yet), so this behaves the same as before; once that
-          # endpoint is real, this is what stops a kernel-update reboot from
-          # landing in a viewer's face on the very boot that woke the box up.
-          ${lib.getExe htpc-stage} --no-activate "$pointer"
-          ${lib.getExe htpc-update}
+          # Staged here, switched in htpc-update.service: never inside this
+          # unit. This unit is wantedBy multi-user.target, so the target is
+          # ordered After it, and a switch restarts that target -- a switch
+          # run from here waits on the target, the target on this unit, and
+          # this unit on the switch, until the 30min timeout (seen on the box
+          # on 2026-11-08 and 11-10; htpc-night then saw an update under way
+          # and never suspended). htpc-update.service has no such ordering,
+          # and still goes through the ordinary window and idle checks.
+          # htpc-stage queues it without waiting; htpc-night runs it next
+          # anyway and joins that job.
+          ${lib.getExe htpc-stage} "$pointer"
         '';
       };
     };
