@@ -32,7 +32,11 @@ sunshine_enabled: true
 # Pinned Sunshine release; changing this upgrades existing machines. The role
 # downloads the .deb matching the guest's Ubuntu version so dependencies resolve
 # — the old debian-bookworm build pulls libmfx1, which was removed in Ubuntu 26.04.
-sunshine_version: v2026.914.233613
+# v2026.1111.1438 is a PRE-RELEASE, pinned for libvirtualhid PR #180: before it
+# an idle virtual Switch Pro pad sent nothing, so Steam dropped both pads every
+# 2-10 s ("hid_read failure", libvirtualhid #176). Verified live 2026-11-11.
+# Move to the first stable release after it once one exists.
+sunshine_version: v2026.1111.1438
 steam_enabled: true
 retroarch_enabled: false
 retroarch_flatpak_config: "/home/{{ gaming_user }}/.var/app/org.libretro.RetroArch/config/retroarch"
@@ -100,8 +104,9 @@ sunshine_audio_sink_name: sink-sunshine-stereo
 # switch: the household's pads are 8BitDo SN30 Pro+ with the Nintendo layout,
 # so the guest gets Switch Pro controllers and Steam shows Switch glyphs.
 # Sunshine maps by position, so Steam's "Use Nintendo Button Layout" must be on
-# for the button labelled A to confirm. Verified 2026-11-11: Steam opens each
-# pad as a Switch Pro over HIDAPI. Use xone for an Xbox-layout household.
+# for the button labelled A to confirm. Needs sunshine_version with the idle-pad
+# fix (see above). Verified 2026-11-11: no drops, A confirms, Switch glyphs in
+# Steam. Use xone for an Xbox-layout household.
 sunshine_gamepad: switch
 
 # Encoder tuning. preset 1 is NVENC's fastest and spatial AQ buys quality this
