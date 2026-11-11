@@ -96,9 +96,13 @@ legendary_config_dir: /var/lib/game-sync/legendary
 sunshine_audio_sink_name: sink-sunshine-stereo
 
 # Emulated controller type presented to the guest (Sunshine option `gamepad`).
-# xone = Xbox One layout, which matches 8BitDo/Xbox-style pads. Valid: auto,
-# x360, xone, ds4, ds5, switch.
-sunshine_gamepad: xone
+# Valid: auto, x360, xone, ds4, ds5, switch.
+# switch: the household's pads are 8BitDo SN30 Pro+ with the Nintendo layout,
+# so the guest gets Switch Pro controllers and Steam shows Switch glyphs.
+# Sunshine maps by position, so Steam's "Use Nintendo Button Layout" must be on
+# for the button labelled A to confirm. Verified 2026-11-11: Steam opens each
+# pad as a Switch Pro over HIDAPI. Use xone for an Xbox-layout household.
+sunshine_gamepad: switch
 
 # Encoder tuning. preset 1 is NVENC's fastest and spatial AQ buys quality this
 # stream cannot show — those are safe latency wins.
