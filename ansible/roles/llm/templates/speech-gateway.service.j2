@@ -6,9 +6,12 @@ Wants=llm-tier.service
 Requires=docker.service
 
 [Service]
-# After a reboot only full ninfer is up, so a persisted state or request from
-# before the reboot would be wrong; the gateway starts from a clean slate.
-ExecStartPre=-/bin/rm -f {{ llm_speech_gateway_state_dir }}/mode-state.json {{ llm_speech_gateway_state_dir }}/desired-mode
+# A persisted state from before a reboot or restart would be wrong, so the
+# gateway starts from a clean slate with no session. That also means full
+# mode: after a reboot ninfer-mode does nothing, but after a gateway restart
+# during a speech session it switches ninfer back.
+ExecStartPre=-/bin/rm -f {{ llm_speech_gateway_state_dir }}/mode-state.json
+ExecStartPre=/bin/sh -c 'echo full > {{ llm_speech_gateway_state_dir }}/desired-mode'
 # Docker would create a directory for a missing bind-mount source. No tier file means full.
 ExecStartPre=/bin/sh -c 'test -f /run/llm-tier || echo full > /run/llm-tier'
 ExecStartPre=-/usr/bin/docker rm -f speech-gateway
