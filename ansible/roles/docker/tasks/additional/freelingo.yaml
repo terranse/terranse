@@ -25,7 +25,13 @@
         mode: '0775'
       loop:
         - ""
-        - postgres
         - audio
         - avatars
         - tts_previews
+
+    # Postgres takes this folder over (uid 70, mode 0700) on first start, so
+    # only create it; re-asserting the owner would fail.
+    - name: Create the freelingo postgres folder
+      command: "runuser -u {{ docker_user }} -- mkdir -p {{ service_mounts.config }}/freelingo/postgres"
+      args:
+        creates: "{{ service_mounts.config }}/freelingo/postgres"
