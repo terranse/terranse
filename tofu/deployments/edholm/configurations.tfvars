@@ -140,7 +140,8 @@ hosts = {
       }
 
       # FreeLingo for the kids. Images are built on the LXC (see the template).
-      freelingo = {
+      # Not named "freelingo": that name is the service, which DNS points at Caddy.
+      learning = {
         cores     = 4
         memory    = 6144
         disk_size = "32G"
