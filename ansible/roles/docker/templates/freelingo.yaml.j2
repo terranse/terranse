@@ -30,6 +30,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # First start initialises the database on ZFS, which took ~50 s.
+      start_period: 120s
 
   freelingo-redis:
     image: redis:7-alpine
