@@ -9,6 +9,13 @@
   vars:
     additional_tasks_pre: true
   block:
+    # Only group container-data may write the dataset root; container root is
+    # not in it, so the top folder is made as the docker user.
+    - name: Create the freelingo folder as the docker user
+      command: "runuser -u {{ docker_user }} -- mkdir -p {{ service_mounts.config }}/freelingo"
+      args:
+        creates: "{{ service_mounts.config }}/freelingo"
+
     - name: Ensure freelingo data directories
       file:
         path: "{{ service_mounts.config }}/freelingo/{{ item }}"
