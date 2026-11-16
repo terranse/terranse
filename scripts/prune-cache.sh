@@ -13,10 +13,10 @@ KEEP="${CACHE_KEEP:-5}"
 cd "$CACHE_DIR"
 shopt -s nullglob
 
-queue=$(mktemp)
-seen=$(mktemp)
-kept_nars=$(mktemp)
-trap 'rm -f "$queue" "$seen" "$kept_nars"' EXIT
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+queue="$work/queue"
+seen="$work/seen"
 
 # Seed: the store-path hashes named by the last N pointers of every machine.
 for history in pointers/*.history; do
@@ -28,39 +28,49 @@ if [ ! -s "$queue" ]; then
   exit 0
 fi
 
-# Breadth-first over References:, straight out of the narinfos.
-while [ -s "$queue" ]; do
-  h=$(head -n1 "$queue")
-  sed -i 1d "$queue"
-  # An `if`, not `grep ... && continue`: under `set -e` a failing grep at the
-  # head of an && chain takes the whole script down.
-  if grep -qxF "$h" "$seen" 2>/dev/null; then
-    continue
-  fi
-  printf '%s\n' "$h" >> "$seen"
-  [ -f "$h.narinfo" ] || continue
-  awk '/^References: /{ for (i = 2; i <= NF; i++) print $i }' "$h.narinfo" \
-    | sed 's|-.*$||' >> "$queue"
-done
-sort -u "$seen" -o "$seen"
-
+# One pass over every narinfo, then the walk and both sweeps in memory. The
+# old line-by-line walk (`sed -i 1d` on the queue, `grep` on what was seen)
+# was quadratic: 3.5 minutes on nixhost's ~4000 paths, inside every deploy.
+#
+# awk prints the reachable hashes to "$seen", then the narinfo files and the
+# nar files that nothing kept refers to, each line tagged with what it is.
+find . -maxdepth 1 -name '*.narinfo' -printf '%f\n' > "$work/narinfos"
+find nar -type f 2>/dev/null > "$work/nars" || true
+awk -v seen_out="$seen" -v queue_in="$queue" \
+    -v narinfos_in="$work/narinfos" -v nars_in="$work/nars" '
+  BEGIN {
+    while ((getline f < narinfos_in) > 0) {
+      hash = f; sub(/\.narinfo$/, "", hash)
+      have[hash] = 1
+      while ((getline line < f) > 0) {
+        if (line ~ /^References: /) refs[hash] = substr(line, 13)
+        else if (line ~ /^URL: /) url[hash] = substr(line, 6)
+      }
+      close(f)
+    }
+    n = 0
+    while ((getline hash < queue_in) > 0) if (!(hash in seen)) { seen[hash] = 1; todo[n++] = hash }
+    for (i = 0; i < n; i++) {
+      if (!(todo[i] in have)) continue
+      m = split(refs[todo[i]], r, " ")
+      for (j = 1; j <= m; j++) {
+        ref = r[j]; sub(/-.*$/, "", ref)
+        if (ref != "" && !(ref in seen)) { seen[ref] = 1; todo[n++] = ref }
+      }
+    }
+    for (hash in seen) print hash > seen_out
+    for (hash in have) {
+      if (hash in seen) kept[url[hash]] = 1
+      else print "narinfo " hash ".narinfo"
+    }
+    while ((getline f < nars_in) > 0) if (!(f in kept)) print "nar " f
+  }' > "$work/doomed"
 removed=0
-for f in *.narinfo; do
-  h="${f%.narinfo}"
-  if grep -qxF "$h" "$seen"; then
-    awk '/^URL: /{ print $2 }' "$f" >> "$kept_nars"
-  else
-    rm -f "$f"
-    removed=$((removed + 1))
-  fi
-done
-sort -u "$kept_nars" -o "$kept_nars"
-
 nars_removed=0
-while IFS= read -r n; do
-  grep -qxF "$n" "$kept_nars" || { rm -f "$n"; nars_removed=$((nars_removed + 1)); }
-done < <(find nar -type f 2>/dev/null)
-
+while read -r kind f; do
+  rm -f -- "$f"
+  if [ "$kind" = narinfo ]; then removed=$((removed + 1)); else nars_removed=$((nars_removed + 1)); fi
+done < "$work/doomed"
 # Keep the history files themselves from growing without bound.
 for history in pointers/*.history; do
   tail -n $((KEEP * 4)) "$history" > "$history.tmp" && mv "$history.tmp" "$history"
