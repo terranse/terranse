@@ -11,6 +11,7 @@ module "proxmox-lxc" {
   ssh_key          = var.ssh_key
   domain           = var.domain
   gateway          = var.gateway
+  reserved_ips     = var.lxc_reserved_ips
   storage_pool     = try(each.value.storage_pool, "FastStorage")
   host_ssh_address = try(each.value.ansible_host, each.key)
 }
@@ -202,8 +203,9 @@ module "opnsense_networking" {
   cert_refid = var.opnsense_cert_refid
 
   # Upstreams address the container by name; dnsmasq registers those from the
-  # DHCP reservations below, so the name is stable even though the address is
-  # handed out by DHCP.
+  # reservations below. A reserved container also configures the same address
+  # statically (proxmox-container's reserved_ips), so the name and the address
+  # never depend on a lease.
   services = [
     for s in module.service_registry.services : {
       bundle   = s.bundle

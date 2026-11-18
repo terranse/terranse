@@ -37,6 +37,18 @@ variable "gateway" {
   type        = string
 }
 
+variable "reserved_ips" {
+  description = "Container name -> fixed IPv4 address. A Debian container listed here gets it statically; NixOS containers and unlisted ones use DHCP."
+  type        = map(string)
+  default     = {}
+}
+
+variable "prefix_length" {
+  description = "Prefix length of the LAN the reserved addresses live in."
+  type        = number
+  default     = 24
+}
+
 variable "configuration" {
   description = "Map of LXC configurations"
   type = map(object({

@@ -113,22 +113,36 @@ resource "proxmox_lxc" "lxcs" {
     size    = each.value.disk_size
   }
 
+  # Resolve through the LAN, never the host. With neither field set, Proxmox
+  # copies the host's /etc/resolv.conf into the container, and on a NetBird
+  # host that names a resolver the container cannot reach. DHCP used to paper
+  # over this by rewriting the file; a static address does not. NixOS is left
+  # alone: systemd-resolved owns its resolv.conf (nix/profiles/lxc.nix).
+  nameserver   = each.value.ostype == "nixos" ? null : var.gateway
+  searchdomain = each.value.ostype == "nixos" ? null : var.domain
+
   network {
     name   = "eth0"
     bridge = var.network_bridge
     gw     = var.gateway
-    ip     = "dhcp"
-    # NOT "auto". Proxmox rewrites /etc/network/interfaces from this on every
-    # container start, and `ip6 = "auto"` emits `iface eth0 inet6 auto`, which
-    # the ifupdown in Debian 13 rejects:
-    #   error: /etc/network/interfaces: line5: iface eth0: unsupported address
-    #   method 'auto'
-    # That parse error aborts the WHOLE file, so eth0 never comes up and the
-    # container boots with no network at all. It stayed hidden for months
-    # because the containers were never rebooted; the 2026-09-03 MAC rollout
-    # rebooted all nine and every one came up without an address.
-    # Nothing here uses global IPv6 (link-local only), so SLAAC buys nothing.
-    ip6    = "manual"
+    # Static when a Debian container has a reservation. Debian 13 brings eth0
+    # up with ifupdown2, which skipped DHCP after host reboots (2026-09-20 and
+    # 2026-11-15) and left the GitLab runners with no address. A static
+    # address also comes up when the DHCP server is not answering yet. The
+    # dnsmasq reservation still declares the same name and address, so DNS
+    # and the reserved range are unchanged. NixOS stays on DHCP: its
+    # systemd-networkd keeps retrying, and the lease is where resolved gets
+    # its DNS servers.
+    ip = (
+      each.value.ostype != "nixos" && contains(keys(var.reserved_ips), each.key)
+      ? "${var.reserved_ips[each.key]}/${var.prefix_length}"
+      : "dhcp"
+    )
+    # ip6 is deliberately unset. Any value makes Proxmox write an
+    # `iface eth0 inet6 <method>` stanza ahead of the inet one, and ifupdown2
+    # in Debian 13 then never starts dhclient and deletes eth0's address
+    # (`ifup -n -v`, LXC 109, 2026-11-18). "auto" is worse: the parser
+    # rejects the whole file. Nothing here uses global IPv6.
     hwaddr = local.mac_addresses[each.key]
   }
 }
