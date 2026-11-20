@@ -55,6 +55,9 @@ let
       # Android freezes when idle, and may still be booting right after login.
       # Waiting for it takes from the same budget. Each `waydroid shell` costs
       # about a second, so the boot check and the lookup share one.
+      # An app with an Android TV interface lists it under LEANBACK_LAUNCHER,
+      # next to its phone one: that is the one to open on a TV (SVT Play has
+      # both). Without one, the ordinary entry.
       timeout -k 2 5 waydroid container unfreeze 3>&- || true
       while :; do
         if [ "$(left)" -le 1 ]; then
@@ -62,8 +65,9 @@ let
           exit 1
         fi
         resolved=$(timeout -k 2 "$(left)" waydroid shell -- sh -c "[ \"\$(getprop sys.boot_completed)\" = 1 ] \
-          && echo booted && cmd package resolve-activity --brief \
-          -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $pkg" \
+          && echo booted && for category in LEANBACK_LAUNCHER LAUNCHER; do \
+          cmd package resolve-activity --brief -a android.intent.action.MAIN \
+          -c android.intent.category.\$category $pkg | tail -n 1 | grep / && break; done" \
           2>/dev/null 3>&- | tr -d '\r') || true
         [[ "$resolved" == booted* ]] && break
         sleep 1
@@ -91,7 +95,6 @@ let
       fi
       rc=0
       out=$(timeout -k 2 "$(left)" waydroid shell -- sh -c "setprop waydroid.active_apps home-player; \
-        settings put global policy_control 'immersive.full=*'; \
         am start -W --windowingMode 1 -n '$component'" 2>&1 3>&-) || rc=$?
       echo "$out"
       case "$out" in
@@ -132,10 +135,12 @@ let
   # link, and only package-named PNGs are taken.
   iconSource = "${config.users.users.${cfg.kioskUser}.home}/.local/share/waydroid/data/icons";
   iconTarget = "/var/lib/waydroid-icons";
+  entrySource = "${config.users.users.${cfg.kioskUser}.home}/.local/share/applications";
   export-icons = pkgs.writeShellApplication {
     name = "waydroid-export-icons";
     runtimeInputs = [
       pkgs.coreutils
+      pkgs.gnused
       pkgs.util-linux
     ];
     text = ''
@@ -148,7 +153,9 @@ let
         if [ -L "$icon" ] || ! [ -f "$icon" ]; then continue; fi
         copy=$(mktemp -p ${iconTarget})
         # A swapped-in pipe would block the read forever, hence the timeout.
-        if timeout 5 setpriv --reuid=${cfg.kioskUser} --regid=${config.users.users.${cfg.kioskUser}.group} --clear-groups \
+        if timeout 5 setpriv --reuid=${cfg.kioskUser} --regid=${
+          config.users.users.${cfg.kioskUser}.group
+        } --clear-groups \
           dd if="$icon" iflag=nofollow bs=1M count=1 status=none >"$copy"; then
           chmod 0644 "$copy"
           mv -f "$copy" "${iconTarget}/$name"
@@ -160,6 +167,111 @@ let
       for icon in ${iconTarget}/*.png; do
         [ -e "${iconSource}/''${icon##*/}" ] || rm -f "$icon"
       done
+
+      # Every app Android lists in its launcher, as "package<TAB>name" lines,
+      # so the TV can show an app as soon as it is installed. Waydroid writes
+      # one desktop entry per app; its Name is the app's own. Read the same
+      # careful way as the icons.
+      list=$(mktemp -p ${iconTarget})
+      for entry in ${entrySource}/waydroid.*.desktop; do
+        package=''${entry##*/waydroid.}
+        package=''${package%.desktop}
+        [[ "$package" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] || continue
+        if [ -L "$entry" ] || ! [ -f "$entry" ]; then continue; fi
+        title=$(timeout 5 setpriv --reuid=${cfg.kioskUser} --regid=${
+          config.users.users.${cfg.kioskUser}.group
+        } --clear-groups \
+          dd if="$entry" iflag=nofollow bs=64k count=1 status=none \
+          | sed -n '/^Name=/{s///p;q}' | tr -d '\t\r' | cut -c 1-80) || continue
+        [ -n "$title" ] && printf '%s\t%s\n' "$package" "$title" >>"$list"
+      done
+      chmod 0644 "$list"
+      mv -f "$list" ${iconTarget}/apps.tsv
+    '';
+  };
+
+  # Runs with every start of the container, once Android has booted. Each step
+  # was found by hand on the HTPC on 2026-11-20.
+  kioskManager = "${cfg.kioskUser}@";
+  systemctl = "${pkgs.systemd}/bin/systemctl";
+  tv-setup = pkgs.writeShellApplication {
+    name = "waydroid-tv-setup";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.gnugrep
+      pkgs.systemd
+      waydroid
+    ];
+    text = ''
+      # A frozen container never answers `waydroid shell`.
+      ashell() {
+        timeout -k 2 5 waydroid container unfreeze || true
+        timeout -k 2 30 waydroid shell -- "$@" | tr -d '\r'
+      }
+
+      until [ "$(ashell getprop sys.boot_completed 2>/dev/null)" = 1 ]; do
+        sleep 5
+      done
+
+      # Restarting the container ends this service too (it is part of it), and
+      # its next start runs these checks again. Twice in a row at most, so a
+      # cause a restart cannot cure is not retried forever; a clean pass resets
+      # the count.
+      restarts=/run/waydroid-tv-setup/restarts
+      mkdir -p "''${restarts%/*}"
+      restart_android() {
+        local count
+        count=$(cat "$restarts" 2>/dev/null || echo 0)
+        if [ "$count" -ge 2 ]; then
+          echo "waydroid-tv-setup: $1, but Android was already restarted twice; leaving it be"
+          return 1
+        fi
+        echo $((count + 1)) >"$restarts"
+        echo "waydroid-tv-setup: $1; restarting Android"
+        # In a unit of its own, as restarting the container stops this one.
+        systemd-run --no-block --collect --unit=waydroid-tv-restart \
+          --description="Restart Android for the TV set-up" \
+          ${pkgs.runtimeShell} -c "${systemctl} --user -M ${kioskManager} stop waydroid-session.service; \
+            ${systemctl} restart waydroid-container.service; \
+            ${systemctl} --user -M ${kioskManager} start waydroid-session.service"
+        exit 0
+      }
+
+      # Android's system server can crash in its media code seconds after boot.
+      # It comes back, but its network stack does not: Android then never asks
+      # for an address and stays offline until the container restarts. Seen on
+      # the HTPC on 2026-11-20, and likely the "lost DNS" of 2026-11-05.
+      online=""
+      for _ in $(seq 30); do
+        if ashell ip -4 addr show eth0 2>/dev/null | grep -q inet; then
+          online=yes
+          break
+        fi
+        sleep 2
+      done
+      [ -n "$online" ] || restart_android "Android has no network address" || true
+
+      # Waydroid's separate windows put the display in desktop mode, where
+      # every app gets an 84 px title bar across its top. Fullscreen mode drops
+      # the bar, and each app still gets its own window that closes when it is
+      # left. Read only at boot, so a change costs one restart. Density 320 is
+      # a 1080p Android TV's: 180 (Waydroid's guess) makes TV interfaces tiny.
+      settings=/data/system/display_settings.xml
+      display=$(ashell sh -c "abx2xml $settings - 2>/dev/null" | grep '<display ' || true)
+      if ! [[ "$display" == *'forcedDensity="320"'* && "$display" == *'windowingMode="1"'* ]]; then
+        ashell wm density 320 >/dev/null
+        ashell sh -c "abx2xml $settings - \
+          | sed -e 's/ windowingMode=\"[0-9]*\"//' -e 's/forcedDensity=\"320\"/& windowingMode=\"1\"/' \
+          >/data/local/tmp/display_settings.xml \
+          && xml2abx /data/local/tmp/display_settings.xml $settings \
+          && chown system:system $settings && chmod 600 $settings \
+          && rm /data/local/tmp/display_settings.xml"
+        restart_android "set the display to fullscreen mode" || true
+      fi
+
+      # Android's media volume at most: the receiver sets how loud it is.
+      ashell cmd media_session volume --stream 3 --set 15 >/dev/null
+      rm -f "$restarts"
     '';
   };
 
@@ -292,6 +404,22 @@ in
         RemainAfterExit = true;
         ExecStart = "${lib.getExe waydroid} init -s ${cfg.imageType}";
         ExecStartPost = "${set-window-mode}";
+      };
+    };
+
+    # Part of the container, so every start of it (a boot, or a restart this
+    # very service asks for) runs it again.
+    systemd.services.waydroid-tv-setup = {
+      description = "Set Android up for the TV, and restart it if it came up offline";
+      wantedBy = [ "waydroid-container.service" ];
+      after = [ "waydroid-container.service" ];
+      partOf = [ "waydroid-container.service" ];
+      serviceConfig = {
+        ExecStart = lib.getExe tv-setup;
+        # Not a oneshot: until the kiosk logs in Android does not boot, and a
+        # oneshot would hold up the container's start for as long.
+        Type = "exec";
+        RemainAfterExit = true;
       };
     };
 
