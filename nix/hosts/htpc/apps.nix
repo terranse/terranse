@@ -1,6 +1,6 @@
-# The apps a person opens from Plasma on this box. Home Player is the TV's
-# homescreen and carries its own packages; the kiosk account's Waydroid apps
-# are the android role's business. Anything a person launches from the desktop
+# The apps a person opens on this box, from Plasma or from Home Player's Apps
+# row. Home Player itself carries its own packages; the kiosk account's
+# Waydroid apps are the android role's business. Anything a person launches
 # belongs here, and the machine's general tools (git, htop, ...) are base's.
 {
   lib,
@@ -19,5 +19,7 @@
       "discord-unwrapped"
     ];
 
-  environment.systemPackages = [ pkgs.discord ];
+  # On the TV's homescreen among Apps, as well as on Plasma's desktop. A tool
+  # only for the desktop goes in environment.systemPackages instead.
+  roles.home-player.tvApps = [ pkgs.discord ];
 }

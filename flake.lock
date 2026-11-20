@@ -2,6 +2,21 @@
   "nodes": {
     "crane": {
       "locked": {
+        "lastModified": 1793836618,
+        "narHash": "sha256-TREenflwEjxOSq292FYwbc3kEm7TDRtXCZRNWEdjBmg=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "79fd63528501446749c09f08cad486a58c7d173e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "repo": "crane",
+        "type": "github"
+      }
+    },
+    "crane_2": {
+      "locked": {
         "lastModified": 1789760033,
         "narHash": "sha256-jtT4yxZpR8seYnlCMMWSSPlFN92zO6ICuZ8pJrmi86k=",
         "owner": "ipetkov",
@@ -73,16 +88,17 @@
     },
     "home-player": {
       "inputs": {
+        "crane": "crane",
         "nixpkgs": [
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1794152385,
-        "narHash": "sha256-SakG0T8I/g5gH20ReCeL4A5+ZR1zI0kysbkjojd/HtA=",
+        "lastModified": 1795205712,
+        "narHash": "sha256-+Hn/NBH+n5f6VypItbo1zbVvZvMbC/CmjpevDlaxR3I=",
         "ref": "master",
-        "rev": "bdb44409fbfecfa15a40e4a3ed3d1ee78e5f60cb",
-        "revCount": 304,
+        "rev": "a0003a8d288b3991aef7d12597d496e3cc22f4a4",
+        "revCount": 404,
         "type": "git",
         "url": "ssh://git@nixhost.edholm.cc/srv/git/home-player.git"
       },
@@ -94,7 +110,7 @@
     },
     "lanzaboote": {
       "inputs": {
-        "crane": "crane",
+        "crane": "crane_2",
         "nixpkgs": [
           "nixpkgs"
         ],

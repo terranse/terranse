@@ -29,6 +29,41 @@ in
       description = "Account that runs the kiosk shell. No other account gets it.";
     };
 
+    tvApps = lib.mkOption {
+      type =
+        let
+          app = lib.types.submodule (
+            { config, ... }:
+            {
+              options = {
+                package = lib.mkOption {
+                  type = lib.types.package;
+                  description = "The package to install.";
+                };
+                entry = lib.mkOption {
+                  type = lib.types.str;
+                  default = lib.getName config.package;
+                  defaultText = lib.literalExpression "lib.getName package";
+                  description = ''
+                    The package's .desktop file, without the suffix, when it is
+                    not named after the package (org.example.App.desktop, say).
+                  '';
+                };
+              };
+            }
+          );
+        in
+        lib.types.listOf (lib.types.coercedTo lib.types.package (package: { inherit package; }) app);
+      default = [ ];
+      example = lib.literalExpression "[ pkgs.discord ]";
+      description = ''
+        Desktop apps to install and show among Home Player's Apps. A package
+        only in environment.systemPackages is still on Plasma's desktop, but
+        not on the TV's homescreen: the backend shows only the entries named
+        here.
+      '';
+    };
+
     secretsFile = lib.mkOption {
       type = lib.types.str;
       default = "/var/lib/home-player-secrets/env";
@@ -42,6 +77,8 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    environment.systemPackages = map (app: app.package) cfg.tvApps;
+
     services.home-player = {
       enable = true;
       # Without a file the backend fails loudly, rather than start with no keys
@@ -79,6 +116,7 @@ in
             api_token = ref "SEERR_API_KEY";
           };
           gamesync.url = "http://gaming.edholm.cc:9766";
+          desktop.apps = map (app: app.entry) cfg.tvApps;
           waydroid.apps = [
             {
               name = "Aurora Store";
