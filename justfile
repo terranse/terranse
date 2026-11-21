@@ -26,7 +26,7 @@ _python-venv:
 [working-directory('ansible')]
 setup machine="all" init="false" debug="false" deployment="edholm": _python-venv
     ansible-playbook {{ if machine == "all" { "" } else if machine =~ '\.' { "--limit " + machine } else { "--limit " + machine + "." + domain } }} \
-      playbooks/{{ deployment }}.yaml --extra-vars @./{{ vault-file }} \
+      -i inventory/{{ deployment }}.yaml playbooks/{{ deployment }}.yaml --extra-vars @./{{ vault-file }} \
       {{ if init == "true" { "-e 'ansible_user=root'" } else { "" } }} \
       {{ if debug == "true" { "-vvv" } else { "" } }}
 
