@@ -4,6 +4,10 @@ terraform {
       source  = "registry.terraform.io/telmate/proxmox"
       version = "3.0.2-rc07"
     }
+    ansible = {
+      source  = "ansible/ansible"
+      version = "1.3.0"
+    }
     onepassword = {
       source  = "1Password/onepassword"
       version = ">= 2.0.0"
@@ -20,5 +24,5 @@ provider "proxmox" {
 }
 
 provider "onepassword" {
-  account = "Our Family"
+  account = "my.1password.com"
 }

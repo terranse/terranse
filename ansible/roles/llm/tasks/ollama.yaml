@@ -95,3 +95,32 @@
   changed_when: true
   async: 3600
   poll: 30
+
+# The shared-tier model on a host whose live backend is ninfer. Starting ollama.service would
+# stop ninfer (Conflicts=), so a throwaway server runs on its own port as the ollama user, with
+# no GPU visible, just long enough to pull. ninfer and the GPU are never touched.
+- name: Pull the shared-tier model without disturbing ninfer
+  ansible.builtin.shell: |
+    set -eu
+    export OLLAMA_HOST=127.0.0.1:11435 CUDA_VISIBLE_DEVICES=-1 HOME=/usr/share/ollama
+    runuser -u ollama -- env OLLAMA_HOST="$OLLAMA_HOST" CUDA_VISIBLE_DEVICES=-1 HOME="$HOME" \
+      ollama serve >/tmp/ollama-pull.log 2>&1 &
+    pid=$!
+    trap 'kill $pid 2>/dev/null || true' EXIT
+    for _ in $(seq 1 30); do
+      curl -fsS -o /dev/null http://$OLLAMA_HOST/api/version && break
+      sleep 1
+    done
+    if ollama list | grep -qF "{{ llm_tier_shared_model }}"; then
+      echo present
+    else
+      ollama pull "{{ llm_tier_shared_model }}"
+      echo pulled
+    fi
+  args:
+    executable: /bin/bash
+  register: llm_tier_pull
+  changed_when: "'pulled' in llm_tier_pull.stdout"
+  when:
+    - llm_tier_enabled | bool
+    - llm_backend != 'ollama'

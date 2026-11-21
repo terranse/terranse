@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Pick the LLM backend for this boot from the GPU slice size and record it in /run/llm-tier.
+#   full   : 20 GB VRAM or more. ninfer (qwen3.8-27b) serves.
+#   shared : less. Ollama serves gemma4:e4b-it-qat at 8192 context.
+# Run once at boot by llm-tier.service, before speech-gateway. The speech-gateway proxy and
+# ninfer-mode read the tier file. Never starts ninfer over an active speech session.
+set -u
+
+TIER_FILE="${LLM_TIER_FILE:-/run/llm-tier}"
+DROPIN_DIR="${LLM_TIER_DROPIN_DIR:-/run/systemd/system/ollama.service.d}"
+MIN_VRAM_MIB="${LLM_TIER_MIN_VRAM_MIB:-20480}"
+SHARED_CONTEXT="${LLM_TIER_SHARED_CONTEXT:-8192}"
+
+vram_mib() {
+  nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
+    | head -n1 | tr -dc '0-9'
+}
+
+write_tier() {
+  # In place, so a read-only bind mount of the file keeps seeing it.
+  mkdir -p "$(dirname "$TIER_FILE")"
+  printf '%s\n' "$1" > "$TIER_FILE"
+}
+
+# nvidia-smi can fail for a while right after boot; wait before settling on shared.
+wait_vram_mib() {
+  local waited=0 mib=""
+  until mib="$(vram_mib)"; [[ -n "$mib" ]]; do
+    (( waited >= ${LLM_TIER_SMI_WAIT:-60} )) && break
+    sleep 2; waited=$((waited + 2))
+  done
+  echo "$mib"
+}
+
+choose_tier() { # vram in MiB, may be empty
+  local mib="${1:-}"
+  if [[ -n "$mib" ]] && (( mib >= MIN_VRAM_MIB )); then echo full; else echo shared; fi
+}
+
+main() {
+  local tier
+  tier="$(choose_tier "$(wait_vram_mib)")"
+  write_tier "$tier"
+
+  if [[ "$tier" == full ]]; then
+    if systemctl is-active --quiet ninfer-speech.service; then
+      echo "llm-tier: speech session active, leaving ninfer alone" >&2
+      return 0
+    fi
+    systemctl start ninfer.service
+    return $?
+  fi
+
+  mkdir -p "$DROPIN_DIR"
+  printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=%s"\n' "$SHARED_CONTEXT" \
+    > "$DROPIN_DIR/zz-llm-tier.conf"
+  systemctl daemon-reload
+  systemctl start ollama.service
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main
+fi

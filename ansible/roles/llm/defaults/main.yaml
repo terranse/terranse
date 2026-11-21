@@ -207,3 +207,39 @@ llm_ninfer_api_key: ""
 # one is enabled and started. They cannot coexist — Ollama holds ~19.1 GiB and
 # NInfer ~20.0 GiB of a 24 GiB slice — so the unit file also declares Conflicts=.
 llm_backend: ollama
+
+# --- Speech gateway ----------------------------------------------------------
+#
+# STT/TTS gateway for the home FreeLingo deployment, only on hosts that set
+# llm_speech_gateway_enabled. The image is built on the host from the lalapp
+# repo (not by this role). While a speech session is open the gateway has
+# ninfer-mode swap ninfer to ninfer-speech.service (32768 context) so the speech
+# engines fit in VRAM, and swaps back to ninfer.service afterwards.
+llm_speech_gateway_enabled: false
+llm_speech_gateway_image: "speech-gateway:latest"
+# The gateway listens on 8090 (fixed in the image CMD) on the host network.
+llm_speech_gateway_state_dir: /var/lib/speech-gateway
+llm_speech_gateway_model_dir: /opt/speech-gateway/models
+llm_ninfer_speech_max_context: "32768"
+llm_ninfer_speech_kv_capacity: "32768"
+
+# The ninfer-mode script is read from the lalapp checkout beside this repo, the
+# same sibling-repo convention as gpu_manager_src.
+llm_speech_gateway_mode_script: "{{ playbook_dir }}/../../../lalapp/services/speech-gateway/deploy/ninfer-mode"
+
+# One-off seed of the voice-clone reference clips from a test folder that may
+# later be deleted. Skipped per file when the source is absent or the target exists.
+llm_speech_gateway_seed_dir: /root/speechtest
+
+# --- Boot-time LLM tier --------------------------------------------------------
+#
+# When true, llm-tier.service picks the backend once per boot: 20 GB VRAM or more
+# starts ninfer (tier "full"), less starts Ollama with gemma4:e4b-it-qat at 8192
+# context (tier "shared"). The choice is written to /run/llm-tier, which the speech
+# gateway mounts read-only to route POST /v1/chat/completions. Neither backend is
+# enabled directly. Requires llm_speech_gateway_enabled for the proxy. The Ollama
+# model must already be pulled (list it in llm_ollama_models on an Ollama host).
+llm_tier_enabled: false
+
+# Model Ollama serves on the shared tier, pulled on deploy when llm_tier_enabled is true.
+llm_tier_shared_model: "gemma4:e4b-it-qat"

@@ -1,0 +1,79 @@
+---
+# Speech gateway: ninfer-mode switching plus the gateway container unit.
+# The ninfer-speech.service unit file is installed here but NEVER enabled or
+# started by this role; ninfer-mode owns it. Nothing here restarts ninfer.
+
+- name: Ensure the speech gateway directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ llm_speech_gateway_state_dir }}"
+    - "{{ llm_speech_gateway_model_dir }}"
+    - "{{ llm_speech_gateway_model_dir }}/hf"
+    - "{{ llm_speech_gateway_model_dir }}/refs"
+
+- name: Install the ninfer-mode script
+  ansible.builtin.copy:
+    src: "{{ llm_speech_gateway_mode_script }}"
+    dest: /usr/local/bin/ninfer-mode
+    mode: '0755'
+
+- name: Install the speech-mode ninfer unit (not enabled, not started)
+  ansible.builtin.template:
+    src: ninfer-speech.service.j2
+    dest: /etc/systemd/system/ninfer-speech.service
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Install the ninfer-mode path, mode and speech-gateway units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: '0644'
+  loop:
+    - ninfer-mode.path
+    - ninfer-mode.service
+    - speech-gateway.service
+  notify: Reload systemd
+
+- name: Register the new units before enabling them
+  ansible.builtin.meta: flush_handlers
+
+# Reference clips: copied on the remote host, only when the seed exists and the
+# target does not, so re-runs work after the test folder is removed.
+- name: Seed the voice-clone reference clips
+  ansible.builtin.shell: |
+    set -eu
+    seed="{{ llm_speech_gateway_seed_dir }}"
+    refs="{{ llm_speech_gateway_model_dir }}/refs"
+    for lang in sv en es; do
+      if [ -f "$seed/refs/el_${lang}_75.wav" ] && [ ! -e "$refs/$lang.wav" ]; then
+        cp "$seed/refs/el_${lang}_75.wav" "$refs/$lang.wav"
+        echo "copied $lang"
+      fi
+    done
+    if [ -f "$seed/eltext.json" ] && [ ! -e "$refs/refs.json" ]; then
+      jq '{sv: .el_sv, en: .el_en, es: .el_es}' "$seed/eltext.json" > "$refs/refs.json.tmp"
+      mv "$refs/refs.json.tmp" "$refs/refs.json"
+      echo "wrote refs.json"
+    fi
+  args:
+    executable: /bin/bash
+  register: llm_speech_gateway_seed
+  changed_when: llm_speech_gateway_seed.stdout | length > 0
+
+- name: Enable the ninfer-mode path watcher
+  ansible.builtin.systemd:
+    name: ninfer-mode.path
+    enabled: true
+    state: started
+
+# Enabled and started like any service. Needs the speech-gateway image, which
+# is built on the host beforehand; without it Restart=always keeps retrying.
+- name: Enable and start the speech gateway
+  ansible.builtin.systemd:
+    name: speech-gateway
+    enabled: true
+    state: started

@@ -24,9 +24,9 @@ _python-venv:
 
 # Setup a machine with Ansible. Use init=true for first-time setup, debug=true for verbose output
 [working-directory('ansible')]
-setup machine="all" init="false" debug="false": _python-venv
+setup machine="all" init="false" debug="false" deployment="edholm": _python-venv
     ansible-playbook {{ if machine == "all" { "" } else if machine =~ '\.' { "--limit " + machine } else { "--limit " + machine + "." + domain } }} \
-      playbooks/edholm.yaml --extra-vars @./{{ vault-file }} \
+      playbooks/{{ deployment }}.yaml --extra-vars @./{{ vault-file }} \
       {{ if init == "true" { "-e 'ansible_user=root'" } else { "" } }} \
       {{ if debug == "true" { "-vvv" } else { "" } }}
 

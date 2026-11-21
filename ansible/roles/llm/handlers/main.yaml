@@ -36,4 +36,7 @@
     name: ninfer
     state: restarted
     daemon_reload: true
-  when: llm_backend == 'ninfer'
+  # Never restart a running ninfer (either mode): ninfer-mode owns the switching
+  # and a restart drops in-flight requests. A changed unit applies on the next
+  # start. When neither is running this simply starts it.
+  when: llm_backend == 'ninfer' and not (llm_ninfer_any_active | default(false) | bool)

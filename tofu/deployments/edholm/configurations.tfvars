@@ -138,6 +138,25 @@ hosts = {
           { name = "vikunja" }
         ]
       }
+
+      # FreeLingo for the kids. Images are built on the LXC (see the template).
+      # Not named "freelingo": that name is the service, which DNS points at Caddy.
+      learning = {
+        cores     = 4
+        memory    = 6144
+        disk_size = "32G"
+
+        mounts = [
+          {name = "config", dataset = "tank/appdata", path = "/appdata"}
+        ]
+
+        roles = [
+          { name = "docker" }
+        ]
+        docker_services = [
+          { name = "freelingo" }
+        ]
+      }
     }
   },
 
@@ -176,7 +195,9 @@ hosts = {
           # claimed at the bottom of the priority order, so a gaming claim
           # still displaces it without having to preempt; and the claim is
           # edge-triggered, so `qm shutdown 114` sticks until the card next
-          # changes hands. Q-24C because the A5000 permits only one slice.
+          # changes hands. Q-24C is where it sits between games: gpu-manager
+          # gives it a slot in a game's Q-8C or Q-12C layout when one is free,
+          # and returns it here afterwards.
           gpu_manager_default_tenant = {
             vm      = "ai-vm"
             profile = "Q-24C"
@@ -344,8 +365,8 @@ hosts = {
 
       ai-vm = {
         cores     = 8
-        memory    = 24576
-        disk_size = "150G"
+        memory    = 16384
+        disk_size = "220G"
         clone     = "ubuntu-2604-base"
 
         # Same OVMF boot menu wait and memory prefill as on the gaming VM; qm start
@@ -356,11 +377,12 @@ hosts = {
         gpu_tier = "ai"
         # ninfer answers this only once the model is loaded; a real completion
         # succeeds within 60ms of it. Its port opens about 25s earlier.
-        gpu_ready_url = "http://ai-vm.edholm.cc:8080/health"
+        gpu_ready_url = "http://ai-vm.edholm.cc:8090/"
 
-        # Same full-24Q claim as `gaming`. The A5000 only allows one
-        # homogeneous slice across the whole card, so ai-vm and gaming are
-        # mutually exclusive — stop one before starting the other.
+        # Same full-24Q claim as `gaming` by default. Slices on the A5000 must
+        # all be the same size, so the two can share the card only when a game
+        # picks Q-8C or Q-12C, and gpu-manager then re-slices ai-vm to match. A
+        # game on 24Q runs alone, with ai-vm off until it ends.
         pci_devices = [{
           mapping_id    = "RTX-A5000-ai-vm"
           vgpu_slice_gb = 24
@@ -387,6 +409,13 @@ hosts = {
             # has no structured-output support.
             llm_ninfer_enabled = "true"
             llm_backend        = "ninfer"
+
+            # Home FreeLingo STT/TTS gateway; ninfer drops to 32768 context
+            # while a speech session is open.
+            llm_speech_gateway_enabled = "true"
+
+            # Boot-time choice of ninfer (20 GB VRAM or more) or Ollama (less).
+            llm_tier_enabled = "true"
           }
         }]
       }

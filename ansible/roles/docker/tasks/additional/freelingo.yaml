@@ -1,0 +1,37 @@
+---
+# The `config` mount root is owned by an unmapped host uid (see vikunja.yaml),
+# so Docker cannot create bind-mount sources inside it. Create FreeLingo's
+# directories first. They hold the kids' progress, so they live on the
+# borg-backed tank/appdata dataset rather than in named volumes.
+
+- name: Pre-deployment tasks for freelingo
+  when: task_phase == "pre"
+  vars:
+    additional_tasks_pre: true
+  block:
+    # Only group container-data may write the dataset root; container root is
+    # not in it, so the top folder is made as the docker user.
+    - name: Create the freelingo folder as the docker user
+      command: "runuser -u {{ docker_user }} -- mkdir -p {{ service_mounts.config }}/freelingo"
+      args:
+        creates: "{{ service_mounts.config }}/freelingo"
+
+    - name: Ensure freelingo data directories
+      file:
+        path: "{{ service_mounts.config }}/freelingo/{{ item }}"
+        state: directory
+        owner: "{{ docker_user }}"
+        group: "{{ docker_group }}"
+        mode: '0775'
+      loop:
+        - ""
+        - audio
+        - avatars
+        - tts_previews
+
+    # Postgres takes this folder over (uid 70, mode 0700) on first start, so
+    # only create it; re-asserting the owner would fail.
+    - name: Create the freelingo postgres folder
+      command: "runuser -u {{ docker_user }} -- mkdir -p {{ service_mounts.config }}/freelingo/postgres"
+      args:
+        creates: "{{ service_mounts.config }}/freelingo/postgres"

@@ -1,0 +1,36 @@
+---
+# Boot-time LLM tier: llm-tier.service starts ninfer (20 GB VRAM or more) or Ollama
+# (less) once per boot. Neither backend is enabled directly; backend.yaml skips them.
+
+- name: Install the llm-tier script
+  ansible.builtin.copy:
+    src: llm-tier
+    dest: /usr/local/bin/llm-tier
+    mode: '0755'
+
+- name: Install the llm-tier unit
+  ansible.builtin.template:
+    src: llm-tier.service.j2
+    dest: /etc/systemd/system/llm-tier.service
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Register the unit before enabling it
+  ansible.builtin.meta: flush_handlers
+
+# Enabled only. It runs at boot; starting it here could start ninfer in the middle of a
+# running play, and the backends are already running or being switched by other units.
+- name: Enable llm-tier
+  ansible.builtin.systemd:
+    name: llm-tier
+    enabled: true
+    daemon_reload: true
+
+- name: Stop enabling the backends directly
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+  loop:
+    - ninfer
+    - ollama
+  failed_when: false

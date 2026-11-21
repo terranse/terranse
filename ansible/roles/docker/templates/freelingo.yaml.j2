@@ -1,0 +1,139 @@
+# FreeLingo (home deployment). Service names are prefixed because every
+# template is merged into one compose project (see docker-compose.yaml.j2).
+#
+# Images are not pulled: they are built on this host from the lalapp working
+# tree and tagged freelingo-backend:home / freelingo-frontend:home.
+#
+# Browsers connect to /ws/conversation on the page's own origin, and Next.js
+# rewrites cannot carry WebSockets. The tofu-generated Caddy drop-in has a
+# single upstream per service, so freelingo-proxy splits the traffic: /ws/* to
+# the backend, everything else (including /api via the Next.js rewrite) to the
+# frontend. Only the proxy publishes a port.
+#
+# Vault items (Infrastructure vault, field "password") to create before the
+# first deploy (data lives under the `config` mount, i.e. tank/appdata, except
+# Redis, which stays in a named volume): FREELINGO_DB_PASSWORD, FREELINGO_REDIS_PASSWORD,
+# FREELINGO_SECRET_KEY. Use alphanumeric values: they are embedded in URLs and
+# compose interpolates "$".
+services:
+  freelingo-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: freelingo
+      POSTGRES_USER: freelingo
+      POSTGRES_PASSWORD: "{{ lookup('community.general.onepassword', 'FREELINGO_DB_PASSWORD', vault='Infrastructure', field='password') }}"
+    volumes:
+      - "{{ service_mounts.config }}/freelingo/postgres:/var/lib/postgresql/data"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freelingo -d freelingo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # First start initialises the database on ZFS, which took ~50 s.
+      start_period: 120s
+
+  freelingo-redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass "{{ lookup('community.general.onepassword', 'FREELINGO_REDIS_PASSWORD', vault='Infrastructure', field='password') }}"
+    environment:
+      REDISCLI_AUTH: "{{ lookup('community.general.onepassword', 'FREELINGO_REDIS_PASSWORD', vault='Infrastructure', field='password') }}"
+    volumes:
+      - freelingo-redis:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  freelingo-backend:
+    image: freelingo-backend:home
+    pull_policy: never
+    command: >
+      sh -c "cd /tmp && PYTHONPATH=/app alembic -c /app/alembic.ini upgrade head && cd /app && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+    volumes:
+      - "{{ service_mounts.config }}/freelingo/avatars:/app/avatars"
+      - "{{ service_mounts.config }}/freelingo/audio:/data/audio"
+      - "{{ service_mounts.config }}/freelingo/tts_previews:/app/tts_previews"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://freelingo:{{ lookup('community.general.onepassword', 'FREELINGO_DB_PASSWORD', vault='Infrastructure', field='password') }}@freelingo-postgres:5432/freelingo"
+      REDIS_URL: "redis://:{{ lookup('community.general.onepassword', 'FREELINGO_REDIS_PASSWORD', vault='Infrastructure', field='password') }}@freelingo-redis:6379/0"
+      SECRET_KEY: "{{ lookup('community.general.onepassword', 'FREELINGO_SECRET_KEY', vault='Infrastructure', field='password') }}"
+      LLM_PROVIDER: ollama
+      # The speech gateway's POST /v1/chat/completions (the backend appends /v1) routes to the
+      # LLM tier live on ai-vm and rewrites "model", so OLLAMA_MODEL is only a placeholder.
+      OLLAMA_BASE_URL: http://ai-vm.edholm.cc:8090
+      OLLAMA_MODEL: qwen3.8-27b
+      TTS_PROVIDER: local
+      TTS_BASE_URL: http://ai-vm.edholm.cc:8090
+      STT_PROVIDER: local
+      STT_BASE_URL: http://ai-vm.edholm.cc:8090
+      STRIPE_ENABLED: "false"
+      EMAIL_ENABLED: "false"
+      COOKIE_SECURE: "true"
+      # Serve games from the pre-generated home stock (needs LLM_PROVIDER ollama).
+      HOME_GAME_STOCK: "true"
+      DEFAULT_CONVERSATION_DAILY_MINUTES: "0"
+      DEFAULT_CONVERSATION_WEEKLY_MINUTES: "0"
+      DEFAULT_CONVERSATION_WEEKLY_SESSIONS: "0"
+      DEFAULT_MONTHLY_TOKENS_LIMIT: "0"
+      AVAILABLE_TARGET_LANGUAGES: '["en-GB","es-ES"]'
+      CORS_ORIGINS: '["https://freelingo.edholm.cc"]'
+      APP_BASE_URL: https://freelingo.edholm.cc
+      STRIPE_BASE_URL: https://freelingo.edholm.cc
+      # Set to "false" once the owner's and the kids' accounts exist.
+      ALLOW_REGISTRATION: "true"
+      FIRST_USER_IS_ADMIN: "true"
+      UVICORN_WORKERS: "2"
+    depends_on:
+      freelingo-postgres:
+        condition: service_healthy
+      freelingo-redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      default:
+        # The frontend image bakes /api rewrites to http://backend:8000 at `next build`.
+        aliases:
+          - backend
+
+  freelingo-frontend:
+    image: freelingo-frontend:home
+    pull_policy: never
+    environment:
+      BACKEND_URL: http://freelingo-backend:8000
+    depends_on:
+      - freelingo-backend
+    restart: unless-stopped
+
+  freelingo-proxy:
+    image: caddy:2-alpine
+    configs:
+      - source: freelingo_caddyfile
+        target: /etc/caddy/Caddyfile
+    ports:
+      - 8080:8080 # caddy:expose=freelingo
+    depends_on:
+      - freelingo-frontend
+      - freelingo-backend
+    restart: unless-stopped
+
+configs:
+  freelingo_caddyfile:
+    content: |
+      {
+        auto_https off
+        admin off
+      }
+      :8080 {
+        handle /ws/* {
+          reverse_proxy freelingo-backend:8000
+        }
+        handle {
+          reverse_proxy freelingo-frontend:3000
+        }
+      }
+
+volumes:
+  freelingo-redis:

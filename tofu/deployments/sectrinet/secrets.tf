@@ -5,9 +5,12 @@ module "proxmox_secrets" {
     onepassword = onepassword
   }
 
-  account = "Our Family"
-  vault   = "baozswa7ic2qo6pzytnuwiqmly" # Update if "Proxmox Patrik" is in a different vault
-  item    = "Proxmox Patrik"
+  # One Proxmox API per deployment: currently the home NAS, shared with edholm.
+  # A rebuilt jupiter needs its own login back here (account "Our Family",
+  # vault baozswa7ic2qo6pzytnuwiqmly, item "Proxmox Patrik") or a second provider.
+  account = "NYDLBZ4TCZARLJQURRIVNK3RZM"
+  vault   = "f4h63aecdn7rpzx4sbzyw35jee"
+  item    = "Proxmox"
 }
 
 # NOTE: Per-VM admin credentials are intentionally NOT fetched from 1Password

@@ -6,7 +6,7 @@ Requires=docker.service
 # Ollama and NInfer cannot share the 24 GiB slice — Ollama holds ~19.1 GiB at
 # its 128K window and NInfer ~20.0 GiB. Whichever starts second dies on an
 # allocation error, so make the exclusion explicit rather than accidental.
-Conflicts=ollama.service comfyui.service
+Conflicts=ollama.service comfyui.service ninfer-speech.service
 
 [Service]
 # --rm plus an explicit ExecStartPre: if the unit is killed uncleanly the

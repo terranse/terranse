@@ -1,0 +1,12 @@
+# Managed by Ansible (terranse llm role) — DO NOT EDIT.
+[Unit]
+Description=Switch ninfer between full and speech mode
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+Environment=SPEECH_GATEWAY_STATE_DIR={{ llm_speech_gateway_state_dir }}
+ExecStart=/usr/local/bin/ninfer-mode
+# Waits for ninfer's health check after a switch (up to 300s, twice on rollback).
+TimeoutStartSec=900
