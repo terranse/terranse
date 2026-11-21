@@ -79,6 +79,17 @@ bindsym Mod4+Shift+e exit
 bindsym Mod4+f fullscreen toggle
 bindsym Mod4+Tab focus next
 
+# Keyboard: US and Swedish, Meta+Space switches between them. Sunshine types
+# the Moonlight client's keys through a uinput keyboard, which sway counts as
+# one of its keyboards, so this applies to the streamed keyboard too; gamescope,
+# nested in sway, takes its keymap from here. Moonlight on the TV captures
+# system keys while fullscreen, so Meta+Space reaches this session rather
+# than the TV's own desktop.
+input type:keyboard {
+    xkb_layout us,se
+    xkb_options grp:win_space_toggle
+}
+
 # Gaming-focused settings
 focus_follows_mouse no
 mouse_warping none
