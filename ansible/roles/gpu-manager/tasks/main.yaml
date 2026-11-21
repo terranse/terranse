@@ -15,6 +15,23 @@
     - /usr/local/bin
     - /var/lib/gpu-manager
     - /etc/gpu-manager
+    - /etc/systemd/system/qemu.slice.d
+
+# VMs before containers when both want the CPU. The host weighs qemu.slice
+# against lxc first, and both sit at systemd's default 100, so a VM's own
+# cpuunits only count against other VMs. On 2026-11-21 Rust CI builds in the
+# gitlab-runner LXC stalled the whole gaming VM for 20-60 ms every few seconds
+# (audio dropouts on every stream, small video hitches). Weight only matters
+# under contention: CI keeps every core while no VM is busy.
+- name: Give VMs CPU priority over containers
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/qemu.slice.d/50-cpu-weight.conf
+    content: |
+      # Managed by Ansible (gpu-manager role).
+      [Slice]
+      CPUWeight={{ gpu_manager_vm_cpu_weight }}
+    mode: '0644'
+  notify: Reload systemd
 
 # =============================================================================
 # gpu-manager daemon

@@ -44,3 +44,8 @@ gpu_manager_profiles:
   Q-8C: {vram_mb: 8192, max_instances: 3, mdev_type: nvidia-664}
   Q-12C: {vram_mb: 12288, max_instances: 2, mdev_type: nvidia-665}
   Q-24C: {vram_mb: 24576, max_instances: 1, mdev_type: nvidia-666}
+
+# CPU weight of qemu.slice (every VM) against the containers' lxc slice, which
+# stays at systemd's default 100. 10:1 keeps a game streaming smoothly while CI
+# builds run; see "Give VMs CPU priority over containers" in tasks/main.yaml.
+gpu_manager_vm_cpu_weight: 1000
