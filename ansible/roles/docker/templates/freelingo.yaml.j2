@@ -72,6 +72,8 @@ services:
       STRIPE_ENABLED: "false"
       EMAIL_ENABLED: "false"
       COOKIE_SECURE: "true"
+      # Serve games from the pre-generated home stock (needs LLM_PROVIDER ollama).
+      HOME_GAME_STOCK: "true"
       DEFAULT_CONVERSATION_DAILY_MINUTES: "0"
       DEFAULT_CONVERSATION_WEEKLY_MINUTES: "0"
       DEFAULT_CONVERSATION_WEEKLY_SESSIONS: "0"
