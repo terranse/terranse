@@ -46,6 +46,12 @@ BindsTo=sway-gaming.service
 
 [Service]
 Type=simple
+# gamescope builds its own keymap from these and ignores the one sway hands it
+# (verified 2026-11-22 on 3.16.20: with only sway's `input` block, its
+# Xwayland displays stay plain US). Kept the same as sway's keyboard block:
+# US and Swedish, Meta+Space to switch.
+Environment=XKB_DEFAULT_LAYOUT=us,se
+Environment=XKB_DEFAULT_OPTIONS=grp:win_space_toggle
 # gamescope gives its children an X11 display (:1). If Steam can still see the parent
 # compositor's Wayland socket it connects THERE, bypassing gamescope entirely and
 # landing straight back in sway's lap — so scrub WAYLAND_DISPLAY for the child only.
