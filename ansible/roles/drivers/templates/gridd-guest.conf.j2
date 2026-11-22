@@ -20,3 +20,8 @@ LogLevel=3
 
 # Heartbeat configuration
 LicenseInterval=600
+
+# No licensing tray UI: the guest has no desktop for it. The live guest has
+# carried this line since its first install (it is rewritten at boot when
+# nvidia-gridd starts), so it is kept here to match what has been working.
+EnableUI=FALSE
