@@ -492,11 +492,11 @@ class TestGitlabRunnerCachePrune:
         for cmd in self._exec_starts(jinja_env):
             assert self.RUNNER_LABEL in cmd, f"unscoped prune: {cmd}"
 
-    def test_runs_every_three_days_by_default(self, jinja_env):
+    def test_runs_twice_a_day_by_default(self, jinja_env):
         rendered = jinja_env.get_template(
             "gitlab-runner-cache-prune.timer.j2"
         ).render()
-        assert "OnCalendar=*-*-1/3 00:00:00" in rendered, rendered
+        assert "OnCalendar=*-*-* 00/12:00:00" in rendered, rendered
 
     def test_schedule_stays_overridable(self, jinja_env):
         rendered = jinja_env.get_template(
